@@ -1,0 +1,8 @@
+**/.git
+**/.vs
+**/bin
+**/obj
+**/.env
+**/*.user
+**/Thumbs.db
+**/.DS_Store

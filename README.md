@@ -5,6 +5,29 @@ ASP.NET Core minimal API (.NET 9) for the VibeTrade backend.
 ## Prerequisites
 
 - [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) installed (`dotnet --version` should report 9.x).
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or another Docker engine) if you use the included **PostgreSQL** container.
+
+## Docker (API + PostgreSQL)
+
+1. Copy **`.env.example`** to **`.env`** and set a strong **`POSTGRES_PASSWORD`** (the repo’s **`.env`** is gitignored). Compose injects these values into the **API** container; the image does not embed secrets.
+
+2. Build and start **PostgreSQL** and the **API**:
+
+   ```powershell
+   docker compose up -d --build
+   ```
+
+   The API listens on **http://localhost:5110** (override host port with **`API_HTTP_PORT`** in `.env` if needed). Inside the stack, the API uses **`POSTGRES_HOST=postgres`** to reach the database.
+
+   Both services use **`restart: unless-stopped`**, so when Docker starts they come back automatically. The API runs **EF Core migrations on each startup** (with short retries if PostgreSQL is not ready yet).
+
+3. Optional: apply migrations from your machine (without starting the API), e.g. Postgres is up in Docker:
+
+   ```powershell
+   dotnet ef database update --project VibeTrade.Backend.csproj
+   ```
+
+**Database only** (run the API on the host with `dotnet run`): `docker compose up -d postgres`.
 
 ## Start the project
 
