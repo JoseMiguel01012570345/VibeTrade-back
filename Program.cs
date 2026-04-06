@@ -1,8 +1,14 @@
+using System.Reflection;
 using DotNetEnv;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Models;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Bootstrap;
+using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Api.Swagger;
 using VibeTrade.Backend.Infrastructure;
-
+using VibeTrade.Backend.Utils.TimeZone;
 void TryLoadEnv(string path)
 {
     if (File.Exists(path))
@@ -17,6 +23,42 @@ TryLoadEnv(Path.Combine(builder.Environment.ContentRootPath, ".env"));
 var connectionString = PostgresConfiguration.BuildConnectionString();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
+
+builder.Services.AddScoped<RequestTimeZoneContext>();
+builder.Services.AddSingleton<IMarketWorkspaceIntegrity, MarketWorkspaceIntegrity>();
+builder.Services.AddScoped<IMarketWorkspaceRepository, MarketWorkspaceRepository>();
+builder.Services.AddScoped<IMarketWorkspaceService, MarketWorkspaceService>();
+builder.Services.AddScoped<IBootstrapService, BootstrapService>();
+
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase);
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(o =>
+{
+    o.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "VibeTrade API",
+        Version = "v1",
+        Description =
+            "REST API for the VibeTrade web client. "
+            + "Send the **X-Timezone** header (IANA id, e.g. `America/Argentina/Buenos_Aires`) on requests so the server can interpret dates in UTC (flow-ui). "
+            + "Health: `GET /health` (JSON; 503 si la base u otra dependencia falla). "
+            + "Swagger UI: **http://localhost:5110/swagger** o **http://127.0.0.1:5110/swagger** (puerto 5110 = solo HTTP).",
+    });
+    var xml = Path.Combine(AppContext.BaseDirectory, $"{Assembly.GetExecutingAssembly().GetName().Name}.xml");
+    if (File.Exists(xml))
+        o.IncludeXmlComments(xml, includeControllerXmlComments: true);
+    o.OperationFilter<XTimezoneHeaderOperationFilter>();
+});
+
+builder.Services.AddCors(o =>
+{
+    o.AddPolicy("Dev", p =>
+        p.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod());
+});
 
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<AppDbContext>();
@@ -50,48 +92,29 @@ if (migrateError is not null)
         $"Database migration failed after {migrateMaxAttempts} attempts. Is PostgreSQL running and reachable?",
         migrateError);
 
-app.UseHttpsRedirection();
-
-app.MapHealthChecks("/health");
-
-app.MapGet("/weatherforecast", (AppDbContext db) =>
+// Carga en BD el workspace desde Mocks/market-workspace.json si la tabla está vacía.
+await using (var seedScope = app.Services.CreateAsyncScope())
 {
-    return db.WeatherForecasts
-        .Select(p => new WeatherForecast(
-            DateOnly.FromDateTime(p.Date),
-            (int)p.TemperatureC,
-            "N/A"
-        ))
-        .ToArray();
-});
-
-async Task<IResult> AddRandomWeatherForecast(AppDbContext db)
-{
-    var rng = Random.Shared;
-    var date = DateTime.UtcNow.AddDays(rng.Next(-10, 11));
-    var tempC = rng.Next(-20, 40);
-    var tempF = 32 + (int)(tempC / 0.5556m);
-
-    var row = new WeatherForecastRow
-    {
-        Date = date,
-        TemperatureC = tempC,
-        TemperatureF = tempF
-    };
-
-    db.WeatherForecasts.Add(row);
-    await db.SaveChangesAsync();
-
-    return Results.Created($"/weatherforecast/{row.Id}", row);
+    var marketSeed = seedScope.ServiceProvider.GetRequiredService<IMarketWorkspaceService>();
+    await marketSeed.GetOrSeedAsync();
 }
 
-// GET for browser address bar; POST for clients (e.g. fetch).
-app.MapMethods("/weatherforecast/add-random", new[] { "GET", "POST" }, AddRandomWeatherForecast);
+app.UseCors("Dev");
 
+// Swagger: por defecto activo (evita 404 si ASPNETCORE_ENVIRONMENT no es Development).
+// Desactivar en producción con Swagger:Enabled=false o appsettings.Production.json.
+if (app.Configuration.GetValue("Swagger:Enabled", true))
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "VibeTrade API v1");
+        c.DocumentTitle = "VibeTrade API";
+        c.RoutePrefix = "swagger";
+    });
+}
+
+app.UseMiddleware<TimeZoneHeaderMiddleware>();
+app.MapControllers();
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
