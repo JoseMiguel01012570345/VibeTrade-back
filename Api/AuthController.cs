@@ -105,9 +105,22 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
         if (result is null)
             return Unauthorized();
         await userAccountSync.UpsertFromSessionUserAsync(result.User, cancellationToken);
-        return Ok(new VerifyResponse(result.SessionToken, result.User));
-    }
 
+        // La sesión nueva nace solo con el usuario ad-hoc; fusionar BD (avatar, nombre, email, redes)
+        // para que tras cerrar sesión y volver a entrar el cliente reciba el mismo perfil que GET session.
+        JsonElement userOut = result.User;
+        if (result.User.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+        {
+            var id = idEl.GetString()!;
+            var snapshot = await userAccountSync.GetProfileSnapshotAsync(id, cancellationToken);
+            if (snapshot is not null &&
+                auth.TrySyncSessionFromSnapshot("Bearer " + result.SessionToken, snapshot, out var merged))
+                userOut = merged;
+        }
+
+        return Ok(new VerifyResponse(result.SessionToken, userOut));
+    }
+    
     /// <summary>Devuelve el perfil asociado al token actual.</summary>
     [HttpGet("session")]
     [ProducesResponseType(typeof(SessionResponse), StatusCodes.Status200OK)]
