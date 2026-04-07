@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Market;
 
@@ -10,6 +11,7 @@ namespace VibeTrade.Backend.Api;
 [Produces("application/json")]
 public sealed class MarketController(IMarketWorkspaceService marketWorkspace) : ControllerBase
 {
+    public sealed record StoreDetailBody(string? ViewerUserId, string? ViewerRole);
     /// <summary>Obtiene el snapshot actual del mercado; si la base está vacía, aplica seed embebido.</summary>
     [HttpGet("workspace")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -33,5 +35,33 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace) : 
     {
         await marketWorkspace.SaveAsync(body, cancellationToken);
         return Ok();
+    }
+
+    /// <summary>
+    /// Detalle de tienda + catálogo (carga bajo demanda). El cuerpo identifica al visitante para futura personalización.
+    /// </summary>
+    [HttpPost("stores/{storeId}/detail")]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostStoreDetail(
+        string storeId,
+        [FromBody] StoreDetailBody? body,
+        CancellationToken cancellationToken)
+    {
+        using var doc = await marketWorkspace.GetStoreDetailAsync(storeId, cancellationToken);
+        if (doc is null)
+            return NotFound();
+        var root = JsonNode.Parse(doc.RootElement.GetRawText())!.AsObject();
+        if (body is not null && (body.ViewerUserId is not null || body.ViewerRole is not null))
+        {
+            root["viewer"] = new JsonObject
+            {
+                ["userId"] = body.ViewerUserId is null ? null : JsonValue.Create(body.ViewerUserId),
+                ["role"] = body.ViewerRole is null ? null : JsonValue.Create(body.ViewerRole),
+            };
+        }
+
+        return Content(root.ToJsonString(), "application/json");
     }
 }

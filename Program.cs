@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Bootstrap;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Api.Swagger;
@@ -29,6 +30,7 @@ builder.Services.AddSingleton<IMarketWorkspaceIntegrity, MarketWorkspaceIntegrit
 builder.Services.AddScoped<IMarketWorkspaceRepository, MarketWorkspaceRepository>();
 builder.Services.AddScoped<IMarketWorkspaceService, MarketWorkspaceService>();
 builder.Services.AddScoped<IBootstrapService, BootstrapService>();
+builder.Services.AddSingleton<IAuthService, AuthService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase);
@@ -92,7 +94,7 @@ if (migrateError is not null)
         $"Database migration failed after {migrateMaxAttempts} attempts. Is PostgreSQL running and reachable?",
         migrateError);
 
-// Carga en BD el workspace desde Mocks/market-workspace.json si la tabla está vacía.
+// Si la tabla de workspace está vacía, se inserta un mercado vacío válido.
 await using (var seedScope = app.Services.CreateAsyncScope())
 {
     var marketSeed = seedScope.ServiceProvider.GetRequiredService<IMarketWorkspaceService>();
