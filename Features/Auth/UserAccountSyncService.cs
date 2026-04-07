@@ -73,6 +73,74 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task PatchProfileAsync(
+        string userId,
+        string? displayName,
+        string? email,
+        string? instagram,
+        string? telegram,
+        string? xAccount,
+        string? avatarUrl,
+        CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var row = await db.UserAccounts.FindAsync([userId], cancellationToken);
+        if (row is null)
+        {
+            row = new UserAccount
+            {
+                Id = userId,
+                CreatedAt = now,
+                DisplayName = displayName ?? "",
+            };
+            if (email is not null)
+                row.Email = string.IsNullOrWhiteSpace(email) ? null : email;
+            if (instagram is not null)
+                row.Instagram = string.IsNullOrWhiteSpace(instagram) ? null : instagram;
+            if (telegram is not null)
+                row.Telegram = string.IsNullOrWhiteSpace(telegram) ? null : telegram;
+            if (xAccount is not null)
+                row.XAccount = string.IsNullOrWhiteSpace(xAccount) ? null : xAccount;
+            if (avatarUrl is not null)
+                row.AvatarUrl = string.IsNullOrWhiteSpace(avatarUrl) ? null : avatarUrl;
+            row.UpdatedAt = now;
+            db.UserAccounts.Add(row);
+        }
+        else
+        {
+            if (displayName is not null)
+                row.DisplayName = displayName;
+            if (email is not null)
+                row.Email = string.IsNullOrWhiteSpace(email) ? null : email;
+            if (instagram is not null)
+                row.Instagram = string.IsNullOrWhiteSpace(instagram) ? null : instagram;
+            if (telegram is not null)
+                row.Telegram = string.IsNullOrWhiteSpace(telegram) ? null : telegram;
+            if (xAccount is not null)
+                row.XAccount = string.IsNullOrWhiteSpace(xAccount) ? null : xAccount;
+            if (avatarUrl is not null)
+                row.AvatarUrl = string.IsNullOrWhiteSpace(avatarUrl) ? null : avatarUrl;
+            row.UpdatedAt = now;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<UserProfileSnapshot?> GetProfileSnapshotAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        var row = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
+        if (row is null)
+            return null;
+        return new UserProfileSnapshot(
+            row.DisplayName,
+            row.Email,
+            row.AvatarUrl,
+            row.Instagram,
+            row.Telegram,
+            row.XAccount);
+    }
+
     public async Task<string?> GetAvatarUrlAsync(string userId, CancellationToken cancellationToken = default)
     {
         var url = await db.UserAccounts.AsNoTracking()

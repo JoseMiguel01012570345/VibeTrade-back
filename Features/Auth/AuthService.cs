@@ -85,7 +85,18 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         return _sessions.TryRemove(token, out _);
     }
 
-    public bool TrySetAvatarUrl(string? bearerToken, string avatarUrl, out JsonElement updatedUser)
+    public bool TrySetAvatarUrl(string? bearerToken, string avatarUrl, out JsonElement updatedUser) =>
+        TryPatchUserProfile(bearerToken, null, null, null, null, null, avatarUrl, out updatedUser);
+
+    public bool TryPatchUserProfile(
+        string? bearerToken,
+        string? name,
+        string? email,
+        string? instagram,
+        string? telegram,
+        string? xAccount,
+        string? avatarUrl,
+        out JsonElement updatedUser)
     {
         updatedUser = default;
         var token = ParseBearer(bearerToken);
@@ -98,7 +109,45 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         }
 
         var root = JsonNode.Parse(entry.User.GetRawText())!.AsObject();
-        root["avatarUrl"] = avatarUrl;
+        if (name is not null)
+            root["name"] = name;
+        if (email is not null)
+            root["email"] = string.IsNullOrEmpty(email) ? null : email;
+        if (instagram is not null)
+            root["instagram"] = string.IsNullOrEmpty(instagram) ? null : instagram;
+        if (telegram is not null)
+            root["telegram"] = string.IsNullOrEmpty(telegram) ? null : telegram;
+        if (xAccount is not null)
+            root["xAccount"] = string.IsNullOrEmpty(xAccount) ? null : xAccount;
+        if (avatarUrl is not null)
+            root["avatarUrl"] = string.IsNullOrEmpty(avatarUrl) ? null : avatarUrl;
+
+        using var doc = JsonDocument.Parse(root.ToJsonString());
+        updatedUser = doc.RootElement.Clone();
+        _sessions[token] = new SessionEntry(updatedUser, entry.Expires);
+        return true;
+    }
+
+    public bool TrySyncSessionFromSnapshot(string? bearerToken, UserProfileSnapshot snapshot, out JsonElement updatedUser)
+    {
+        updatedUser = default;
+        var token = ParseBearer(bearerToken);
+        if (string.IsNullOrEmpty(token))
+            return false;
+        if (!_sessions.TryGetValue(token, out var entry) || DateTimeOffset.UtcNow > entry.Expires)
+        {
+            _sessions.TryRemove(token, out _);
+            return false;
+        }
+
+        var root = JsonNode.Parse(entry.User.GetRawText())!.AsObject();
+        root["name"] = snapshot.DisplayName;
+        root["email"] = snapshot.Email is { } e ? e : null;
+        root["instagram"] = snapshot.Instagram is { } i ? i : null;
+        root["telegram"] = snapshot.Telegram is { } t ? t : null;
+        root["xAccount"] = snapshot.XAccount is { } x ? x : null;
+        root["avatarUrl"] = snapshot.AvatarUrl is { } a ? a : null;
+
         using var doc = JsonDocument.Parse(root.ToJsonString());
         updatedUser = doc.RootElement.Clone();
         _sessions[token] = new SessionEntry(updatedUser, entry.Expires);

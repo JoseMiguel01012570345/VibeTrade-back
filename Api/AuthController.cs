@@ -20,7 +20,13 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
 
     public sealed record SessionResponse(JsonElement User);
 
-    public sealed record PatchProfileBody(string AvatarUrl);
+    public sealed record PatchProfileBody(
+        string? Name,
+        string? Email,
+        string? Instagram,
+        string? Telegram,
+        string? XAccount,
+        string? AvatarUrl);
 
     /// <summary>Actualiza campos del perfil persistidos (avatar referenciando <c>/api/v1/media/…</c>).</summary>
     [HttpPatch("profile")]
@@ -34,19 +40,45 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
     {
         if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
             return Unauthorized();
-        if (string.IsNullOrWhiteSpace(body.AvatarUrl))
-            return BadRequest("AvatarUrl requerido.");
+        if (body is null)
+            return BadRequest();
 
-        var url = body.AvatarUrl.Trim();
-        if (!url.StartsWith("/api/v1/media/", StringComparison.Ordinal))
-            return BadRequest("AvatarUrl debe ser /api/v1/media/{id}.");
+        var hasAny =
+            body.Name is not null
+            || body.Email is not null
+            || body.Instagram is not null
+            || body.Telegram is not null
+            || body.XAccount is not null
+            || body.AvatarUrl is not null;
+        if (!hasAny)
+            return BadRequest("Indicá al menos un campo.");
+
+        if (!string.IsNullOrWhiteSpace(body.AvatarUrl))
+        {
+            var url = body.AvatarUrl.Trim();
+            if (!url.StartsWith("/api/v1/media/", StringComparison.Ordinal))
+                return BadRequest("AvatarUrl debe ser /api/v1/media/{id}.");
+        }
 
         if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
             return BadRequest("Sesión sin id de usuario.");
         var userId = idEl.GetString()!;
 
-        await userAccountSync.SetAvatarUrlAsync(userId, url, cancellationToken);
-        if (!auth.TrySetAvatarUrl(Request.Headers.Authorization, url, out var updated))
+        await userAccountSync.PatchProfileAsync(
+            userId,
+            body.Name?.Trim(),
+            body.Email?.Trim(),
+            body.Instagram?.Trim(),
+            body.Telegram?.Trim(),
+            body.XAccount?.Trim(),
+            body.AvatarUrl?.Trim(),
+            cancellationToken);
+
+        var snapshot = await userAccountSync.GetProfileSnapshotAsync(userId, cancellationToken);
+        if (snapshot is null)
+            return BadRequest("No se pudo leer el perfil persistido.");
+
+        if (!auth.TrySyncSessionFromSnapshot(Request.Headers.Authorization, snapshot, out var updated))
             return Unauthorized();
 
         return Ok(new SessionResponse(updated));
@@ -88,9 +120,9 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
         if (user.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
         {
             var id = idEl.GetString()!;
-            var dbAvatar = await userAccountSync.GetAvatarUrlAsync(id, cancellationToken);
-            if (!string.IsNullOrEmpty(dbAvatar) &&
-                auth.TrySetAvatarUrl(Request.Headers.Authorization, dbAvatar, out var merged))
+            var snapshot = await userAccountSync.GetProfileSnapshotAsync(id, cancellationToken);
+            if (snapshot is not null &&
+                auth.TrySyncSessionFromSnapshot(Request.Headers.Authorization, snapshot, out var merged))
                 user = merged;
         }
 

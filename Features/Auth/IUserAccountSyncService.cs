@@ -10,4 +10,18 @@ public interface IUserAccountSyncService
     Task SetAvatarUrlAsync(string userId, string avatarUrl, CancellationToken cancellationToken = default);
 
     Task<string?> GetAvatarUrlAsync(string userId, CancellationToken cancellationToken = default);
+
+    /// <summary>Actualiza campos de perfil persistidos; solo modifica propiedades no nulas.</summary>
+    Task PatchProfileAsync(
+        string userId,
+        string? displayName,
+        string? email,
+        string? instagram,
+        string? telegram,
+        string? xAccount,
+        string? avatarUrl,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Lee perfil persistido para fusionar en <c>GET session</c>.</summary>
+    Task<UserProfileSnapshot?> GetProfileSnapshotAsync(string userId, CancellationToken cancellationToken = default);
 }
