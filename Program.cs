@@ -28,8 +28,10 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<RequestTimeZoneContext>();
 builder.Services.AddSingleton<IMarketWorkspaceIntegrity, MarketWorkspaceIntegrity>();
 builder.Services.AddScoped<IMarketWorkspaceRepository, MarketWorkspaceRepository>();
+builder.Services.AddScoped<IMarketCatalogSyncService, MarketCatalogSyncService>();
 builder.Services.AddScoped<IMarketWorkspaceService, MarketWorkspaceService>();
 builder.Services.AddScoped<IBootstrapService, BootstrapService>();
+builder.Services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
 builder.Services.AddSingleton<IAuthService, AuthService>();
 
 builder.Services.AddControllers()
@@ -67,6 +69,8 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
+
+// Migrations
 const int migrateMaxAttempts = 15;
 var migrateDelay = TimeSpan.FromSeconds(2);
 Exception? migrateError = null;
@@ -94,12 +98,6 @@ if (migrateError is not null)
         $"Database migration failed after {migrateMaxAttempts} attempts. Is PostgreSQL running and reachable?",
         migrateError);
 
-// Si la tabla de workspace está vacía, se inserta un mercado vacío válido.
-await using (var seedScope = app.Services.CreateAsyncScope())
-{
-    var marketSeed = seedScope.ServiceProvider.GetRequiredService<IMarketWorkspaceService>();
-    await marketSeed.GetOrSeedAsync();
-}
 
 app.UseCors("Dev");
 

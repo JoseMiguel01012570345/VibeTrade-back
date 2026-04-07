@@ -6,7 +6,8 @@ namespace VibeTrade.Backend.Features.Market;
 
 public sealed class MarketWorkspaceService(
     IMarketWorkspaceRepository repository,
-    IMarketWorkspaceIntegrity integrity) : IMarketWorkspaceService
+    IMarketWorkspaceIntegrity integrity,
+    IMarketCatalogSyncService catalog) : IMarketWorkspaceService
 {
     /// <summary>Workspace mínimo válido cuando la tabla está vacía (sin archivos externos).</summary>
     private const string EmptyWorkspaceJson =
@@ -15,33 +16,57 @@ public sealed class MarketWorkspaceService(
     public async Task<JsonDocument> GetOrSeedAsync(CancellationToken cancellationToken = default)
     {
         var existing = await repository.GetAsync(cancellationToken);
-        if (existing is not null) return existing;
+        if (existing is null)
+        {
+            var seed = JsonDocument.Parse(EmptyWorkspaceJson);
+            integrity.ValidateOrThrow(seed);
+            await repository.SaveAsync(seed, cancellationToken);
+            seed.Dispose();
+            existing = await repository.GetAsync(cancellationToken);
+        }
 
-        var seed = JsonDocument.Parse(EmptyWorkspaceJson);
-        integrity.ValidateOrThrow(seed);
-        await repository.SaveAsync(seed, cancellationToken);
-        return seed;
+        if (existing is null)
+            throw new InvalidOperationException("Market workspace row is missing after seed.");
+
+        var root = JsonNode.Parse(existing.RootElement.GetRawText())!.AsObject();
+        existing.Dispose();
+
+        root["stores"] = await catalog.BuildStoresJsonObjectAsync(cancellationToken);
+        root["storeCatalogs"] = await catalog.BuildStoreCatalogsJsonObjectAsync(cancellationToken);
+
+        return JsonDocument.Parse(root.ToJsonString());
     }
 
     public async Task SaveAsync(JsonDocument document, CancellationToken cancellationToken = default)
     {
         var existing = await repository.GetAsync(cancellationToken);
-        JsonDocument toSave;
+        JsonDocument merged;
+        var ownsMerged = false;
         if (existing is null)
         {
-            toSave = document;
+            merged = document;
         }
         else
         {
-            toSave = MergeStoreCatalogsPreserve(existing, document);
-            if (!ReferenceEquals(toSave, document))
+            merged = MergeStoreCatalogsPreserve(existing, document);
+            ownsMerged = !ReferenceEquals(merged, document);
+            if (ownsMerged)
                 document.Dispose();
+            existing.Dispose();
         }
 
-        integrity.ValidateOrThrow(toSave);
-        await repository.SaveAsync(toSave, cancellationToken);
-        if (!ReferenceEquals(toSave, document))
-            toSave.Dispose();
+        await catalog.ApplyStoresAndCatalogsFromWorkspaceAsync(merged.RootElement, cancellationToken);
+
+        var slimRoot = JsonNode.Parse(merged.RootElement.GetRawText())!.AsObject();
+        slimRoot["stores"] = new JsonObject();
+        slimRoot["storeCatalogs"] = new JsonObject();
+
+        if (ownsMerged)
+            merged.Dispose();
+
+        using var slimDoc = JsonDocument.Parse(slimRoot.ToJsonString());
+        integrity.ValidateOrThrow(slimDoc);
+        await repository.SaveAsync(slimDoc, cancellationToken);
     }
 
     /// <summary>
@@ -64,26 +89,6 @@ public sealed class MarketWorkspaceService(
         return JsonDocument.Parse(inRoot.ToJsonString());
     }
 
-    public async Task<JsonDocument?> GetStoreDetailAsync(string storeId, CancellationToken cancellationToken = default)
-    {
-        using var doc = await GetOrSeedAsync(cancellationToken);
-        var root = doc.RootElement;
-        if (!root.GetProperty("stores").TryGetProperty(storeId, out var storeEl))
-            return null;
-
-        JsonElement catalogEl;
-        if (root.GetProperty("storeCatalogs").TryGetProperty(storeId, out var cat))
-            catalogEl = cat;
-        else
-            catalogEl = JsonSerializer.SerializeToElement(new
-            {
-                pitch = "",
-                joinedAt = 0L,
-                products = Array.Empty<object>(),
-                services = Array.Empty<object>(),
-            });
-
-        var json = $"{{\"store\":{storeEl.GetRawText()},\"catalog\":{catalogEl.GetRawText()}}}";
-        return JsonDocument.Parse(json);
-    }
+    public Task<JsonDocument?> GetStoreDetailAsync(string storeId, CancellationToken cancellationToken = default) =>
+        catalog.GetStoreDetailDocumentAsync(storeId, cancellationToken);
 }

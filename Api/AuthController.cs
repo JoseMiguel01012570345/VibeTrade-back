@@ -8,7 +8,7 @@ namespace VibeTrade.Backend.Api;
 [ApiController]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
-public sealed class AuthController(IAuthService auth) : ControllerBase
+public sealed class AuthController(IAuthService auth, IUserAccountSyncService userAccountSync) : ControllerBase
 {
     public sealed record RequestCodeBody(string Phone);
 
@@ -33,11 +33,14 @@ public sealed class AuthController(IAuthService auth) : ControllerBase
     [HttpPost("verify")]
     [ProducesResponseType(typeof(VerifyResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public ActionResult<VerifyResponse> Verify([FromBody] VerifyBody body)
+    public async Task<ActionResult<VerifyResponse>> Verify(
+        [FromBody] VerifyBody body,
+        CancellationToken cancellationToken)
     {
         var result = auth.Verify(body.Phone, body.Code);
         if (result is null)
             return Unauthorized();
+        await userAccountSync.UpsertFromSessionUserAsync(result.User, cancellationToken);
         return Ok(new VerifyResponse(result.SessionToken, result.User));
     }
 
