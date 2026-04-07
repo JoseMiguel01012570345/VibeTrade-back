@@ -6,4 +6,8 @@ namespace VibeTrade.Backend.Features.Auth;
 public interface IUserAccountSyncService
 {
     Task UpsertFromSessionUserAsync(JsonElement user, CancellationToken cancellationToken = default);
+
+    Task SetAvatarUrlAsync(string userId, string avatarUrl, CancellationToken cancellationToken = default);
+
+    Task<string?> GetAvatarUrlAsync(string userId, CancellationToken cancellationToken = default);
 }

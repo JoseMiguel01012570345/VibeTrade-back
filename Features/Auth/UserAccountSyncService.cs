@@ -63,6 +63,25 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task SetAvatarUrlAsync(string userId, string avatarUrl, CancellationToken cancellationToken = default)
+    {
+        var row = await db.UserAccounts.FindAsync([userId], cancellationToken);
+        if (row is null)
+            return;
+        row.AvatarUrl = avatarUrl;
+        row.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<string?> GetAvatarUrlAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        var url = await db.UserAccounts.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => u.AvatarUrl)
+            .FirstOrDefaultAsync(cancellationToken);
+        return string.IsNullOrWhiteSpace(url) ? null : url;
+    }
+
     private static string? GetString(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
 

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Hosting;
 
 namespace VibeTrade.Backend.Features.Auth;
@@ -82,6 +83,26 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         if (string.IsNullOrEmpty(token))
             return false;
         return _sessions.TryRemove(token, out _);
+    }
+
+    public bool TrySetAvatarUrl(string? bearerToken, string avatarUrl, out JsonElement updatedUser)
+    {
+        updatedUser = default;
+        var token = ParseBearer(bearerToken);
+        if (string.IsNullOrEmpty(token))
+            return false;
+        if (!_sessions.TryGetValue(token, out var entry) || DateTimeOffset.UtcNow > entry.Expires)
+        {
+            _sessions.TryRemove(token, out _);
+            return false;
+        }
+
+        var root = JsonNode.Parse(entry.User.GetRawText())!.AsObject();
+        root["avatarUrl"] = avatarUrl;
+        using var doc = JsonDocument.Parse(root.ToJsonString());
+        updatedUser = doc.RootElement.Clone();
+        _sessions[token] = new SessionEntry(updatedUser, entry.Expires);
+        return true;
     }
 
     private void PutPending(string phoneDigits, string code, int len)

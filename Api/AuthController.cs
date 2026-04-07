@@ -20,6 +20,38 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
 
     public sealed record SessionResponse(JsonElement User);
 
+    public sealed record PatchProfileBody(string AvatarUrl);
+
+    /// <summary>Actualiza campos del perfil persistidos (avatar referenciando <c>/api/v1/media/…</c>).</summary>
+    [HttpPatch("profile")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(SessionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<SessionResponse>> PatchProfile(
+        [FromBody] PatchProfileBody body,
+        CancellationToken cancellationToken)
+    {
+        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
+            return Unauthorized();
+        if (string.IsNullOrWhiteSpace(body.AvatarUrl))
+            return BadRequest("AvatarUrl requerido.");
+
+        var url = body.AvatarUrl.Trim();
+        if (!url.StartsWith("/api/v1/media/", StringComparison.Ordinal))
+            return BadRequest("AvatarUrl debe ser /api/v1/media/{id}.");
+
+        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
+            return BadRequest("Sesión sin id de usuario.");
+        var userId = idEl.GetString()!;
+
+        await userAccountSync.SetAvatarUrlAsync(userId, url, cancellationToken);
+        if (!auth.TrySetAvatarUrl(Request.Headers.Authorization, url, out var updated))
+            return Unauthorized();
+
+        return Ok(new SessionResponse(updated));
+    }
+
     /// <summary>Pide un código OTP (7 dígitos aleatorios por solicitud).</summary>
     [HttpPost("request-code")]
     [ProducesResponseType(typeof(RequestCodeResponse), StatusCodes.Status200OK)]
@@ -48,10 +80,20 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
     [HttpGet("session")]
     [ProducesResponseType(typeof(SessionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public ActionResult<SessionResponse> GetSession()
+    public async Task<ActionResult<SessionResponse>> GetSession(CancellationToken cancellationToken)
     {
         if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
             return Unauthorized();
+
+        if (user.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+        {
+            var id = idEl.GetString()!;
+            var dbAvatar = await userAccountSync.GetAvatarUrlAsync(id, cancellationToken);
+            if (!string.IsNullOrEmpty(dbAvatar) &&
+                auth.TrySetAvatarUrl(Request.Headers.Authorization, dbAvatar, out var merged))
+                user = merged;
+        }
+
         return Ok(new SessionResponse(user));
     }
 

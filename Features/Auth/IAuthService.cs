@@ -15,4 +15,7 @@ public interface IAuthService
     bool TryGetUserByToken(string? bearerToken, out JsonElement user);
 
     bool RevokeSession(string? bearerToken);
+
+    /// <summary>Actualiza el JSON del usuario en la sesión en memoria (p. ej. avatarUrl).</summary>
+    bool TrySetAvatarUrl(string? bearerToken, string avatarUrl, out JsonElement updatedUser);
 }

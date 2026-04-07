@@ -244,6 +244,37 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("store_services", (string)null);
                 });
 
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoredMediaRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<byte[]>("Bytes")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("stored_media", (string)null);
+                });
+
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserAccount", b =>
                 {
                     b.Property<string>("Id")

@@ -29,6 +29,12 @@ ASP.NET Core minimal API (.NET 9) for the VibeTrade backend.
 
 **Database only** (run the API on the host with `dotnet run`): `docker compose up -d postgres`.
 
+### Persistencia de PostgreSQL (no perder datos al reiniciar Docker)
+
+- Los datos viven en el volumen Docker **nombrado** `vibetrade_pgdata` (definido en `docker-compose.yml`). **Reiniciar** el daemon de Docker o los contenedores (`docker compose restart`, `docker compose up -d`) **no** borra ese volumen.
+- **No** uses `docker compose down -v` ni `docker volume rm` si querés conservar la base: el flag **`-v`** elimina los volúmenes declarados en el compose y con eso se pierde la data.
+- Si antes tenías un volumen con prefijo de proyecto (`mi_carpeta_vibetrade_pgdata`) y al actualizar el compose aparece una BD vacía, es porque ahora el volumen fijo es `vibetrade_pgdata`. Podés migrar datos copiando desde el volumen antiguo o dejando el volumen antiguo montado manualmente; en instalaciones nuevas no hace falta.
+
 ## Start the project
 
 1. Open a terminal and go to the repository root (this folder).

@@ -34,3 +34,5 @@ services:
 
 volumes:
   vibetrade_pgdata:
+    # Sin esto, Compose crea algo como `nombre_carpeta_vibetrade_pgdata` y al mover/renombrar el repo aparece una BD “vacía”.
+    name: vibetrade_pgdata

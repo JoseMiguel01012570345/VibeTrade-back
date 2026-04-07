@@ -27,7 +27,7 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace) : 
     /// <param name="body">JSON con stores, offers, offerIds, storeCatalogs, threads, routeOfferPublic.</param>
     /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpPut("workspace")]
-    [RequestSizeLimit(104_857_600L)] // 100 MiB; alinear con Kestrel en Program.cs
+    [RequestSizeLimit(524_288_000L)] // 500 MiB; alinear con Kestrel en Program.cs
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -51,6 +51,7 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace) : 
         CancellationToken cancellationToken)
     {
         using var doc = await marketWorkspace.GetStoreDetailAsync(storeId, cancellationToken);
+        Console.WriteLine(doc);
         if (doc is null)
             return NotFound();
         var root = JsonNode.Parse(doc.RootElement.GetRawText())!.AsObject();

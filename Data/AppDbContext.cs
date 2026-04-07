@@ -10,6 +10,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<StoreRow> Stores => Set<StoreRow>();
     public DbSet<StoreProductRow> StoreProducts => Set<StoreProductRow>();
     public DbSet<StoreServiceRow> StoreServices => Set<StoreServiceRow>();
+    public DbSet<StoredMediaRow> StoredMedia => Set<StoredMediaRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -88,6 +89,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.GarantiasJson).HasColumnType("jsonb");
             e.Property(x => x.CustomFieldsJson).HasColumnType("jsonb");
             e.HasIndex(x => x.StoreId);
+        });
+
+        modelBuilder.Entity<StoredMediaRow>(e =>
+        {
+            e.ToTable("stored_media");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.MimeType).HasMaxLength(256);
+            e.Property(x => x.FileName).HasMaxLength(512);
+            e.Property(x => x.SizeBytes);
+            e.Property(x => x.Bytes).HasColumnType("bytea");
+            e.Property(x => x.CreatedAt);
         });
     }
 }
