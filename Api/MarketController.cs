@@ -27,6 +27,7 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace) : 
     /// <param name="body">JSON con stores, offers, offerIds, storeCatalogs, threads, routeOfferPublic.</param>
     /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpPut("workspace")]
+    [RequestSizeLimit(104_857_600L)] // 100 MiB; alinear con Kestrel en Program.cs
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

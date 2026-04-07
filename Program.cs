@@ -21,6 +21,13 @@ TryLoadEnv(Path.Combine(Directory.GetCurrentDirectory(), ".env"));
 var builder = WebApplication.CreateBuilder(args);
 TryLoadEnv(Path.Combine(builder.Environment.ContentRootPath, ".env"));
 
+// Workspace JSON con data URLs / base64 puede superar el límite por defecto de Kestrel (~30 MB).
+const long maxRequestBodyBytes = 104_857_600L; // 100 MiB
+builder.WebHost.ConfigureKestrel(o =>
+{
+    o.Limits.MaxRequestBodySize = maxRequestBodyBytes;
+});
+
 var connectionString = PostgresConfiguration.BuildConnectionString();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));

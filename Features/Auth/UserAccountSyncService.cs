@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 
@@ -18,7 +19,15 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
             : null;
         var digits = DigitsOnly(phoneDisplay);
 
+        // Primary key is the session user id. However, our dev auth generates ids in-memory and may change across restarts,
+        // while PhoneDigits is stable and unique. To avoid unique constraint violations, fall back to matching by PhoneDigits.
         var row = await db.UserAccounts.FindAsync([id], cancellationToken);
+        if (row is null && !string.IsNullOrEmpty(digits))
+        {
+            row = await db.UserAccounts
+                .FirstOrDefaultAsync(x => x.PhoneDigits == digits, cancellationToken);
+        }
+
         if (row is null)
         {
             row = new UserAccount
@@ -32,7 +41,17 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
         row.DisplayName = GetString(user, "name") ?? row.DisplayName;
         row.Email = GetString(user, "email") ?? row.Email;
         row.PhoneDisplay = phoneDisplay ?? row.PhoneDisplay;
-        row.PhoneDigits = string.IsNullOrEmpty(digits) ? row.PhoneDigits : digits;
+
+        if (!string.IsNullOrEmpty(digits))
+        {
+            // Only set/update PhoneDigits when it won't collide with another row.
+            var inUseByOther = await db.UserAccounts
+                .AsNoTracking()
+                .AnyAsync(x => x.PhoneDigits == digits && x.Id != row.Id, cancellationToken);
+            if (!inUseByOther)
+                row.PhoneDigits = digits;
+        }
+
         row.AvatarUrl = GetString(user, "avatarUrl") ?? row.AvatarUrl;
         row.Instagram = GetString(user, "instagram") ?? row.Instagram;
         row.Telegram = GetString(user, "telegram") ?? row.Telegram;

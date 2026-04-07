@@ -30,7 +30,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.DisplayName).HasMaxLength(256);
             e.Property(x => x.Email).HasMaxLength(320);
             e.Property(x => x.PhoneDisplay).HasMaxLength(64);
-            e.Property(x => x.AvatarUrl).HasMaxLength(2048);
+            // Can store `data:` URLs (base64), which frequently exceed 2048 chars.
+            e.Property(x => x.AvatarUrl).HasColumnType("text");
             e.Property(x => x.Instagram).HasMaxLength(256);
             e.Property(x => x.Telegram).HasMaxLength(256);
             e.Property(x => x.XAccount).HasMaxLength(256);
@@ -50,7 +51,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Id).HasMaxLength(64);
             e.Property(x => x.OwnerUserId).HasMaxLength(64);
             e.Property(x => x.Name).HasMaxLength(512);
-            e.Property(x => x.AvatarUrl).HasMaxLength(2048);
+            // Can store `data:` URLs (base64), which frequently exceed 2048 chars.
+            e.Property(x => x.AvatarUrl).HasColumnType("text");
             e.Property(x => x.CategoriesJson).HasColumnType("jsonb");
             e.Property(x => x.Pitch);
             e.HasIndex(x => x.OwnerUserId);
