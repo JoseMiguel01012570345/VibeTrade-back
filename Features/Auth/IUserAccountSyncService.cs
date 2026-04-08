@@ -12,6 +12,7 @@ public interface IUserAccountSyncService
     Task<string?> GetAvatarUrlAsync(string userId, CancellationToken cancellationToken = default);
 
     /// <summary>Actualiza campos de perfil persistidos; solo modifica propiedades no nulas.</summary>
+    /// <param name="phoneDigitsForLookup">Si no hay fila con <paramref name="userId"/>, busca por <c>PhoneDigits</c> (misma lógica que el upsert de login).</param>
     Task PatchProfileAsync(
         string userId,
         string? displayName,
@@ -20,10 +21,12 @@ public interface IUserAccountSyncService
         string? telegram,
         string? xAccount,
         string? avatarUrl,
+        string? phoneDigitsForLookup = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>Lee perfil persistido para fusionar en <c>GET session</c>.</summary>
-    Task<UserProfileSnapshot?> GetProfileSnapshotAsync(string userId, CancellationToken cancellationToken = default);
+    /// <param name="phoneDigits">Si no hay fila con <paramref name="userId"/>, busca por <c>PhoneDigits</c>.</param>
+    Task<UserProfileSnapshot?> GetProfileSnapshotAsync(string userId, string? phoneDigits = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Devuelve el id de usuario persistido para un teléfono (digits-only), si existe.

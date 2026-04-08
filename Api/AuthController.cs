@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Auth;
@@ -10,6 +11,13 @@ namespace VibeTrade.Backend.Api;
 [Produces("application/json")]
 public sealed class AuthController(IAuthService auth, IUserAccountSyncService userAccountSync) : ControllerBase
 {
+    private static string? PhoneDigitsFromSessionUser(JsonElement user)
+    {
+        if (!user.TryGetProperty("phone", out var ph) || ph.ValueKind != JsonValueKind.String)
+            return null;
+        return new string(ph.GetString()!.Where(char.IsDigit).ToArray());
+    }
+
     public sealed record RequestCodeBody(string Phone);
 
     public sealed record RequestCodeResponse(int CodeLength, int ExpiresInSeconds, string? DevMockCode);
@@ -64,6 +72,7 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
             return BadRequest("Sesión sin id de usuario.");
         var userId = idEl.GetString()!;
 
+        var phoneDigits = PhoneDigitsFromSessionUser(user);
         await userAccountSync.PatchProfileAsync(
             userId,
             body.Name?.Trim(),
@@ -72,9 +81,10 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
             body.Telegram?.Trim(),
             body.XAccount?.Trim(),
             body.AvatarUrl?.Trim(),
+            phoneDigits,
             cancellationToken);
 
-        var snapshot = await userAccountSync.GetProfileSnapshotAsync(userId, cancellationToken);
+        var snapshot = await userAccountSync.GetProfileSnapshotAsync(userId, phoneDigits, cancellationToken);
         if (snapshot is null)
             return BadRequest("No se pudo leer el perfil persistido.");
 
@@ -133,7 +143,8 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
         if (result.User.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
         {
             var id = idEl.GetString()!;
-            var snapshot = await userAccountSync.GetProfileSnapshotAsync(id, cancellationToken);
+            var snapshotDigits = PhoneDigitsFromSessionUser(result.User);
+            var snapshot = await userAccountSync.GetProfileSnapshotAsync(id, snapshotDigits, cancellationToken);
             if (snapshot is not null &&
                 auth.TrySyncSessionFromSnapshot("Bearer " + result.SessionToken, snapshot, out var merged))
                 userOut = merged;
@@ -154,7 +165,8 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
         if (user.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
         {
             var id = idEl.GetString()!;
-            var snapshot = await userAccountSync.GetProfileSnapshotAsync(id, cancellationToken);
+            var snapshotDigits = PhoneDigitsFromSessionUser(user);
+            var snapshot = await userAccountSync.GetProfileSnapshotAsync(id, snapshotDigits, cancellationToken);
             if (snapshot is not null &&
                 auth.TrySyncSessionFromSnapshot(Request.Headers.Authorization, snapshot, out var merged))
                 user = merged;

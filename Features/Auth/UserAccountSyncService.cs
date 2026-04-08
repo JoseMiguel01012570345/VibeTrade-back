@@ -81,10 +81,17 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
         string? telegram,
         string? xAccount,
         string? avatarUrl,
+        string? phoneDigitsForLookup = null,
         CancellationToken cancellationToken = default)
     {
         var now = DateTimeOffset.UtcNow;
         var row = await db.UserAccounts.FindAsync([userId], cancellationToken);
+        if (row is null && !string.IsNullOrEmpty(phoneDigitsForLookup))
+        {
+            row = await db.UserAccounts
+                .FirstOrDefaultAsync(x => x.PhoneDigits == phoneDigitsForLookup, cancellationToken);
+        }
+
         if (row is null)
         {
             row = new UserAccount
@@ -126,10 +133,16 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<UserProfileSnapshot?> GetProfileSnapshotAsync(string userId, CancellationToken cancellationToken = default)
+    public async Task<UserProfileSnapshot?> GetProfileSnapshotAsync(string userId, string? phoneDigits = null, CancellationToken cancellationToken = default)
     {
         var row = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
+        if (row is null && !string.IsNullOrEmpty(phoneDigits))
+        {
+            row = await db.UserAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.PhoneDigits == phoneDigits, cancellationToken);
+        }
+
         if (row is null)
             return null;
         return new UserProfileSnapshot(
