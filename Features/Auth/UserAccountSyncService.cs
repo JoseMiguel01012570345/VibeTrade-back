@@ -141,6 +141,20 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
             row.XAccount);
     }
 
+    public async Task<string?> GetUserIdByPhoneDigitsAsync(string phoneDigits, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(phoneDigits))
+            return null;
+        var digits = DigitsOnly(phoneDigits);
+        if (string.IsNullOrEmpty(digits))
+            return null;
+        return await db.UserAccounts
+            .AsNoTracking()
+            .Where(x => x.PhoneDigits == digits)
+            .Select(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<string?> GetAvatarUrlAsync(string userId, CancellationToken cancellationToken = default)
     {
         var url = await db.UserAccounts.AsNoTracking()

@@ -4,5 +4,5 @@ namespace VibeTrade.Backend.Features.Bootstrap;
 
 public interface IBootstrapService
 {
-    Task<JsonDocument> GetBootstrapAsync(CancellationToken cancellationToken = default);
+    Task<JsonDocument> GetBootstrapAsync(string viewerPhoneDigits, CancellationToken cancellationToken = default);
 }

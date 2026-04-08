@@ -32,4 +32,9 @@ public interface IAuthService
 
     /// <summary>Reemplaza en la sesión los campos persistidos según el snapshot de BD (fuente de verdad tras GET session / PATCH).</summary>
     bool TrySyncSessionFromSnapshot(string? bearerToken, UserProfileSnapshot snapshot, out JsonElement updatedUser);
+
+    /// <summary>
+    /// Fuerza el <c>user.id</c> en la sesión. Se usa para mantener estable la identidad cuando el auth dev es in-memory.
+    /// </summary>
+    bool TrySetSessionUserId(string? bearerToken, string userId, out JsonElement updatedUser);
 }

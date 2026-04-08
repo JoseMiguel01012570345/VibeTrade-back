@@ -24,4 +24,10 @@ public interface IUserAccountSyncService
 
     /// <summary>Lee perfil persistido para fusionar en <c>GET session</c>.</summary>
     Task<UserProfileSnapshot?> GetProfileSnapshotAsync(string userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Devuelve el id de usuario persistido para un teléfono (digits-only), si existe.
+    /// Útil para mantener estable el <c>user.id</c> en sesiones dev que se reinician.
+    /// </summary>
+    Task<string?> GetUserIdByPhoneDigitsAsync(string phoneDigits, CancellationToken cancellationToken = default);
 }

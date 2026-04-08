@@ -154,6 +154,33 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         return true;
     }
 
+    public bool TrySetSessionUserId(string? bearerToken, string userId, out JsonElement updatedUser)
+    {
+        updatedUser = default;
+        var token = ParseBearer(bearerToken);
+        if (string.IsNullOrEmpty(token))
+            return false;
+        if (!_sessions.TryGetValue(token, out var entry) || DateTimeOffset.UtcNow > entry.Expires)
+        {
+            _sessions.TryRemove(token, out _);
+            return false;
+        }
+
+        var root = JsonNode.Parse(entry.User.GetRawText())!.AsObject();
+        root["id"] = userId;
+        using var doc = JsonDocument.Parse(root.ToJsonString());
+        updatedUser = doc.RootElement.Clone();
+        _sessions[token] = new SessionEntry(updatedUser, entry.Expires);
+
+        // Best-effort: keep ad-hoc cache aligned by phone digits (if present).
+        var phone = root["phone"]?.GetValue<string>();
+        var digits = DigitsOnly(phone);
+        if (!string.IsNullOrEmpty(digits))
+            _adHocProfiles[digits] = updatedUser;
+
+        return true;
+    }
+
     private void PutPending(string phoneDigits, string code, int len)
     {
         _pending[phoneDigits] = new PendingOtp(code, DateTimeOffset.UtcNow.Add(PendingTtl), len);

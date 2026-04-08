@@ -106,9 +106,30 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
             return Unauthorized();
         await userAccountSync.UpsertFromSessionUserAsync(result.User, cancellationToken);
 
+        // If the dev auth generated a new id, but we already have a persisted account for this phone,
+        // reuse the persisted id so ownerUserId and bootstrap filtering remain stable across restarts.
+        if (result.User.TryGetProperty("phone", out var ph) && ph.ValueKind == JsonValueKind.String)
+        {
+            var digits = new string(ph.GetString()!.Where(char.IsDigit).ToArray());
+            if (!string.IsNullOrEmpty(digits))
+            {
+                var existingId = await userAccountSync.GetUserIdByPhoneDigitsAsync(digits, cancellationToken);
+                if (!string.IsNullOrEmpty(existingId)
+                    && result.User.TryGetProperty("id", out var curIdEl)
+                    && curIdEl.ValueKind == JsonValueKind.String
+                    && curIdEl.GetString() != existingId
+                    && auth.TrySetSessionUserId("Bearer " + result.SessionToken, existingId, out var patched))
+                {
+                    // continue with patched user below
+                }
+            }
+        }
+
         // La sesión nueva nace solo con el usuario ad-hoc; fusionar BD (avatar, nombre, email, redes)
         // para que tras cerrar sesión y volver a entrar el cliente reciba el mismo perfil que GET session.
         JsonElement userOut = result.User;
+        if (auth.TryGetUserByToken("Bearer " + result.SessionToken, out var userNow))
+            userOut = userNow;
         if (result.User.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
         {
             var id = idEl.GetString()!;

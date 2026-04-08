@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Bootstrap;
 
 namespace VibeTrade.Backend.Api;
@@ -7,7 +8,7 @@ namespace VibeTrade.Backend.Api;
 [ApiController]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
-public sealed class BootstrapController(IBootstrapService bootstrap) : ControllerBase
+public sealed class BootstrapController(IBootstrapService bootstrap, IAuthService auth) : ControllerBase
 {
     /// <summary>Devuelve market, reels y profileDisplayNames.</summary>
     /// <remarks>Incluye cabecera recomendada <c>X-Timezone</c> (IANA) en todas las peticiones del cliente.</remarks>
@@ -16,7 +17,17 @@ public sealed class BootstrapController(IBootstrapService bootstrap) : Controlle
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
-        using var doc = await bootstrap.GetBootstrapAsync(cancellationToken);
+        string? viewerPhoneDigits = null;
+        if (auth.TryGetUserByToken(Request.Headers.Authorization, out var user)
+            && user.TryGetProperty("phone", out var ph)
+            && ph.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            viewerPhoneDigits = new string(ph.GetString()!.Where(char.IsDigit).ToArray());
+        }
+        if (string.IsNullOrWhiteSpace(viewerPhoneDigits))
+            return Unauthorized();
+
+        using var doc = await bootstrap.GetBootstrapAsync(viewerPhoneDigits, cancellationToken);
         var json = doc.RootElement.GetRawText();
         return Content(json, "application/json");
     }
