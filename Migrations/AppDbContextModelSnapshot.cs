@@ -148,6 +148,10 @@ namespace VibeTrade.Backend.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
 
+                    b.Property<string>("NormalizedName")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
                     b.Property<string>("OwnerUserId")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -170,6 +174,10 @@ namespace VibeTrade.Backend.Migrations
                         .HasColumnType("boolean");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasFilter("\"NormalizedName\" IS NOT NULL");
 
                     b.HasIndex("OwnerUserId");
 

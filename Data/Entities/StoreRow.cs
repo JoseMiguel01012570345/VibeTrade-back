@@ -11,6 +11,9 @@ public sealed class StoreRow
 
     public string Name { get; set; } = "";
 
+    /// <summary>lower(trim(collapse spaces)), alineado al cliente; null si el nombre queda vacío (no aplica unicidad).</summary>
+    public string? NormalizedName { get; set; }
+
     public bool Verified { get; set; }
 
     public bool TransportIncluded { get; set; }

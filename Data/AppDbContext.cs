@@ -52,6 +52,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Id).HasMaxLength(64);
             e.Property(x => x.OwnerUserId).HasMaxLength(64);
             e.Property(x => x.Name).HasMaxLength(512);
+            e.Property(x => x.NormalizedName).HasMaxLength(512);
+            e.HasIndex(x => x.NormalizedName)
+                .IsUnique()
+                .HasFilter("\"NormalizedName\" IS NOT NULL");
             // Can store `data:` URLs (base64), which frequently exceed 2048 chars.
             e.Property(x => x.AvatarUrl).HasColumnType("text");
             e.Property(x => x.CategoriesJson).HasColumnType("jsonb");

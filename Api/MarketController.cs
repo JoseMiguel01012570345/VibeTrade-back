@@ -40,10 +40,19 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace) : 
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> PutWorkspace([FromBody] JsonDocument body, CancellationToken cancellationToken)
     {
-        await marketWorkspace.SaveAsync(body, cancellationToken);
+        try
+        {
+            await marketWorkspace.SaveAsync(body, cancellationToken);
+        }
+        catch (DuplicateStoreNameException)
+        {
+            return Conflict(new { error = "duplicate_store_name", message = "Ya existe una tienda con ese nombre en la plataforma." });
+        }
+
         return Ok();
     }
 

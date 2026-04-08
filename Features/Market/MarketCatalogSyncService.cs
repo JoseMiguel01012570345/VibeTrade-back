@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 
@@ -51,6 +53,7 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
 
             row.OwnerUserId = ownerUserId;
             row.Name = GetString(el, "name") ?? row.Name;
+            row.NormalizedName = NormalizeStoreName(row.Name);
             row.Verified = el.TryGetProperty("verified", out var v) && v.ValueKind == JsonValueKind.True;
             row.TransportIncluded = el.TryGetProperty("transportIncluded", out var t) &&
                                     t.ValueKind == JsonValueKind.True;
@@ -68,7 +71,40 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             }
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        EnsureNoDuplicateStoreNames();
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && pg.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new DuplicateStoreNameException(null);
+        }
+    }
+
+    /// <summary>Misma regla que <c>normStoreName</c> en el cliente (espacios colapsados, trim, minúsculas).</summary>
+    private static string? NormalizeStoreName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+        var collapsed = Regex.Replace(name.Trim(), @"\s+", " ");
+        if (collapsed.Length == 0)
+            return null;
+        return collapsed.ToLowerInvariant();
+    }
+
+    private void EnsureNoDuplicateStoreNames()
+    {
+        var tracked = db.ChangeTracker.Entries<StoreRow>()
+            .Where(e => e.State != EntityState.Deleted && e.Entity.NormalizedName is not null)
+            .Select(e => e.Entity)
+            .ToList();
+        var dup = tracked
+            .GroupBy(x => x.NormalizedName!, StringComparer.Ordinal)
+            .FirstOrDefault(g => g.Count() > 1);
+        if (dup is not null)
+            throw new DuplicateStoreNameException(dup.Key);
     }
 
     private static bool TryGetStoresObject(JsonElement workspaceRoot, out JsonElement? storesEl)
@@ -82,7 +118,9 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
 
     private async Task EnsureUserExistsAsync(string userId, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        if (await db.UserAccounts.AsNoTracking().AnyAsync(u => u.Id == userId, cancellationToken))
+        if (db.UserAccounts.Local.Any(u => u.Id == userId))
+            return;
+        if (await db.UserAccounts.AnyAsync(u => u.Id == userId, cancellationToken))
             return;
         db.UserAccounts.Add(new UserAccount
         {
@@ -92,7 +130,6 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             CreatedAt = now,
             UpdatedAt = now,
         });
-        await db.SaveChangesAsync(cancellationToken);
     }
 
     private async Task SyncProductsAsync(
