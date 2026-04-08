@@ -194,7 +194,8 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
 
     private static JsonElement BuildAdHocUserElement(string phoneDigits)
     {
-        var id = "u_reg_" + Guid.NewGuid().ToString("N")[..12];
+        // Invariant identity: use phoneDigits as user id (unique in DB).
+        var id = phoneDigits;
         var prettyPhone = FormatArMobile(phoneDigits);
         var user = new Dictionary<string, object?>
         {
