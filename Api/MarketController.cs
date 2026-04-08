@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc;
+using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Api;
@@ -11,7 +12,15 @@ namespace VibeTrade.Backend.Api;
 [Produces("application/json")]
 public sealed class MarketController(IMarketWorkspaceService marketWorkspace) : ControllerBase
 {
+    public sealed record CatalogCategoriesResponse(IReadOnlyList<string> Categories);
+
     public sealed record StoreDetailBody(string? ViewerUserId, string? ViewerRole);
+
+    /// <summary>Categorías permitidas para productos, servicios y sugerencias en acuerdos (misma lista).</summary>
+    [HttpGet("catalog-categories")]
+    [ProducesResponseType(typeof(CatalogCategoriesResponse), StatusCodes.Status200OK)]
+    public ActionResult<CatalogCategoriesResponse> GetCatalogCategories() =>
+        Ok(new CatalogCategoriesResponse(CatalogCategories.ProductAndService));
     /// <summary>Obtiene el snapshot actual del mercado; si la base está vacía, aplica seed embebido.</summary>
     [HttpGet("workspace")]
     [ProducesResponseType(StatusCodes.Status200OK)]
