@@ -41,7 +41,6 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace, Ap
     public async Task<ActionResult<StoreSearchResponse>> SearchStores(
         [FromQuery] string? name,
         [FromQuery] string? category,
-        [FromQuery] string? vitrinaMode,
         [FromQuery] double? lat,
         [FromQuery] double? lng,
         [FromQuery] double? km,
@@ -52,9 +51,6 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace, Ap
 
         var nameQ = (name ?? "").Trim();
         var catQ = (category ?? "").Trim();
-        var mode = (vitrinaMode ?? "both").Trim().ToLowerInvariant();
-        if (mode is not ("products" or "services" or "both"))
-            mode = "both";
 
         var hasDistanceFilter = lat.HasValue && lng.HasValue && km.HasValue && km.Value > 0;
         if (hasDistanceFilter)
@@ -103,10 +99,6 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace, Ap
 
             pubProductCounts.TryGetValue(s.Id, out var pp);
             pubServiceCounts.TryGetValue(s.Id, out var ps);
-
-            if (mode == "products" && pp <= 0) continue;
-            if (mode == "services" && ps <= 0) continue;
-            if (mode == "both" && pp <= 0 && ps <= 0) continue;
 
             double? dist = null;
             if (hasDistanceFilter)
