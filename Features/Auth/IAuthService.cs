@@ -10,7 +10,7 @@ public interface IAuthService
 {
     RequestCodeResult RequestCode(string phoneRaw);
 
-    VerifyResult? Verify(string phoneRaw, string code);
+    Task<VerifyResult?> Verify(string phoneRaw, string code, CancellationToken cancellationToken);
 
     bool TryGetUserByToken(string? bearerToken, out JsonElement user);
 

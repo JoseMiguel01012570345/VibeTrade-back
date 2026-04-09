@@ -133,19 +133,20 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<UserProfileSnapshot?> GetProfileSnapshotAsync(string userId, string? phoneDigits = null, CancellationToken cancellationToken = default)
+    public async Task<UserProfileSnapshot?> GetProfileSnapshotAsync(string? phoneDigits = null, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(phoneDigits))
+            return null;
+        var digits = DigitsOnly(phoneDigits);
+        if (string.IsNullOrEmpty(digits))
+            return null;
         var row = await db.UserAccounts.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
-        if (row is null && !string.IsNullOrEmpty(phoneDigits))
-        {
-            row = await db.UserAccounts.AsNoTracking()
-                .FirstOrDefaultAsync(x => x.PhoneDigits == phoneDigits, cancellationToken);
-        }
+            .FirstOrDefaultAsync(x => x.PhoneDigits == phoneDigits, cancellationToken);
 
         if (row is null)
             return null;
         return new UserProfileSnapshot(
+            row.Id,
             row.DisplayName,
             row.Email,
             row.AvatarUrl,
@@ -153,21 +154,7 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
             row.Telegram,
             row.XAccount);
     }
-
-    public async Task<string?> GetUserIdByPhoneDigitsAsync(string phoneDigits, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(phoneDigits))
-            return null;
-        var digits = DigitsOnly(phoneDigits);
-        if (string.IsNullOrEmpty(digits))
-            return null;
-        return await db.UserAccounts
-            .AsNoTracking()
-            .Where(x => x.PhoneDigits == digits)
-            .Select(x => x.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-    }
-
+    
     public async Task<string?> GetAvatarUrlAsync(string userId, CancellationToken cancellationToken = default)
     {
         var url = await db.UserAccounts.AsNoTracking()

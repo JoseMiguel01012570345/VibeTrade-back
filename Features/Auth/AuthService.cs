@@ -5,14 +5,13 @@ using Microsoft.Extensions.Hosting;
 
 namespace VibeTrade.Backend.Features.Auth;
 
-public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration configuration) : IAuthService
+public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration configuration, IUserAccountSyncService userAccountSync) : IAuthService
 {
     private static readonly TimeSpan PendingTtl = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan SessionTtl = TimeSpan.FromDays(7);
 
     private readonly ConcurrentDictionary<string, PendingOtp> _pending = new();
     private readonly ConcurrentDictionary<string, SessionEntry> _sessions = new();
-    private readonly ConcurrentDictionary<string, JsonElement> _adHocProfiles = new();
 
     private sealed record PendingOtp(string Code, DateTimeOffset Expires, int CodeLength);
 
@@ -27,7 +26,7 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         return new RequestCodeResult(code.Length, (int)PendingTtl.TotalSeconds, DevCodeMaybe(code));
     }
 
-    public VerifyResult? Verify(string phoneRaw, string code)
+    public async Task<VerifyResult?> Verify(string phoneRaw, string code, CancellationToken cancellationToken)
     {
         var digits = DigitsOnly(phoneRaw);
         if (!_pending.TryGetValue(digits, out var pending))
@@ -45,14 +44,19 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         _pending.TryRemove(digits, out _);
 
         JsonElement userEl;
-        if (_adHocProfiles.TryGetValue(digits, out var adHoc))
-            userEl = adHoc;
-        else
-        {
-            var newUser = BuildAdHocUserElement(digits);
-            _adHocProfiles[digits] = newUser;
-            userEl = newUser;
-        }
+        var row = await userAccountSync.GetProfileSnapshotAsync(digits, cancellationToken);
+        if (row is null)
+            return null;
+        userEl = JsonSerializer.SerializeToElement(new {
+            id = digits,
+            phone = digits,
+            name = row.DisplayName,
+            email = row.Email,
+            avatarUrl = row.AvatarUrl,
+            instagram = row.Instagram,
+            telegram = row.Telegram,
+            xAccount = row.XAccount,
+        });
 
         var token = Guid.NewGuid().ToString("N");
         _sessions[token] = new SessionEntry(userEl, DateTimeOffset.UtcNow.Add(SessionTtl));
@@ -172,12 +176,6 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         updatedUser = doc.RootElement.Clone();
         _sessions[token] = new SessionEntry(updatedUser, entry.Expires);
 
-        // Best-effort: keep ad-hoc cache aligned by phone digits (if present).
-        var phone = root["phone"]?.GetValue<string>();
-        var digits = DigitsOnly(phone);
-        if (!string.IsNullOrEmpty(digits))
-            _adHocProfiles[digits] = updatedUser;
-
         return true;
     }
 
@@ -190,32 +188,6 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
     {
         var expose = configuration.GetValue("Auth:ExposeDevCodes", hostEnvironment.IsDevelopment());
         return expose ? code : null;
-    }
-
-    private static JsonElement BuildAdHocUserElement(string phoneDigits)
-    {
-        // Invariant identity: use phoneDigits as user id (unique in DB).
-        var id = phoneDigits;
-        var prettyPhone = FormatArMobile(phoneDigits);
-        var user = new Dictionary<string, object?>
-        {
-            ["id"] = id,
-            ["name"] = "Nuevo usuario",
-            ["phone"] = prettyPhone,
-            ["trustScore"] = 75,
-        };
-        return JsonSerializer.SerializeToElement(user);
-    }
-
-    private static string FormatArMobile(string d)
-    {
-        if (d.Length >= 8)
-        {
-            var tail8 = d[^8..];
-            return $"{d.Substring(0, 2)} {tail8[..4]}-{tail8[4..]}";
-        }
-
-        return $"{d.Substring(0, 2)} {d}";
     }
 
     private void PruneSessions()

@@ -84,7 +84,7 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
             phoneDigits,
             cancellationToken);
 
-        var snapshot = await userAccountSync.GetProfileSnapshotAsync(userId, phoneDigits, cancellationToken);
+        var snapshot = await userAccountSync.GetProfileSnapshotAsync(phoneDigits, cancellationToken);
         if (snapshot is null)
             return BadRequest("No se pudo leer el perfil persistido.");
 
@@ -111,7 +111,7 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
         [FromBody] VerifyBody body,
         CancellationToken cancellationToken)
     {
-        var result = auth.Verify(body.Phone, body.Code);
+        var result = await auth.Verify(body.Phone, body.Code, cancellationToken);
         if (result is null)
             return Unauthorized();
         await userAccountSync.UpsertFromSessionUserAsync(result.User, cancellationToken);
@@ -123,15 +123,15 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
             var digits = new string(ph.GetString()!.Where(char.IsDigit).ToArray());
             if (!string.IsNullOrEmpty(digits))
             {
-                var existingId = await userAccountSync.GetUserIdByPhoneDigitsAsync(digits, cancellationToken);
-                if (!string.IsNullOrEmpty(existingId)
+                var existingUser = await userAccountSync.GetProfileSnapshotAsync(digits, cancellationToken);
+                if (!string.IsNullOrEmpty(existingUser.Id)
                     && result.User.TryGetProperty("id", out var curIdEl)
                     && curIdEl.ValueKind == JsonValueKind.String
-                    && curIdEl.GetString() != existingId
-                    && auth.TrySetSessionUserId("Bearer " + result.SessionToken, existingId, out var patched))
+                    && curIdEl.GetString() != existingUser.Id
+                    && auth.TrySetSessionUserId("Bearer " + result.SessionToken, existingUser.Id, out var patched))
                 {
                     // continue with patched user below
-                }
+                }   
             }
         }
 
@@ -144,7 +144,7 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
         {
             var id = idEl.GetString()!;
             var snapshotDigits = PhoneDigitsFromSessionUser(result.User);
-            var snapshot = await userAccountSync.GetProfileSnapshotAsync(id, snapshotDigits, cancellationToken);
+            var snapshot = await userAccountSync.GetProfileSnapshotAsync(snapshotDigits, cancellationToken);
             if (snapshot is not null &&
                 auth.TrySyncSessionFromSnapshot("Bearer " + result.SessionToken, snapshot, out var merged))
                 userOut = merged;
@@ -164,9 +164,8 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
 
         if (user.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
         {
-            var id = idEl.GetString()!;
             var snapshotDigits = PhoneDigitsFromSessionUser(user);
-            var snapshot = await userAccountSync.GetProfileSnapshotAsync(id, snapshotDigits, cancellationToken);
+            var snapshot = await userAccountSync.GetProfileSnapshotAsync(snapshotDigits, cancellationToken);
             if (snapshot is not null &&
                 auth.TrySyncSessionFromSnapshot(Request.Headers.Authorization, snapshot, out var merged))
                 user = merged;
