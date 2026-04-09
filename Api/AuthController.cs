@@ -17,11 +17,11 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
         return new string(ph.GetString()!.Where(char.IsDigit).ToArray());
     }
 
-    public sealed record RequestCodeBody(string Phone);
+    public sealed record RequestCodeBody(string Phone, string? Mode = null);
 
     public sealed record RequestCodeResponse(int CodeLength, int ExpiresInSeconds, string? DevMockCode);
 
-    public sealed record VerifyBody(string Phone, string Code);
+    public sealed record VerifyBody(string Phone, string Code, string? Mode = null);
 
     public sealed record VerifyResponse(string SessionToken, JsonElement User);
 
@@ -102,8 +102,22 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
     /// <summary>Pide un código OTP (7 dígitos aleatorios por solicitud).</summary>
     [HttpPost("request-code")]
     [ProducesResponseType(typeof(RequestCodeResponse), StatusCodes.Status200OK)]
-    public ActionResult<RequestCodeResponse> RequestCode([FromBody] RequestCodeBody body)
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<RequestCodeResponse>> RequestCode(
+        [FromBody] RequestCodeBody body,
+        CancellationToken cancellationToken)
     {
+        if (IsRegisterMode(body.Mode)
+            && await userAccountSync.PhoneHasRegisteredAccountAsync(body.Phone, cancellationToken))
+        {
+            return BadRequest(
+                new
+                {
+                    error = "phone_already_registered",
+                    message = "Este número ya está registrado. Iniciá sesión si es tu cuenta.",
+                });
+        }
+
         var r = auth.RequestCode(body.Phone);
         return Ok(new RequestCodeResponse(r.CodeLength, r.ExpiresInSeconds, r.DevMockCode));
     }
@@ -111,11 +125,23 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
     /// <summary>Canjea el OTP por un token de sesión (<c>Bearer</c> en siguientes llamadas).</summary>
     [HttpPost("verify")]
     [ProducesResponseType(typeof(VerifyResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<VerifyResponse>> Verify(
         [FromBody] VerifyBody body,
         CancellationToken cancellationToken)
     {
+        if (IsRegisterMode(body.Mode)
+            && await userAccountSync.PhoneHasRegisteredAccountAsync(body.Phone, cancellationToken))
+        {
+            return BadRequest(
+                new
+                {
+                    error = "phone_already_registered",
+                    message = "Este número ya está registrado. Iniciá sesión si es tu cuenta.",
+                });
+        }
+
         var result = await auth.Verify(body.Phone, body.Code, cancellationToken);
         if (result is null)
             return Unauthorized();
@@ -129,7 +155,8 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
             if (!string.IsNullOrEmpty(digits))
             {
                 var existingUser = await userAccountSync.GetProfileSnapshotAsync(digits, cancellationToken);
-                if (!string.IsNullOrEmpty(existingUser.Id)
+                if (existingUser is not null
+                    && !string.IsNullOrEmpty(existingUser.Id)
                     && result.User.TryGetProperty("id", out var curIdEl)
                     && curIdEl.ValueKind == JsonValueKind.String
                     && curIdEl.GetString() != existingUser.Id
@@ -187,4 +214,7 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
         auth.RevokeSession(Request.Headers.Authorization);
         return NoContent();
     }
+
+    private static bool IsRegisterMode(string? mode) =>
+        string.Equals(mode, "register", StringComparison.OrdinalIgnoreCase);
 }

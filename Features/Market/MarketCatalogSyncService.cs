@@ -18,18 +18,15 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             return;
 
         var now = DateTimeOffset.UtcNow;
-        var incomingStoreIds = new HashSet<string>();
-        foreach (var prop in storesEl!.Value.EnumerateObject())
-            incomingStoreIds.Add(prop.Name);
 
-        var existingStores = await db.Stores.Where(s => !incomingStoreIds.Contains(s.Id)).ToListAsync(cancellationToken);
-        db.Stores.RemoveRange(existingStores);
+        // No borrar tiendas que no vengan en el JSON: el PUT /workspace suele ser un snapshot parcial
+        // del cliente (p. ej. solo las tiendas del usuario), no el catálogo global de la plataforma.
 
         JsonElement catalogs = default;
         var hasCatalogs = workspaceRoot.TryGetProperty("storeCatalogs", out catalogs)
                           && catalogs.ValueKind == JsonValueKind.Object;
 
-        foreach (var prop in storesEl.Value.EnumerateObject())
+        foreach (var prop in storesEl.EnumerateObject())
         {
             var storeId = prop.Name;
             var el = prop.Value;
@@ -126,9 +123,9 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
         row.LocationLongitude = lng;
     }
 
-    private static bool TryGetStoresObject(JsonElement workspaceRoot, out JsonElement? storesEl)
+    private static bool TryGetStoresObject(JsonElement workspaceRoot, out JsonElement storesEl)
     {
-        storesEl = null;
+        storesEl = default;
         if (!workspaceRoot.TryGetProperty("stores", out var s) || s.ValueKind != JsonValueKind.Object)
             return false;
         storesEl = s;
