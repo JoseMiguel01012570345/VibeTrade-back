@@ -16,7 +16,7 @@ public interface IAuthService
 
     bool RevokeSession(string? bearerToken);
 
-    /// <summary>Actualiza el JSON del usuario en la sesión en memoria (p. ej. avatarUrl).</summary>
+    /// <summary>Actualiza el JSON del usuario en la sesión persistida (p. ej. avatarUrl).</summary>
     bool TrySetAvatarUrl(string? bearerToken, string avatarUrl, out JsonElement updatedUser);
 
     /// <summary>Fusiona campos de perfil en el JSON de sesión; <c>null</c> = no modificar esa propiedad.</summary>
@@ -33,8 +33,6 @@ public interface IAuthService
     /// <summary>Reemplaza en la sesión los campos persistidos según el snapshot de BD (fuente de verdad tras GET session / PATCH).</summary>
     bool TrySyncSessionFromSnapshot(string? bearerToken, UserProfileSnapshot snapshot, out JsonElement updatedUser);
 
-    /// <summary>
-    /// Fuerza el <c>user.id</c> en la sesión. Se usa para mantener estable la identidad cuando el auth dev es in-memory.
-    /// </summary>
+    /// <summary>Fuerza el <c>user.id</c> en la sesión (p. ej. alinear con el id persistido por teléfono).</summary>
     bool TrySetSessionUserId(string? bearerToken, string userId, out JsonElement updatedUser);
 }

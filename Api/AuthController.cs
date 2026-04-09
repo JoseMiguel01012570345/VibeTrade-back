@@ -4,7 +4,7 @@ using VibeTrade.Backend.Features.Auth;
 
 namespace VibeTrade.Backend.Api;
 
-/// <summary>OTP y sesiones en memoria. Código aleatorio por solicitud; expuesto como <c>devMockCode</c> si <c>Auth:ExposeDevCodes</c> está activo.</summary>
+/// <summary>OTP pendiente y tokens de sesión persistidos en base de datos. Código aleatorio por solicitud; <c>devMockCode</c> si <c>Auth:ExposeDevCodes</c> está activo.</summary>
 [ApiController]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]

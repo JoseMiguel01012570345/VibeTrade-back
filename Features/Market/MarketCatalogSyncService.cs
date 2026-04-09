@@ -195,6 +195,8 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             row.TechnicalSpecs = GetString(item, "technicalSpecs") ?? "";
             row.Condition = GetString(item, "condition") ?? "";
             row.Price = GetString(item, "price") ?? "";
+            row.MonedaPrecio = GetString(item, "monedaPrecio");
+            row.MonedasJson = SerializeMonedasFromProductJson(item);
             row.TaxesShippingInstall = GetString(item, "taxesShippingInstall");
             row.Availability = GetString(item, "availability") ?? "";
             row.WarrantyReturn = GetString(item, "warrantyReturn") ?? "";
@@ -268,6 +270,17 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
 
     private static string? GetString(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+
+    /// <summary>Serializa <c>monedas</c> o, si falta, un único <c>moneda</c> legado.</summary>
+    private static string SerializeMonedasFromProductJson(JsonElement item)
+    {
+        if (item.TryGetProperty("monedas", out var m) && m.ValueKind == JsonValueKind.Array)
+            return m.GetRawText();
+        var legacy = GetString(item, "moneda");
+        if (!string.IsNullOrEmpty(legacy))
+            return JsonSerializer.Serialize(new[] { legacy });
+        return "[]";
+    }
 
     private static string SerializeStringArray(JsonElement el, string name)
     {
@@ -370,6 +383,17 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
         };
         if (!string.IsNullOrEmpty(p.Model))
             o["model"] = p.Model;
+        if (!string.IsNullOrEmpty(p.MonedaPrecio))
+            o["monedaPrecio"] = p.MonedaPrecio;
+        try
+        {
+            o["monedas"] = JsonNode.Parse(p.MonedasJson) ?? new JsonArray();
+        }
+        catch
+        {
+            o["monedas"] = new JsonArray();
+        }
+
         if (!string.IsNullOrEmpty(p.TaxesShippingInstall))
             o["taxesShippingInstall"] = p.TaxesShippingInstall;
         try

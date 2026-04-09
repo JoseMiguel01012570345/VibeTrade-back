@@ -1,6 +1,6 @@
 namespace VibeTrade.Backend.Features.Auth;
 
-/// <summary>Campos persistidos para fusionar con la sesión en memoria.</summary>
+/// <summary>Campos persistidos para fusionar con la sesión de token.</summary>
 public sealed record UserProfileSnapshot(
     string Id,
     string DisplayName,

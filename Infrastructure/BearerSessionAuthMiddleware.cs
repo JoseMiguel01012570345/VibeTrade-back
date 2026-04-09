@@ -3,7 +3,7 @@ using VibeTrade.Backend.Features.Auth;
 namespace VibeTrade.Backend.Infrastructure;
 
 /// <summary>
-/// Exige <c>Authorization: Bearer &lt;token&gt;</c> válido (sesión en memoria) para <c>/api/v1/*</c>,
+/// Exige <c>Authorization: Bearer &lt;token&gt;</c> válido (sesión en base de datos) para <c>/api/v1/*</c>,
 /// salvo rutas anónimas del login y preflight CORS.
 /// </summary>
 public sealed class BearerSessionAuthMiddleware(RequestDelegate next)

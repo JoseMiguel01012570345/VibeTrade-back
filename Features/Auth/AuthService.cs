@@ -1,39 +1,70 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Microsoft.Extensions.Hosting;
+using Microsoft.EntityFrameworkCore;
+using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Auth;
 
-public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration configuration, IUserAccountSyncService userAccountSync) : IAuthService
+public sealed class AuthService(
+    IHostEnvironment hostEnvironment,
+    IConfiguration configuration,
+    IUserAccountSyncService userAccountSync,
+    AppDbContext db) : IAuthService
 {
     private static readonly TimeSpan PendingTtl = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan SessionTtl = TimeSpan.FromDays(7);
-
-    private readonly ConcurrentDictionary<string, PendingOtp> _pending = new();
-    private readonly ConcurrentDictionary<string, SessionEntry> _sessions = new();
-
-    private sealed record PendingOtp(string Code, DateTimeOffset Expires, int CodeLength);
-
-    private sealed record SessionEntry(JsonElement User, DateTimeOffset Expires);
 
     public RequestCodeResult RequestCode(string phoneRaw)
     {
         var digits = DigitsOnly(phoneRaw);
         var code = Random.Shared.Next(1_000_000, 9_999_999).ToString();
         Console.WriteLine("RequestCode: " + digits + " " + code);
-        PutPending(digits, code, code.Length);
+        var now = DateTimeOffset.UtcNow;
+        var expiresAt = now.Add(PendingTtl);
+
+        var existing = db.AuthPendingOtps.Find(digits);
+        if (existing is not null)
+        {
+            existing.Code = code;
+            existing.CodeLength = code.Length;
+            existing.ExpiresAt = expiresAt;
+            existing.CreatedAt = now;
+        }
+        else
+        {
+            db.AuthPendingOtps.Add(
+                new AuthPendingOtpRow
+                {
+                    PhoneDigits = digits,
+                    Code = code,
+                    CodeLength = code.Length,
+                    ExpiresAt = expiresAt,
+                    CreatedAt = now,
+                });
+        }
+
+        db.SaveChanges();
+        PruneExpiredPendingOtps();
+
         return new RequestCodeResult(code.Length, (int)PendingTtl.TotalSeconds, DevCodeMaybe(code));
     }
 
     public async Task<VerifyResult?> Verify(string phoneRaw, string code, CancellationToken cancellationToken)
     {
         var digits = DigitsOnly(phoneRaw);
-        if (!_pending.TryGetValue(digits, out var pending))
+        var pending = await db.AuthPendingOtps
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.PhoneDigits == digits, cancellationToken);
+
+        if (pending is null)
             return null;
-        if (DateTimeOffset.UtcNow > pending.Expires)
+
+        var now = DateTimeOffset.UtcNow;
+        if (now > pending.ExpiresAt)
         {
-            _pending.TryRemove(digits, out _);
+            await db.AuthPendingOtps.Where(p => p.PhoneDigits == digits)
+                .ExecuteDeleteAsync(cancellationToken);
             return null;
         }
 
@@ -41,13 +72,13 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         if (normalizedCode != pending.Code)
             return null;
 
-        _pending.TryRemove(digits, out _);
+        await db.AuthPendingOtps.Where(p => p.PhoneDigits == digits)
+            .ExecuteDeleteAsync(cancellationToken);
 
         JsonElement userEl;
         var row = await userAccountSync.GetProfileSnapshotAsync(digits, cancellationToken);
         if (row is null)
         {
-            // Create a default user object if the profile snapshot doesn't exist
             userEl = JsonSerializer.SerializeToElement(new
             {
                 id = digits,
@@ -62,7 +93,6 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         }
         else
         {
-
             userEl = JsonSerializer.SerializeToElement(new
             {
                 id = digits,
@@ -77,8 +107,19 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         }
 
         var token = Guid.NewGuid().ToString("N");
-        _sessions[token] = new SessionEntry(userEl, DateTimeOffset.UtcNow.Add(SessionTtl));
-        PruneSessions();
+        var sessionNow = DateTimeOffset.UtcNow;
+        await db.AuthSessions.AddAsync(
+            new AuthSessionRow
+            {
+                Token = token,
+                UserJson = userEl.GetRawText(),
+                ExpiresAt = sessionNow.Add(SessionTtl),
+                CreatedAt = sessionNow,
+            },
+            cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        PruneExpiredSessions();
+        PruneExpiredPendingOtps();
 
         return new VerifyResult(token, userEl);
     }
@@ -89,13 +130,18 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         var token = ParseBearer(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
-        if (!_sessions.TryGetValue(token, out var entry) || DateTimeOffset.UtcNow > entry.Expires)
+
+        var utcNow = DateTimeOffset.UtcNow;
+        var row = db.AuthSessions.AsNoTracking()
+            .FirstOrDefault(s => s.Token == token && s.ExpiresAt > utcNow);
+        if (row is null)
         {
-            _sessions.TryRemove(token, out _);
+            db.AuthSessions.Where(s => s.Token == token).ExecuteDelete();
             return false;
         }
 
-        user = entry.User;
+        using var doc = JsonDocument.Parse(row.UserJson);
+        user = doc.RootElement.Clone();
         return true;
     }
 
@@ -104,7 +150,7 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         var token = ParseBearer(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
-        return _sessions.TryRemove(token, out _);
+        return db.AuthSessions.Where(s => s.Token == token).ExecuteDelete() > 0;
     }
 
     public bool TrySetAvatarUrl(string? bearerToken, string avatarUrl, out JsonElement updatedUser) =>
@@ -124,13 +170,13 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         var token = ParseBearer(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
-        if (!_sessions.TryGetValue(token, out var entry) || DateTimeOffset.UtcNow > entry.Expires)
-        {
-            _sessions.TryRemove(token, out _);
-            return false;
-        }
 
-        var root = JsonNode.Parse(entry.User.GetRawText())!.AsObject();
+        var utcNow = DateTimeOffset.UtcNow;
+        var row = db.AuthSessions.FirstOrDefault(s => s.Token == token && s.ExpiresAt > utcNow);
+        if (row is null)
+            return false;
+
+        var root = JsonNode.Parse(row.UserJson)!.AsObject();
         if (name is not null)
             root["name"] = name;
         if (email is not null)
@@ -146,7 +192,8 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
 
         using var doc = JsonDocument.Parse(root.ToJsonString());
         updatedUser = doc.RootElement.Clone();
-        _sessions[token] = new SessionEntry(updatedUser, entry.Expires);
+        row.UserJson = updatedUser.GetRawText();
+        db.SaveChanges();
         return true;
     }
 
@@ -156,13 +203,13 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         var token = ParseBearer(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
-        if (!_sessions.TryGetValue(token, out var entry) || DateTimeOffset.UtcNow > entry.Expires)
-        {
-            _sessions.TryRemove(token, out _);
-            return false;
-        }
 
-        var root = JsonNode.Parse(entry.User.GetRawText())!.AsObject();
+        var utcNow = DateTimeOffset.UtcNow;
+        var row = db.AuthSessions.FirstOrDefault(s => s.Token == token && s.ExpiresAt > utcNow);
+        if (row is null)
+            return false;
+
+        var root = JsonNode.Parse(row.UserJson)!.AsObject();
         root["name"] = snapshot.DisplayName;
         root["email"] = snapshot.Email is { } e ? e : null;
         root["instagram"] = snapshot.Instagram is { } i ? i : null;
@@ -172,7 +219,8 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
 
         using var doc = JsonDocument.Parse(root.ToJsonString());
         updatedUser = doc.RootElement.Clone();
-        _sessions[token] = new SessionEntry(updatedUser, entry.Expires);
+        row.UserJson = updatedUser.GetRawText();
+        db.SaveChanges();
         return true;
     }
 
@@ -182,24 +230,19 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         var token = ParseBearer(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
-        if (!_sessions.TryGetValue(token, out var entry) || DateTimeOffset.UtcNow > entry.Expires)
-        {
-            _sessions.TryRemove(token, out _);
-            return false;
-        }
 
-        var root = JsonNode.Parse(entry.User.GetRawText())!.AsObject();
+        var utcNow = DateTimeOffset.UtcNow;
+        var row = db.AuthSessions.FirstOrDefault(s => s.Token == token && s.ExpiresAt > utcNow);
+        if (row is null)
+            return false;
+
+        var root = JsonNode.Parse(row.UserJson)!.AsObject();
         root["id"] = userId;
         using var doc = JsonDocument.Parse(root.ToJsonString());
         updatedUser = doc.RootElement.Clone();
-        _sessions[token] = new SessionEntry(updatedUser, entry.Expires);
-
+        row.UserJson = updatedUser.GetRawText();
+        db.SaveChanges();
         return true;
-    }
-
-    private void PutPending(string phoneDigits, string code, int len)
-    {
-        _pending[phoneDigits] = new PendingOtp(code, DateTimeOffset.UtcNow.Add(PendingTtl), len);
     }
 
     private string? DevCodeMaybe(string code)
@@ -208,16 +251,16 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         return expose ? code : null;
     }
 
-    private void PruneSessions()
+    private void PruneExpiredSessions()
     {
-        if (_sessions.Count < 2000)
-            return;
         var now = DateTimeOffset.UtcNow;
-        foreach (var kv in _sessions)
-        {
-            if (now > kv.Value.Expires)
-                _sessions.TryRemove(kv.Key, out _);
-        }
+        db.AuthSessions.Where(s => s.ExpiresAt < now).ExecuteDelete();
+    }
+
+    private void PruneExpiredPendingOtps()
+    {
+        var now = DateTimeOffset.UtcNow;
+        db.AuthPendingOtps.Where(p => p.ExpiresAt < now).ExecuteDelete();
     }
 
     private static string DigitsOnly(string? raw)

@@ -39,7 +39,7 @@ builder.Services.AddScoped<IMarketCatalogSyncService, MarketCatalogSyncService>(
 builder.Services.AddScoped<IMarketWorkspaceService, MarketWorkspaceService>();
 builder.Services.AddScoped<IBootstrapService, BootstrapService>();
 builder.Services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
-builder.Services.AddSingleton<IAuthService, AuthService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase);

@@ -25,6 +25,12 @@ public sealed class StoreProductRow
 
     public string Price { get; set; } = "";
 
+    /// <summary>Moneda en la que está expresado el precio (código ISO; una sola).</summary>
+    public string? MonedaPrecio { get; set; }
+
+    /// <summary>Array JSON de códigos de moneda aceptados para el pago.</summary>
+    public string MonedasJson { get; set; } = "[]";
+
     public string? TaxesShippingInstall { get; set; }
 
     /// <summary>Disponibilidad (texto en el cliente; p. ej. stock o plazo).</summary>

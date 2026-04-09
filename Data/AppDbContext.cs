@@ -11,6 +11,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<StoreProductRow> StoreProducts => Set<StoreProductRow>();
     public DbSet<StoreServiceRow> StoreServices => Set<StoreServiceRow>();
     public DbSet<StoredMediaRow> StoredMedia => Set<StoredMediaRow>();
+    public DbSet<AuthSessionRow> AuthSessions => Set<AuthSessionRow>();
+    public DbSet<AuthPendingOtpRow> AuthPendingOtps => Set<AuthPendingOtpRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -77,6 +79,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasMaxLength(64);
             e.Property(x => x.StoreId).HasMaxLength(64);
+            e.Property(x => x.MonedaPrecio).HasMaxLength(16);
+            e.Property(x => x.MonedasJson).HasColumnType("jsonb");
             e.Property(x => x.PhotoUrlsJson).HasColumnType("jsonb");
             e.Property(x => x.CustomFieldsJson).HasColumnType("jsonb");
             e.HasIndex(x => x.StoreId);
@@ -105,6 +109,28 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.SizeBytes);
             e.Property(x => x.Bytes).HasColumnType("bytea");
             e.Property(x => x.CreatedAt);
+        });
+
+        modelBuilder.Entity<AuthSessionRow>(e =>
+        {
+            e.ToTable("auth_sessions");
+            e.HasKey(x => x.Token);
+            e.Property(x => x.Token).HasMaxLength(64);
+            e.Property(x => x.UserJson).HasColumnType("jsonb");
+            e.Property(x => x.ExpiresAt);
+            e.Property(x => x.CreatedAt);
+            e.HasIndex(x => x.ExpiresAt);
+        });
+
+        modelBuilder.Entity<AuthPendingOtpRow>(e =>
+        {
+            e.ToTable("auth_pending_otps");
+            e.HasKey(x => x.PhoneDigits);
+            e.Property(x => x.PhoneDigits).HasMaxLength(32);
+            e.Property(x => x.Code).HasMaxLength(32);
+            e.Property(x => x.ExpiresAt);
+            e.Property(x => x.CreatedAt);
+            e.HasIndex(x => x.ExpiresAt);
         });
     }
 }

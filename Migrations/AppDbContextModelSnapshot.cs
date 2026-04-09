@@ -22,6 +22,56 @@ namespace VibeTrade.Backend.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AuthPendingOtpRow", b =>
+                {
+                    b.Property<string>("PhoneDigits")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("CodeLength")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("PhoneDigits");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.ToTable("auth_pending_otps", (string)null);
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AuthSessionRow", b =>
+                {
+                    b.Property<string>("Token")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.HasKey("Token");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.ToTable("auth_sessions", (string)null);
+                });
+
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.MarketWorkspaceRow", b =>
                 {
                     b.Property<int>("Id")
@@ -74,6 +124,14 @@ namespace VibeTrade.Backend.Migrations
 
                     b.Property<string>("Model")
                         .HasColumnType("text");
+
+                    b.Property<string>("MonedaPrecio")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("MonedasJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
 
                     b.Property<string>("Name")
                         .IsRequired()

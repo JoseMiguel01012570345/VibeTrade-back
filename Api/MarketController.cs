@@ -18,6 +18,8 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace, Ap
 {
     public sealed record CatalogCategoriesResponse(IReadOnlyList<string> Categories);
 
+    public sealed record CurrenciesResponse(IReadOnlyList<string> Currencies);
+
     public sealed record StoreDetailBody(string? ViewerUserId, string? ViewerRole);
 
     public sealed record StoreSearchItem(JsonObject Store, int PublishedProducts, int PublishedServices, double? DistanceKm);
@@ -30,6 +32,14 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace, Ap
     public ActionResult<CatalogCategoriesResponse> GetCatalogCategories()
     {
         return Ok(new CatalogCategoriesResponse(CatalogCategories.ProductAndService));
+    }
+
+    /// <summary>Monedas permitidas en fichas de catálogo (misma lista para productos y servicios).</summary>
+    [HttpGet("currencies")]
+    [ProducesResponseType(typeof(CurrenciesResponse), StatusCodes.Status200OK)]
+    public ActionResult<CurrenciesResponse> GetCurrencies()
+    {
+        return Ok(new CurrenciesResponse(CatalogCurrencies.All));
     }
 
     /// <summary>
