@@ -21,13 +21,6 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace) : 
     [ProducesResponseType(typeof(CatalogCategoriesResponse), StatusCodes.Status200OK)]
     public ActionResult<CatalogCategoriesResponse> GetCatalogCategories()
     {
-        if (!HttpContext.Request.Headers.TryGetValue("Authorization", out var authHeader) ||
-            !HttpContext.RequestServices.GetService<VibeTrade.Backend.Features.Auth.IAuthService>()!
-                .TryGetUserByToken(authHeader, out _))
-        {
-            return Unauthorized();
-        }
-
         return Ok(new CatalogCategoriesResponse(CatalogCategories.ProductAndService));
     }
    

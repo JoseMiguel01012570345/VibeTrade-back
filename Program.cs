@@ -115,6 +115,8 @@ if (migrateError is not null)
 
 app.UseCors("Dev");
 
+app.UseMiddleware<BearerSessionAuthMiddleware>();
+
 // Swagger: por defecto activo (evita 404 si ASPNETCORE_ENVIRONMENT no es Development).
 // Desactivar en producción con Swagger:Enabled=false o appsettings.Production.json.
 if (app.Configuration.GetValue("Swagger:Enabled", true))

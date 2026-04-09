@@ -1,4 +1,3 @@
-using System.Linq;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Auth;
@@ -35,6 +34,12 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
         string? Telegram,
         string? XAccount,
         string? AvatarUrl);
+
+    /// <summary>Países con los que se puede iniciar sesión / registrarse (prefijos SMS). Público, sin token.</summary>
+    [HttpGet("sign-in-countries")]
+    [ProducesResponseType(typeof(IReadOnlyList<SignInCountryDto>), StatusCodes.Status200OK)]
+    public ActionResult<IReadOnlyList<SignInCountryDto>> GetSignInCountries() =>
+        Ok(SignInCountryCatalog.All);
 
     /// <summary>Actualiza campos del perfil persistidos (avatar referenciando <c>/api/v1/media/…</c>).</summary>
     [HttpPatch("profile")]
