@@ -282,6 +282,10 @@ namespace VibeTrade.Backend.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("MonedasJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<string>("NoIncluye")
                         .IsRequired()
                         .HasColumnType("text");

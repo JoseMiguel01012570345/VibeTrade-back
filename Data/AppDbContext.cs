@@ -95,6 +95,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.RiesgosJson).HasColumnType("jsonb");
             e.Property(x => x.DependenciasJson).HasColumnType("jsonb");
             e.Property(x => x.GarantiasJson).HasColumnType("jsonb");
+            e.Property(x => x.MonedasJson).HasColumnType("jsonb");
             e.Property(x => x.CustomFieldsJson).HasColumnType("jsonb");
             e.HasIndex(x => x.StoreId);
         });

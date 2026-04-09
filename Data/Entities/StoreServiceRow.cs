@@ -34,6 +34,9 @@ public sealed class StoreServiceRow
 
     public string PropIntelectual { get; set; } = "";
 
+    /// <summary>Array JSON de códigos de moneda aceptados para el pago (mismo contrato que productos).</summary>
+    public string MonedasJson { get; set; } = "[]";
+
     /// <summary>Lista StoreCustomField[] en JSON.</summary>
     public string CustomFieldsJson { get; set; } = "[]";
 

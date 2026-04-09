@@ -193,7 +193,7 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             row.Condition = GetString(item, "condition") ?? "";
             row.Price = GetString(item, "price") ?? "";
             row.MonedaPrecio = GetString(item, "monedaPrecio");
-            row.MonedasJson = SerializeMonedasFromProductJson(item);
+            row.MonedasJson = SerializeMonedasFromCatalogItemJson(item);
             row.TaxesShippingInstall = GetString(item, "taxesShippingInstall");
             row.Availability = GetString(item, "availability") ?? "";
             row.WarrantyReturn = GetString(item, "warrantyReturn") ?? "";
@@ -260,6 +260,7 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             row.Entregables = GetString(item, "entregables") ?? "";
             row.GarantiasJson = SerializeJsonElement(item, "garantias") ?? row.GarantiasJson;
             row.PropIntelectual = GetString(item, "propIntelectual") ?? "";
+            row.MonedasJson = SerializeMonedasFromCatalogItemJson(item);
             row.CustomFieldsJson = SerializeJsonElement(item, "customFields") ?? "[]";
             row.UpdatedAt = now;
         }
@@ -268,8 +269,8 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
     private static string? GetString(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
 
-    /// <summary>Serializa <c>monedas</c> o, si falta, un único <c>moneda</c> legado.</summary>
-    private static string SerializeMonedasFromProductJson(JsonElement item)
+    /// <summary>Serializa <c>monedas</c> o, si falta, un único <c>moneda</c> legado (productos y servicios).</summary>
+    private static string SerializeMonedasFromCatalogItemJson(JsonElement item)
     {
         if (item.TryGetProperty("monedas", out var m) && m.ValueKind == JsonValueKind.Array)
             return m.GetRawText();
@@ -455,6 +456,15 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
         catch
         {
             o["garantias"] = new JsonObject();
+        }
+
+        try
+        {
+            o["monedas"] = JsonNode.Parse(s.MonedasJson) ?? new JsonArray();
+        }
+        catch
+        {
+            o["monedas"] = new JsonArray();
         }
 
         try
