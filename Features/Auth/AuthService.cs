@@ -46,17 +46,35 @@ public sealed class AuthService(IHostEnvironment hostEnvironment, IConfiguration
         JsonElement userEl;
         var row = await userAccountSync.GetProfileSnapshotAsync(digits, cancellationToken);
         if (row is null)
-            return null;
-        userEl = JsonSerializer.SerializeToElement(new {
-            id = digits,
-            phone = digits,
-            name = row.DisplayName,
-            email = row.Email,
-            avatarUrl = row.AvatarUrl,
-            instagram = row.Instagram,
-            telegram = row.Telegram,
-            xAccount = row.XAccount,
-        });
+        {
+            // Create a default user object if the profile snapshot doesn't exist
+            userEl = JsonSerializer.SerializeToElement(new
+            {
+                id = digits,
+                phone = digits,
+                name = "Usuario sin nombre",
+                email = (string?)null,
+                avatarUrl = (string?)null,
+                instagram = (string?)null,
+                telegram = (string?)null,
+                xAccount = (string?)null,
+            });
+        }
+        else
+        {
+
+            userEl = JsonSerializer.SerializeToElement(new
+            {
+                id = digits,
+                phone = digits,
+                name = row.DisplayName,
+                email = row.Email,
+                avatarUrl = row.AvatarUrl,
+                instagram = row.Instagram,
+                telegram = row.Telegram,
+                xAccount = row.XAccount,
+            });
+        }
 
         var token = Guid.NewGuid().ToString("N");
         _sessions[token] = new SessionEntry(userEl, DateTimeOffset.UtcNow.Add(SessionTtl));

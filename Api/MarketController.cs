@@ -1,6 +1,10 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
+using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Market;
 
@@ -10,11 +14,15 @@ namespace VibeTrade.Backend.Api;
 [ApiController]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
-public sealed class MarketController(IMarketWorkspaceService marketWorkspace) : ControllerBase
+public sealed class MarketController(IMarketWorkspaceService marketWorkspace, AppDbContext db) : ControllerBase
 {
     public sealed record CatalogCategoriesResponse(IReadOnlyList<string> Categories);
 
     public sealed record StoreDetailBody(string? ViewerUserId, string? ViewerRole);
+
+    public sealed record StoreSearchItem(JsonObject Store, int PublishedProducts, int PublishedServices, double? DistanceKm);
+
+    public sealed record StoreSearchResponse(IReadOnlyList<StoreSearchItem> Items);
 
     /// <summary>Categorías permitidas para productos, servicios y sugerencias en acuerdos (misma lista).</summary>
     [HttpGet("catalog-categories")]
@@ -22,6 +30,164 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace) : 
     public ActionResult<CatalogCategoriesResponse> GetCatalogCategories()
     {
         return Ok(new CatalogCategoriesResponse(CatalogCategories.ProductAndService));
+    }
+
+    /// <summary>
+    /// Busca tiendas en toda la base de datos por nombre, categoría, vitrina (productos/servicios) y distancia (km).
+    /// Requiere que la tienda tenga ubicación para aplicar distancia.
+    /// </summary>
+    [HttpGet("stores/search")]
+    [ProducesResponseType(typeof(StoreSearchResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<StoreSearchResponse>> SearchStores(
+        [FromQuery] string? name,
+        [FromQuery] string? category,
+        [FromQuery] string? vitrinaMode,
+        [FromQuery] double? lat,
+        [FromQuery] double? lng,
+        [FromQuery] double? km,
+        [FromQuery] int? limit,
+        CancellationToken cancellationToken)
+    {
+        var take = Math.Clamp(limit ?? 40, 1, 200);
+
+        var nameQ = (name ?? "").Trim();
+        var catQ = (category ?? "").Trim();
+        var mode = (vitrinaMode ?? "both").Trim().ToLowerInvariant();
+        if (mode is not ("products" or "services" or "both"))
+            mode = "both";
+
+        var hasDistanceFilter = lat.HasValue && lng.HasValue && km.HasValue && km.Value > 0;
+        if (hasDistanceFilter)
+        {
+            if (!double.IsFinite(lat!.Value) || lat.Value is < -90 or > 90) hasDistanceFilter = false;
+            if (!double.IsFinite(lng!.Value) || lng.Value is < -180 or > 180) hasDistanceFilter = false;
+            if (!double.IsFinite(km!.Value) || km.Value is <= 0 or > 25_000) hasDistanceFilter = false;
+        }
+
+        // Cargar stores base.
+        var stores = await db.Stores.AsNoTracking().ToListAsync(cancellationToken);
+
+        // Pre-cargar contadores publicados (vitrina).
+        var pubProductCounts = await db.StoreProducts.AsNoTracking()
+            .Where(p => p.Published)
+            .GroupBy(p => p.StoreId)
+            .Select(g => new { StoreId = g.Key, Cnt = g.Count() })
+            .ToDictionaryAsync(x => x.StoreId, x => x.Cnt, cancellationToken);
+
+        var pubServiceCounts = await db.StoreServices.AsNoTracking()
+            .Where(s => s.Published == null || s.Published == true)
+            .GroupBy(s => s.StoreId)
+            .Select(g => new { StoreId = g.Key, Cnt = g.Count() })
+            .ToDictionaryAsync(x => x.StoreId, x => x.Cnt, cancellationToken);
+
+        // Filtrar por nombre/categoría/vitrina/distancia en memoria (sin PostGIS).
+        var items = new List<(StoreRow row, int pp, int ps, double? dist)>(capacity: Math.Min(take, stores.Count));
+        foreach (var s in stores)
+        {
+            if (!string.IsNullOrEmpty(nameQ))
+            {
+                var hay = s.Name ?? "";
+                var idx = CultureInfo.GetCultureInfo("es").CompareInfo.IndexOf(
+                    hay,
+                    nameQ,
+                    CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace);
+                if (idx < 0)
+                    continue;
+            }
+
+            if (!string.IsNullOrEmpty(catQ))
+            {
+                if (!StoreHasCategory(s, catQ))
+                    continue;
+            }
+
+            pubProductCounts.TryGetValue(s.Id, out var pp);
+            pubServiceCounts.TryGetValue(s.Id, out var ps);
+
+            if (mode == "products" && pp <= 0) continue;
+            if (mode == "services" && ps <= 0) continue;
+            if (mode == "both" && pp <= 0 && ps <= 0) continue;
+
+            double? dist = null;
+            if (hasDistanceFilter)
+            {
+                if (s.LocationLatitude is null || s.LocationLongitude is null)
+                    continue;
+                dist = HaversineKm(lat!.Value, lng!.Value, s.LocationLatitude.Value, s.LocationLongitude.Value);
+                if (dist > km!.Value)
+                    continue;
+            }
+
+            items.Add((s, pp, ps, dist));
+        }
+
+        // Orden: por distancia si aplica, si no por trustScore desc, luego nombre.
+        IEnumerable<(StoreRow row, int pp, int ps, double? dist)> ordered = items;
+        if (hasDistanceFilter)
+            ordered = ordered.OrderBy(x => x.dist ?? double.MaxValue);
+        else
+            ordered = ordered.OrderByDescending(x => x.row.TrustScore).ThenBy(x => x.row.Name, StringComparer.CurrentCultureIgnoreCase);
+
+        var outItems = ordered.Take(take).Select(x =>
+        {
+            var node = new JsonObject
+            {
+                ["id"] = x.row.Id,
+                ["name"] = x.row.Name,
+                ["verified"] = x.row.Verified,
+                ["transportIncluded"] = x.row.TransportIncluded,
+                ["trustScore"] = x.row.TrustScore,
+                ["ownerUserId"] = x.row.OwnerUserId,
+            };
+            if (!string.IsNullOrEmpty(x.row.AvatarUrl))
+                node["avatarUrl"] = x.row.AvatarUrl;
+
+            try { node["categories"] = JsonNode.Parse(x.row.CategoriesJson) ?? new JsonArray(); }
+            catch { node["categories"] = new JsonArray(); }
+
+            if (x.row.LocationLatitude is { } la && x.row.LocationLongitude is { } lo)
+            {
+                node["location"] = new JsonObject { ["lat"] = la, ["lng"] = lo };
+            }
+
+            return new StoreSearchItem(node, x.pp, x.ps, x.dist);
+        }).ToList();
+
+        return Ok(new StoreSearchResponse(outItems));
+    }
+
+    private static bool StoreHasCategory(StoreRow row, string categoryQ)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(row.CategoriesJson ?? "[]");
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) return false;
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                if (el.ValueKind != JsonValueKind.String) continue;
+                var c = el.GetString() ?? "";
+                if (c.Contains(categoryQ, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static double HaversineKm(double lat1, double lng1, double lat2, double lng2)
+    {
+        const double R = 6371.0;
+        static double DegToRad(double d) => d * (Math.PI / 180.0);
+        var dLat = DegToRad(lat2 - lat1);
+        var dLng = DegToRad(lng2 - lng1);
+        var a =
+            Math.Pow(Math.Sin(dLat / 2), 2) +
+            Math.Cos(DegToRad(lat1)) * Math.Cos(DegToRad(lat2)) * Math.Pow(Math.Sin(dLng / 2), 2);
+        var c = 2 * Math.Asin(Math.Min(1, Math.Sqrt(a)));
+        return R * c;
     }
    
     /// <summary>Obtiene el snapshot actual del mercado; si la base está vacía, aplica seed embebido.</summary>
