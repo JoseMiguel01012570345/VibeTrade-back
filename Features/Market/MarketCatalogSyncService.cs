@@ -61,6 +61,7 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             row.AvatarUrl = GetString(el, "avatarUrl");
             row.CategoriesJson = SerializeStringArray(el, "categories");
             row.UpdatedAt = now;
+            ApplyLocationFromWorkspace(el, row);
 
             if (hasCatalogs && catalogs.TryGetProperty(storeId, out var catEl) && catEl.ValueKind == JsonValueKind.Object)
             {
@@ -105,6 +106,24 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             .FirstOrDefault(g => g.Count() > 1);
         if (dup is not null)
             throw new DuplicateStoreNameException(dup.Key);
+    }
+
+    private static void ApplyLocationFromWorkspace(JsonElement storeEl, StoreRow row)
+    {
+        row.LocationLatitude = null;
+        row.LocationLongitude = null;
+        if (!storeEl.TryGetProperty("location", out var loc) || loc.ValueKind != JsonValueKind.Object)
+            return;
+        if (!loc.TryGetProperty("lat", out var latEl) || !latEl.TryGetDouble(out var lat))
+            return;
+        if (!loc.TryGetProperty("lng", out var lngEl) || !lngEl.TryGetDouble(out var lng))
+            return;
+        if (!double.IsFinite(lat) || lat < -90 || lat > 90)
+            return;
+        if (!double.IsFinite(lng) || lng < -180 || lng > 180)
+            return;
+        row.LocationLatitude = lat;
+        row.LocationLongitude = lng;
     }
 
     private static bool TryGetStoresObject(JsonElement workspaceRoot, out JsonElement? storesEl)
@@ -292,6 +311,15 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
                 node["categories"] = new JsonArray();
             }
 
+            if (s.LocationLatitude is { } la && s.LocationLongitude is { } lo)
+            {
+                node["location"] = new JsonObject
+                {
+                    ["lat"] = la,
+                    ["lng"] = lo,
+                };
+            }
+
             o[s.Id] = node;
         }
 
@@ -449,6 +477,15 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
         catch
         {
             storeNode["categories"] = new JsonArray();
+        }
+
+        if (store.LocationLatitude is { } lat && store.LocationLongitude is { } lng)
+        {
+            storeNode["location"] = new JsonObject
+            {
+                ["lat"] = lat,
+                ["lng"] = lng,
+            };
         }
 
         var catalog = new JsonObject

@@ -31,6 +31,12 @@ public sealed class StoreRow
     /// <summary>Fecha de alta en la plataforma (epoch ms, alineado al cliente).</summary>
     public long JoinedAtMs { get; set; }
 
+    /// <summary>Latitud WGS84 del pin de ubicación (opcional).</summary>
+    public double? LocationLatitude { get; set; }
+
+    /// <summary>Longitud WGS84 del pin de ubicación (opcional).</summary>
+    public double? LocationLongitude { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }

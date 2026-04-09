@@ -143,6 +143,12 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<long>("JoinedAtMs")
                         .HasColumnType("bigint");
 
+                    b.Property<double?>("LocationLatitude")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("LocationLongitude")
+                        .HasColumnType("double precision");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(512)
