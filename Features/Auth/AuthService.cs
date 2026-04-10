@@ -12,8 +12,8 @@ public sealed class AuthService(
     IUserAccountSyncService userAccountSync,
     AppDbContext db) : IAuthService
 {
-    private static readonly TimeSpan PendingTtl = TimeSpan.FromMinutes(10);
-    private static readonly TimeSpan SessionTtl = TimeSpan.FromDays(7);
+    private static readonly TimeSpan PendingTtl = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan SessionTtl = TimeSpan.FromHours(16);
 
     public RequestCodeResult RequestCode(string phoneRaw)
     {

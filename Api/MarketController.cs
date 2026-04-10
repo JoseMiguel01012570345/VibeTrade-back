@@ -244,7 +244,6 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace, Ap
         CancellationToken cancellationToken)
     {
         using var doc = await marketWorkspace.GetStoreDetailAsync(storeId, cancellationToken);
-        Console.WriteLine(doc);
         if (doc is null)
             return NotFound();
         var root = JsonNode.Parse(doc.RootElement.GetRawText())!.AsObject();

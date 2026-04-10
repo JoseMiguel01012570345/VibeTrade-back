@@ -34,6 +34,10 @@ public sealed class MarketWorkspaceService(
         root["stores"] = await catalog.BuildStoresJsonObjectAsync(cancellationToken);
         root["storeCatalogs"] = await catalog.BuildStoreCatalogsJsonObjectAsync(cancellationToken);
 
+        var (offers, offerIds) = await catalog.BuildPublishedOffersFeedAsync(cancellationToken);
+        root["offers"] = offers;
+        root["offerIds"] = offerIds;
+
         return JsonDocument.Parse(root.ToJsonString());
     }
 

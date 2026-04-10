@@ -25,36 +25,9 @@ public sealed class BootstrapService(IMarketWorkspaceService marketWorkspace, Ap
             .ToListAsync(cancellationToken);
         var keepStoreIds = new HashSet<string>(storeIds, StringComparer.Ordinal);
 
-        // stores
-        if (marketObj["stores"] is JsonObject stores)
-        {
-            var filtered = new JsonObject();
-            foreach (var id in keepStoreIds)
-            {
-                if (stores[id] is null) continue;
-                filtered[id] = JsonNode.Parse(stores[id]!.ToJsonString());
-            }
-            marketObj["stores"] = filtered;
-        }
-
-        // storeCatalogs: keep empty for bootstrap (hydrated on demand)
+        // stores + offers: datos globales del mercado (Home y exploración); no filtrar por dueño.
+        // storeCatalogs: vacío en bootstrap (se hidrata con POST stores/:id/detail).
         marketObj["storeCatalogs"] = new JsonObject();
-
-        // offers + offerIds
-        if (marketObj["offers"] is JsonObject offers)
-        {
-            var nextOffers = new JsonObject();
-            foreach (var kv in offers)
-            {
-                if (kv.Value is not JsonObject offer) continue;
-                var storeId = offer["storeId"]?.GetValue<string>();
-                if (storeId is not null && keepStoreIds.Contains(storeId))
-                    nextOffers[kv.Key] = JsonNode.Parse(offer.ToJsonString());
-            }
-            marketObj["offers"] = nextOffers;
-            marketObj["offerIds"] = new JsonArray(
-                nextOffers.Select(kv => (JsonNode?)JsonValue.Create(kv.Key)).ToArray());
-        }
 
         // threads
         if (marketObj["threads"] is JsonObject threads)

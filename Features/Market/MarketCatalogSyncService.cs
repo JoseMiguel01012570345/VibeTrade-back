@@ -566,4 +566,133 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
         var root = new JsonObject { ["store"] = storeNode, ["catalog"] = catalog };
         return JsonDocument.Parse(root.ToJsonString());
     }
+
+    private const string DefaultOfferImageUrl =
+        "https://images.unsplash.com/photo-1523348837708-15d4a09cfac2?auto=format&fit=crop&w=1200&q=80";
+
+    public async Task<(JsonObject Offers, JsonArray OfferIds)> BuildPublishedOffersFeedAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var stores = await db.Stores.AsNoTracking()
+            .ToDictionaryAsync(s => s.Id, StringComparer.Ordinal, cancellationToken);
+
+        var products = await db.StoreProducts.AsNoTracking()
+            .Where(p => p.Published)
+            .ToListAsync(cancellationToken);
+        var services = await db.StoreServices.AsNoTracking()
+            .Where(s => s.Published == null || s.Published == true)
+            .ToListAsync(cancellationToken);
+
+        var entries = new List<(DateTimeOffset at, string id, JsonObject offer)>(
+            capacity: products.Count + services.Count);
+
+        foreach (var p in products)
+        {
+            if (!stores.ContainsKey(p.StoreId))
+                continue;
+            entries.Add((p.UpdatedAt, p.Id, ProductRowToOfferJson(p)));
+        }
+
+        foreach (var s in services)
+        {
+            if (!stores.ContainsKey(s.StoreId))
+                continue;
+            entries.Add((s.UpdatedAt, s.Id, ServiceRowToOfferJson(s)));
+        }
+
+        entries.Sort((a, b) => b.at.CompareTo(a.at));
+
+        var offersObj = new JsonObject();
+        var ids = new JsonArray();
+        foreach (var (_, id, offer) in entries)
+        {
+            offersObj[id] = offer;
+            ids.Add(id);
+        }
+
+        return (offersObj, ids);
+    }
+
+    private JsonObject ProductRowToOfferJson(StoreProductRow p)
+    {
+        var tags = new List<string>();
+        if (!string.IsNullOrWhiteSpace(p.Category))
+            tags.Add(p.Category.Trim());
+        if (!string.IsNullOrWhiteSpace(p.Condition))
+            tags.Add(p.Condition.Trim());
+        tags.Add("Producto");
+
+        var price = FormatProductPrice(p);
+        var title = string.IsNullOrWhiteSpace(p.Name) ? "Producto" : p.Name.Trim();
+
+        return new JsonObject
+        {
+            ["id"] = p.Id,
+            ["storeId"] = p.StoreId,
+            ["title"] = title,
+            ["price"] = price,
+            ["tags"] = new JsonArray(tags.Select(t => (JsonNode?)JsonValue.Create(t)).ToArray()),
+            ["imageUrl"] = FirstHttpUrlFromPhotoJson(p.PhotoUrlsJson) ?? DefaultOfferImageUrl,
+            ["qa"] = new JsonArray(),
+        };
+    }
+
+    private JsonObject ServiceRowToOfferJson(StoreServiceRow s)
+    {
+        var tags = new List<string>();
+        if (!string.IsNullOrWhiteSpace(s.Category))
+            tags.Add(s.Category.Trim());
+        if (!string.IsNullOrWhiteSpace(s.TipoServicio))
+            tags.Add(s.TipoServicio.Trim());
+        tags.Add("Servicio");
+
+        var title = !string.IsNullOrWhiteSpace(s.TipoServicio)
+            ? s.TipoServicio.Trim()
+            : (!string.IsNullOrWhiteSpace(s.Category) ? s.Category.Trim() : "Servicio");
+
+        return new JsonObject
+        {
+            ["id"] = s.Id,
+            ["storeId"] = s.StoreId,
+            ["title"] = title,
+            ["price"] = FormatServicePriceLine(s),
+            ["tags"] = new JsonArray(tags.Select(t => (JsonNode?)JsonValue.Create(t)).ToArray()),
+            ["imageUrl"] = DefaultOfferImageUrl,
+            ["qa"] = new JsonArray(),
+        };
+    }
+
+    private static string FormatProductPrice(StoreProductRow p)
+    {
+        var price = (p.Price ?? "").Trim();
+        var mon = (p.MonedaPrecio ?? "").Trim();
+        return $"{price} {mon}";
+    }
+
+    private static string? FormatServicePriceLine(StoreServiceRow s)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(s.MonedasJson ?? "[]");
+            var codes = doc.RootElement.EnumerateArray()
+                .Where(e => e.ValueKind == JsonValueKind.String)
+                .Select(e => (e.GetString() ?? "").Trim())
+                .Where(x => x.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return codes.Count == 0 ? null : string.Join(" · ", codes);
+        }
+        catch
+        {
+            return "Consultar";
+        }
+    }
+
+    private static string? FirstHttpUrlFromPhotoJson(string photoUrlsJson)
+    {
+        using var doc = JsonDocument.Parse(photoUrlsJson ?? "[]");
+        if (doc.RootElement.ValueKind != JsonValueKind.Array && doc.RootElement.GetArrayLength() == 0)
+            return null;
+        return doc.RootElement[0].GetString();
+    }
 }

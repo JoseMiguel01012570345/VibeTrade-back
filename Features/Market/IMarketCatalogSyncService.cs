@@ -15,4 +15,9 @@ public interface IMarketCatalogSyncService
 
     /// <summary><c>{"store":...,"catalog":...}</c> o null si no existe la tienda.</summary>
     Task<JsonDocument?> GetStoreDetailDocumentAsync(string storeId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Feed de ofertas para el Home: una entrada por producto/servicio publicado (shape alineado al tipo Offer del cliente).
+    /// </summary>
+    Task<(JsonObject Offers, JsonArray OfferIds)> BuildPublishedOffersFeedAsync(CancellationToken cancellationToken = default);
 }
