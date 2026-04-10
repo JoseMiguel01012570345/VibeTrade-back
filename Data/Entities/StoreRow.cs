@@ -18,7 +18,7 @@ public sealed class StoreRow
 
     public bool TransportIncluded { get; set; }
 
-    public int TrustScore { get; set; } = 50;
+    public int TrustScore { get; set; } = 80;
 
     public string? AvatarUrl { get; set; }
 
