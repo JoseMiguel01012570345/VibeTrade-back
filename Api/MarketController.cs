@@ -223,6 +223,10 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace, Ap
         {
             return Conflict(new { error = "duplicate_store_name", message = "Ya existe una tienda con ese nombre en la plataforma." });
         }
+        catch (CatalogCurrencyValidationException ex)
+        {
+            return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
+        }
 
         return Ok();
     }

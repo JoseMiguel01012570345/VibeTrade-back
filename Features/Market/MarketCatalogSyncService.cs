@@ -177,6 +177,8 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             if (string.IsNullOrEmpty(id))
                 continue;
 
+            ThrowIfProductCurrencyInvalid(item, id);
+
             var row = await db.StoreProducts.FindAsync([id], cancellationToken);
             if (row is null)
             {
@@ -235,6 +237,8 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             if (string.IsNullOrEmpty(id))
                 continue;
 
+            ThrowIfServiceCurrencyInvalid(item, id);
+
             var row = await db.StoreServices.FindAsync([id], cancellationToken);
             if (row is null)
             {
@@ -268,6 +272,38 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
 
     private static string? GetString(JsonElement el, string name) =>
         el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+
+    private static void ThrowIfProductCurrencyInvalid(JsonElement item, string id)
+    {
+        if (string.IsNullOrWhiteSpace(GetString(item, "monedaPrecio")))
+            throw new CatalogCurrencyValidationException(
+                $"Producto \"{id}\": la moneda del precio es obligatoria.");
+        if (!CatalogItemHasAtLeastOneAcceptedMoneda(item))
+            throw new CatalogCurrencyValidationException(
+                $"Producto \"{id}\": indicá al menos una moneda aceptada para el pago.");
+    }
+
+    private static void ThrowIfServiceCurrencyInvalid(JsonElement item, string id)
+    {
+        if (!CatalogItemHasAtLeastOneAcceptedMoneda(item))
+            throw new CatalogCurrencyValidationException(
+                $"Servicio \"{id}\": indicá al menos una moneda aceptada para el pago.");
+    }
+
+    /// <summary>Al menos un código en <c>monedas</c> no vacío, o <c>moneda</c> legado.</summary>
+    private static bool CatalogItemHasAtLeastOneAcceptedMoneda(JsonElement item)
+    {
+        if (item.TryGetProperty("monedas", out var m) && m.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var el in m.EnumerateArray())
+            {
+                if (el.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(el.GetString()))
+                    return true;
+            }
+        }
+
+        return !string.IsNullOrWhiteSpace(GetString(item, "moneda"));
+    }
 
     /// <summary>Serializa <c>monedas</c> o, si falta, un único <c>moneda</c> legado (productos y servicios).</summary>
     private static string SerializeMonedasFromCatalogItemJson(JsonElement item)
