@@ -10,6 +10,13 @@ namespace VibeTrade.Backend.Features.Market;
 
 public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSyncService
 {
+    /// <summary>
+    /// Imagen por defecto solo en el feed de <b>ofertas</b> (<c>imageUrl</c> / <c>imageUrls</c>).
+    /// El catálogo de tienda (<c>photoUrls</c> en <see cref="ServiceToJson"/>) no incluye placeholder.
+    /// Archivo estático: <c>web/public/tool.png</c>.
+    /// </summary>
+    private const string DefaultServiceOfferImageUrl = "/tool.png";
+
     public async Task ApplyStoresAndCatalogsFromWorkspaceAsync(
         JsonElement workspaceRoot,
         CancellationToken cancellationToken = default)
@@ -68,6 +75,8 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
                 await SyncServicesAsync(storeId, catEl, now, cancellationToken);
             }
         }
+
+        ApplyOfferQaFromWorkspace(workspaceRoot, now);
 
         EnsureNoDuplicateStoreNames();
 
@@ -266,7 +275,139 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             row.PropIntelectual = GetString(item, "propIntelectual") ?? "";
             row.MonedasJson = SerializeMonedasFromCatalogItemJson(item);
             row.CustomFieldsJson = SerializeJsonElement(item, "customFields") ?? "[]";
+            if (item.TryGetProperty("photoUrls", out var phEl) && phEl.ValueKind == JsonValueKind.Array)
+                row.PhotoUrlsJson = await FilterIncomingServicePhotoUrlsToImageMediaJsonAsync(phEl, cancellationToken);
             row.UpdatedAt = now;
+        }
+    }
+
+    /// <summary>
+    /// <c>photoUrls</c> de servicios: solo imágenes (los adjuntos PDF u otros van en <c>customFields</c>).
+    /// Resuelve <c>/api/v1/media/{id}</c> contra <see cref="StoredMediaRow.MimeType"/>.
+    /// </summary>
+    private async Task<string> FilterIncomingServicePhotoUrlsToImageMediaJsonAsync(
+        JsonElement photoUrlsArray,
+        CancellationToken cancellationToken)
+    {
+        if (photoUrlsArray.ValueKind != JsonValueKind.Array)
+            return "[]";
+
+        var raw = new List<string>();
+        foreach (var el in photoUrlsArray.EnumerateArray())
+        {
+            if (el.ValueKind != JsonValueKind.String)
+                continue;
+            var u = (el.GetString() ?? "").Trim();
+            if (u.Length > 0)
+                raw.Add(u);
+        }
+
+        if (raw.Count == 0)
+            return "[]";
+
+        var mediaIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var u in raw)
+        {
+            var id = TryGetStoredMediaIdFromCatalogUrl(u);
+            if (id is not null)
+                mediaIds.Add(id);
+        }
+
+        var mimeById = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (mediaIds.Count > 0)
+        {
+            var rows = await db.StoredMedia.AsNoTracking()
+                .Where(m => mediaIds.Contains(m.Id))
+                .Select(m => new { m.Id, m.MimeType })
+                .ToListAsync(cancellationToken);
+            foreach (var r in rows)
+                mimeById[r.Id] = r.MimeType ?? "";
+        }
+
+        var kept = new List<string>(raw.Count);
+        foreach (var u in raw)
+        {
+            var id = TryGetStoredMediaIdFromCatalogUrl(u);
+            if (id is not null)
+            {
+                if (mimeById.TryGetValue(id, out var mt) &&
+                    mt.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                    kept.Add(u);
+                continue;
+            }
+
+            if (IsLikelyNonMediaCatalogImageUrl(u))
+                kept.Add(u);
+        }
+
+        return JsonSerializer.Serialize(kept);
+    }
+
+    private static string? TryGetStoredMediaIdFromCatalogUrl(string url)
+    {
+        var u = (url ?? "").Trim();
+        if (u.Length == 0)
+            return null;
+        const string prefix = "/api/v1/media/";
+        var idx = u.IndexOf(prefix, StringComparison.Ordinal);
+        if (idx < 0)
+            return null;
+        var rest = u[(idx + prefix.Length)..];
+        var q = rest.IndexOf('?');
+        if (q >= 0)
+            rest = rest[..q];
+        rest = Uri.UnescapeDataString(rest);
+        return string.IsNullOrEmpty(rest) ? null : rest;
+    }
+
+    /// <summary>URLs que no pasan por <c>StoredMedia</c> pero son claramente imagen (no PDF).</summary>
+    private static bool IsLikelyNonMediaCatalogImageUrl(string u)
+    {
+        if (u.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (u.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var lower = u.ToLowerInvariant();
+        if (lower.Contains(".pdf") || lower.Contains("application/pdf"))
+            return false;
+        if (lower.Contains(".jpg") || lower.Contains(".jpeg") || lower.Contains(".png") ||
+            lower.Contains(".gif") || lower.Contains(".webp") || lower.Contains(".avif") ||
+            lower.Contains(".svg"))
+            return true;
+        return u.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+               u.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Persiste <c>offers[*].qa</c> en filas de producto/servicio (mismo id que la oferta).</summary>
+    private void ApplyOfferQaFromWorkspace(JsonElement workspaceRoot, DateTimeOffset now)
+    {
+        if (!workspaceRoot.TryGetProperty("offers", out var offersEl) || offersEl.ValueKind != JsonValueKind.Object)
+            return;
+
+        foreach (var prop in offersEl.EnumerateObject())
+        {
+            if (prop.Value.ValueKind != JsonValueKind.Object)
+                continue;
+            if (!prop.Value.TryGetProperty("qa", out var qaEl) || qaEl.ValueKind != JsonValueKind.Array)
+                continue;
+
+            var qaRaw = qaEl.GetRawText();
+            var id = prop.Name;
+
+            var product = db.StoreProducts.Find(id);
+            if (product is not null)
+            {
+                product.OfferQaJson = qaRaw;
+                product.UpdatedAt = now;
+                continue;
+            }
+
+            var service = db.StoreServices.Find(id);
+            if (service is not null)
+            {
+                service.OfferQaJson = qaRaw;
+                service.UpdatedAt = now;
+            }
         }
     }
 
@@ -512,6 +653,13 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             o["customFields"] = new JsonArray();
         }
 
+        var svcPhotoUrls = CollectDisplayablePhotoUrls(s.PhotoUrlsJson);
+        // Sin fotos reales: array vacío. El placeholder `/tool.png` solo se aplica en ofertas (ServiceRowToOfferJson).
+        Console.WriteLine($"PhotoUrlsJson: {s.PhotoUrlsJson}");
+        o["photoUrls"] = svcPhotoUrls.Count > 0
+            ? new JsonArray(svcPhotoUrls.Select(u => (JsonNode?)JsonValue.Create(u)).ToArray())
+            : new JsonArray();
+
         return o;
     }
 
@@ -567,9 +715,6 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
         return JsonDocument.Parse(root.ToJsonString());
     }
 
-    private const string DefaultOfferImageUrl =
-        "https://images.unsplash.com/photo-1523348837708-15d4a09cfac2?auto=format&fit=crop&w=1200&q=80";
-
     public async Task<(JsonObject Offers, JsonArray OfferIds)> BuildPublishedOffersFeedAsync(
         CancellationToken cancellationToken = default)
     {
@@ -624,6 +769,8 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
 
         var price = FormatProductPrice(p);
         var title = string.IsNullOrWhiteSpace(p.Name) ? "Producto" : p.Name.Trim();
+        var photoUrls = CollectDisplayablePhotoUrls(p.PhotoUrlsJson);
+        var primary = photoUrls.Count > 0 ? photoUrls[0] : null;
 
         return new JsonObject
         {
@@ -631,9 +778,11 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             ["storeId"] = p.StoreId,
             ["title"] = title,
             ["price"] = price,
+            ["description"] = OfferDescriptionForProduct(p),
             ["tags"] = new JsonArray(tags.Select(t => (JsonNode?)JsonValue.Create(t)).ToArray()),
-            ["imageUrl"] = FirstHttpUrlFromPhotoJson(p.PhotoUrlsJson) ?? DefaultOfferImageUrl,
-            ["qa"] = new JsonArray(),
+            ["imageUrl"] = primary,
+            ["imageUrls"] = new JsonArray(photoUrls.Select(u => (JsonNode?)JsonValue.Create(u)).ToArray()),
+            ["qa"] = ParseOfferQaJsonNode(p.OfferQaJson),
         };
     }
 
@@ -649,6 +798,11 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
         var title = !string.IsNullOrWhiteSpace(s.TipoServicio)
             ? s.TipoServicio.Trim()
             : (!string.IsNullOrWhiteSpace(s.Category) ? s.Category.Trim() : "Servicio");
+        var photoUrls = CollectServiceOfferGalleryUrls(s);
+        var primary = photoUrls.Count > 0 ? photoUrls[0] : DefaultServiceOfferImageUrl;
+        var imageUrlsNode = photoUrls.Count > 0
+            ? new JsonArray(photoUrls.Select(u => (JsonNode?)JsonValue.Create(u)).ToArray())
+            : new JsonArray((JsonNode?)JsonValue.Create(DefaultServiceOfferImageUrl));
 
         return new JsonObject
         {
@@ -656,11 +810,25 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             ["storeId"] = s.StoreId,
             ["title"] = title,
             ["price"] = FormatServicePriceLine(s),
+            ["description"] = OfferDescriptionForService(s),
             ["tags"] = new JsonArray(tags.Select(t => (JsonNode?)JsonValue.Create(t)).ToArray()),
-            ["imageUrl"] = DefaultOfferImageUrl,
-            ["qa"] = new JsonArray(),
+            ["imageUrl"] = primary,
+            ["imageUrls"] = imageUrlsNode,
+            ["qa"] = ParseOfferQaJsonNode(s.OfferQaJson),
         };
     }
+
+    private static string OfferDescriptionForProduct(StoreProductRow p)
+    {
+        var a = (p.ShortDescription ?? "").Trim();
+        if (a.Length > 0)
+            return a;
+        var b = (p.MainBenefit ?? "").Trim();
+        return b.Length > 0 ? b : "";
+    }
+
+    private static string OfferDescriptionForService(StoreServiceRow s) =>
+        (s.Descripcion ?? "").Trim();
 
     private static string FormatProductPrice(StoreProductRow p)
     {
@@ -688,11 +856,135 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
         }
     }
 
-    private static string? FirstHttpUrlFromPhotoJson(string photoUrlsJson)
+    /// <summary>
+    /// Galería de oferta de servicio: <see cref="StoreServiceRow.PhotoUrlsJson"/> más adjuntos <c>kind: image</c> en <see cref="StoreServiceRow.CustomFieldsJson"/>.
+    /// </summary>
+    private static List<string> CollectServiceOfferGalleryUrls(StoreServiceRow s)
     {
-        using var doc = JsonDocument.Parse(photoUrlsJson ?? "[]");
-        if (doc.RootElement.ValueKind != JsonValueKind.Array && doc.RootElement.GetArrayLength() == 0)
-            return null;
-        return doc.RootElement[0].GetString();
+        var list = CollectDisplayablePhotoUrls(s.PhotoUrlsJson);
+        var seen = new HashSet<string>(list, StringComparer.Ordinal);
+        AppendDisplayableImageUrlsFromCustomFieldsJson(s.CustomFieldsJson, list, seen);
+        return list;
+    }
+
+    private static List<string> CollectDisplayablePhotoUrls(string photoUrlsJson)
+    {
+        var list = new List<string>();
+        try
+        {
+            using var doc = JsonDocument.Parse(photoUrlsJson ?? "[]");
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                return list;
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                if (el.ValueKind != JsonValueKind.String)
+                    continue;
+                var u = (el.GetString() ?? "").Trim();
+                if (u.Length == 0 || !IsDisplayableCatalogImageUrl(u))
+                    continue;
+                list.Add(u);
+            }
+        }
+        catch
+        {
+            /* ignore */
+        }
+
+        return list;
+    }
+
+    private static void AppendDisplayableImageUrlsFromCustomFieldsJson(string? customFieldsJson, List<string> list, HashSet<string> seen)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(customFieldsJson ?? "[]");
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                return;
+            foreach (var field in doc.RootElement.EnumerateArray())
+            {
+                if (field.ValueKind != JsonValueKind.Object)
+                    continue;
+                if (!TryGetPropertyIgnoreCase(field, "attachments", out var atts) ||
+                    atts.ValueKind != JsonValueKind.Array)
+                    continue;
+                foreach (var att in atts.EnumerateArray())
+                {
+                    if (att.ValueKind != JsonValueKind.Object)
+                        continue;
+                    if (!TryGetPropertyIgnoreCase(att, "kind", out var kindEl) ||
+                        kindEl.ValueKind != JsonValueKind.String)
+                        continue;
+                    if (!string.Equals(kindEl.GetString(), "image", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!TryGetPropertyIgnoreCase(att, "url", out var urlEl) ||
+                        urlEl.ValueKind != JsonValueKind.String)
+                        continue;
+                    var u = (urlEl.GetString() ?? "").Trim();
+                    if (u.Length == 0 || !IsDisplayableCatalogImageUrl(u) || !seen.Add(u))
+                        continue;
+                    list.Add(u);
+                }
+            }
+        }
+        catch
+        {
+            /* ignore */
+        }
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement obj, string name, out JsonElement value)
+    {
+        foreach (var p in obj.EnumerateObject())
+        {
+            if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = p.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static bool IsDisplayableCatalogImageUrl(string u) =>
+        u.StartsWith("/api/v1/media/", StringComparison.Ordinal) ||
+        u.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+        u.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+        u.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase) ||
+        IsRootRelativeStaticImageUrl(u);
+
+    /// <summary>Rutas bajo el origen del SPA (p. ej. <c>/tool.png</c> en <c>public/</c>), no API.</summary>
+    private static bool IsRootRelativeStaticImageUrl(string u)
+    {
+        if (!u.StartsWith("/", StringComparison.Ordinal) ||
+            u.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var lower = u.ToLowerInvariant();
+        var q = lower.IndexOf('?', StringComparison.Ordinal);
+        if (q >= 0)
+            lower = lower[..q];
+        return lower.EndsWith(".png", StringComparison.Ordinal) ||
+               lower.EndsWith(".jpg", StringComparison.Ordinal) ||
+               lower.EndsWith(".jpeg", StringComparison.Ordinal) ||
+               lower.EndsWith(".gif", StringComparison.Ordinal) ||
+               lower.EndsWith(".webp", StringComparison.Ordinal) ||
+               lower.EndsWith(".avif", StringComparison.Ordinal) ||
+               lower.EndsWith(".svg", StringComparison.Ordinal);
+    }
+
+    private static JsonArray ParseOfferQaJsonNode(string? json)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                return new JsonArray();
+            var n = JsonNode.Parse(json);
+            return n as JsonArray ?? new JsonArray();
+        }
+        catch
+        {
+            return new JsonArray();
+        }
     }
 }

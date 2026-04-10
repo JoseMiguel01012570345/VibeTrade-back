@@ -137,6 +137,10 @@ namespace VibeTrade.Backend.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("OfferQaJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<string>("PhotoUrlsJson")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -289,6 +293,14 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<string>("NoIncluye")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("OfferQaJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("PhotoUrlsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
 
                     b.Property<string>("PropIntelectual")
                         .IsRequired()

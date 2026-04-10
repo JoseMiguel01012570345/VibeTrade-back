@@ -105,6 +105,12 @@ if (migrateError is not null)
         $"Database migration failed after {migrateMaxAttempts} attempts. Is PostgreSQL running and reachable?",
         migrateError);
 
+await using (var schemaScope = app.Services.CreateAsyncScope())
+{
+    var db = schemaScope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await CatalogOfferColumnsRepair.RunAsync(db);
+}
+
 // Data repair: make identity invariant (user id = phoneDigits) for existing rows.
 // {
 //     await using var repairScope = app.Services.CreateAsyncScope();

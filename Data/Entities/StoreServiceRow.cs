@@ -40,5 +40,11 @@ public sealed class StoreServiceRow
     /// <summary>Lista StoreCustomField[] en JSON.</summary>
     public string CustomFieldsJson { get; set; } = "[]";
 
+    /// <summary>Array JSON de URLs de imágenes (mismo contrato que productos).</summary>
+    public string PhotoUrlsJson { get; set; } = "[]";
+
+    /// <summary>Preguntas y respuestas públicas de la oferta (JSON array).</summary>
+    public string OfferQaJson { get; set; } = "[]";
+
     public DateTimeOffset UpdatedAt { get; set; }
 }

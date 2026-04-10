@@ -50,5 +50,8 @@ public sealed class StoreProductRow
     /// <summary>Lista de campos personalizados (JSON, alineado a StoreCustomField[]).</summary>
     public string CustomFieldsJson { get; set; } = "[]";
 
+    /// <summary>Preguntas y respuestas públicas de la oferta (JSON array, mismo shape que el cliente).</summary>
+    public string OfferQaJson { get; set; } = "[]";
+
     public DateTimeOffset UpdatedAt { get; set; }
 }

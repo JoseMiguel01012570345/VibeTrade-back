@@ -83,6 +83,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.MonedasJson).HasColumnType("jsonb");
             e.Property(x => x.PhotoUrlsJson).HasColumnType("jsonb");
             e.Property(x => x.CustomFieldsJson).HasColumnType("jsonb");
+            e.Property(x => x.OfferQaJson).HasColumnType("jsonb");
             e.HasIndex(x => x.StoreId);
         });
 
@@ -97,6 +98,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.GarantiasJson).HasColumnType("jsonb");
             e.Property(x => x.MonedasJson).HasColumnType("jsonb");
             e.Property(x => x.CustomFieldsJson).HasColumnType("jsonb");
+            e.Property(x => x.PhotoUrlsJson).HasColumnType("jsonb");
+            e.Property(x => x.OfferQaJson).HasColumnType("jsonb");
             e.HasIndex(x => x.StoreId);
         });
 
