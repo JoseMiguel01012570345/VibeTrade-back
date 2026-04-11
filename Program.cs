@@ -7,6 +7,7 @@ using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Bootstrap;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.SavedOffers;
 using VibeTrade.Backend.Api.Swagger;
 using VibeTrade.Backend.Infrastructure;
 using VibeTrade.Backend.Utils.TimeZone;
@@ -37,6 +38,7 @@ builder.Services.AddScoped<IMarketWorkspaceRepository, MarketWorkspaceRepository
 builder.Services.AddScoped<IMarketCatalogSyncService, MarketCatalogSyncService>();
 builder.Services.AddScoped<IMarketWorkspaceService, MarketWorkspaceService>();
 builder.Services.AddScoped<IBootstrapService, BootstrapService>();
+builder.Services.AddScoped<ISavedOffersService, SavedOffersService>();
 builder.Services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 

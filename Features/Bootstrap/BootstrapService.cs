@@ -3,10 +3,14 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.SavedOffers;
 
 namespace VibeTrade.Backend.Features.Bootstrap;
 
-public sealed class BootstrapService(IMarketWorkspaceService marketWorkspace, AppDbContext db) : IBootstrapService
+public sealed class BootstrapService(
+    IMarketWorkspaceService marketWorkspace,
+    AppDbContext db,
+    ISavedOffersService savedOffers) : IBootstrapService
 {
     public async Task<JsonDocument> GetBootstrapAsync(string viewerPhoneDigits, CancellationToken cancellationToken = default)
     {
@@ -61,8 +65,16 @@ public sealed class BootstrapService(IMarketWorkspaceService marketWorkspace, Ap
         const string reels =
             """{"items":[],"initialComments":{},"initialLikeCounts":{}}""";
         const string profileNames = "{}";
+
+        var viewerUser = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.PhoneDigits == viewerDigits, cancellationToken);
+        var savedList = viewerUser is null
+            ? Array.Empty<string>()
+            : (await savedOffers.GetFilteredForBootstrapAsync(viewerUser.Id, cancellationToken)).ToArray();
+        var savedIdsJson = JsonSerializer.Serialize(savedList);
+
         var json =
-            $"{{\"market\":{m},\"reels\":{reels},\"profileDisplayNames\":{profileNames}}}";
+            $"{{\"market\":{m},\"reels\":{reels},\"profileDisplayNames\":{profileNames},\"savedOfferIds\":{savedIdsJson}}}";
         return JsonDocument.Parse(json);
     }
 }

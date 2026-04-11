@@ -38,6 +38,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Instagram).HasMaxLength(256);
             e.Property(x => x.Telegram).HasMaxLength(256);
             e.Property(x => x.XAccount).HasMaxLength(256);
+            e.Property(x => x.SavedOfferIdsJson).HasColumnType("jsonb");
             e.HasIndex(x => x.PhoneDigits)
                 .IsUnique()
                 .HasFilter("\"PhoneDigits\" IS NOT NULL");

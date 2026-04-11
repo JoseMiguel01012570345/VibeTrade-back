@@ -27,6 +27,9 @@ public sealed class UserAccount
 
     public int TrustScore { get; set; } = 50;
 
+    /// <summary>JSON array de ids de producto/servicio guardados (mismo id que en el catálogo / oferta).</summary>
+    public string SavedOfferIdsJson { get; set; } = "[]";
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }

@@ -396,6 +396,10 @@ namespace VibeTrade.Backend.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("SavedOfferIdsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<string>("Telegram")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
