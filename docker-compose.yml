@@ -28,6 +28,8 @@ services:
     environment:
       POSTGRES_HOST: postgres
       ASPNETCORE_URLS: http://+:8080
+      # Production env does not load appsettings.Development.json; enable seed explicitly for local Docker.
+      DemoSeed__Enabled: "${DEMO_SEED_ENABLED:-true}"
     depends_on:
       postgres:
         condition: service_healthy

@@ -423,6 +423,37 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("user_accounts", (string)null);
                 });
 
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserContactRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ContactUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OwnerUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContactUserId");
+
+                    b.HasIndex("OwnerUserId");
+
+                    b.HasIndex("OwnerUserId", "ContactUserId")
+                        .IsUnique();
+
+                    b.ToTable("user_contacts", (string)null);
+                });
+
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreProductRow", b =>
                 {
                     b.HasOne("VibeTrade.Backend.Data.Entities.StoreRow", "Store")
@@ -454,6 +485,21 @@ namespace VibeTrade.Backend.Migrations
                         .IsRequired();
 
                     b.Navigation("Store");
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserContactRow", b =>
+                {
+                    b.HasOne("VibeTrade.Backend.Data.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("ContactUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VibeTrade.Backend.Data.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreRow", b =>

@@ -40,6 +40,7 @@ builder.Services.AddScoped<IMarketWorkspaceService, MarketWorkspaceService>();
 builder.Services.AddScoped<IBootstrapService, BootstrapService>();
 builder.Services.AddScoped<ISavedOffersService, SavedOffersService>();
 builder.Services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
+builder.Services.AddScoped<IUserContactsService, UserContactsService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 
 builder.Services.AddControllers()
@@ -106,6 +107,14 @@ if (migrateError is not null)
         $"Database migration failed after {migrateMaxAttempts} attempts. Is PostgreSQL running and reachable?",
         migrateError);
 
+await using (var seedScope = app.Services.CreateAsyncScope())
+{
+    var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var seedCfg = seedScope.ServiceProvider.GetRequiredService<IConfiguration>();
+    var seedLog = seedScope.ServiceProvider.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("VibeTrade.Backend.Infrastructure.DemoDataSeed");
+    await DemoDataSeed.RunIfNeededAsync(seedDb, seedCfg, seedLog);
+}
 
 app.UseCors("Dev");
 

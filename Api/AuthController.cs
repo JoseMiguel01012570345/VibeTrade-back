@@ -8,7 +8,10 @@ namespace VibeTrade.Backend.Api;
 [ApiController]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
-public sealed class AuthController(IAuthService auth, IUserAccountSyncService userAccountSync) : ControllerBase
+public sealed class AuthController(
+    IAuthService auth,
+    IUserAccountSyncService userAccountSync,
+    IUserContactsService contacts) : ControllerBase
 {
     private static string? PhoneDigitsFromSessionUser(JsonElement user)
     {
@@ -34,6 +37,75 @@ public sealed class AuthController(IAuthService auth, IUserAccountSyncService us
         string? Telegram,
         string? XAccount,
         string? AvatarUrl);
+
+    public sealed record AddContactBody(string? Phone);
+
+    /// <summary>Lista de contactos (cuentas de la plataforma) guardados por el usuario autenticado.</summary>
+    [HttpGet("contacts")]
+    [ProducesResponseType(typeof(IReadOnlyList<UserContactDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<IReadOnlyList<UserContactDto>>> GetContacts(CancellationToken cancellationToken)
+    {
+        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
+            return Unauthorized();
+        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
+            return Unauthorized();
+        var userId = idEl.GetString()!;
+        var list = await contacts.ListAsync(userId, cancellationToken);
+        return Ok(list);
+    }
+
+    /// <summary>
+    /// Añade un contacto por número de teléfono. El número debe pertenecer a una cuenta registrada.
+    /// </summary>
+    [HttpPost("contacts")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(UserContactDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<UserContactDto>> PostContact(
+        [FromBody] AddContactBody body,
+        CancellationToken cancellationToken)
+    {
+        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
+            return Unauthorized();
+        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
+            return Unauthorized();
+        var userId = idEl.GetString()!;
+        try
+        {
+            var dto = await contacts.AddByPhoneAsync(userId, body.Phone ?? "", cancellationToken);
+            return Ok(dto);
+        }
+        catch (InvalidOperationException ex)
+        {
+            var msg = ex.Message;
+            if (msg.Contains("ya está", StringComparison.OrdinalIgnoreCase))
+                return Conflict(new { error = "contact_duplicate", message = msg });
+            if (msg.Contains("no está registrado", StringComparison.OrdinalIgnoreCase))
+                return NotFound(new { error = "phone_not_registered", message = msg });
+            return BadRequest(new { error = "invalid_contact", message = msg });
+        }
+    }
+
+    /// <summary>Elimina un contacto de la lista por id de usuario de la plataforma.</summary>
+    [HttpDelete("contacts/{contactUserId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteContact(string contactUserId, CancellationToken cancellationToken)
+    {
+        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
+            return Unauthorized();
+        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
+            return Unauthorized();
+        var userId = idEl.GetString()!;
+        if (string.IsNullOrWhiteSpace(contactUserId))
+            return NotFound();
+        var ok = await contacts.RemoveAsync(userId, contactUserId.Trim(), cancellationToken);
+        return ok ? NoContent() : NotFound();
+    }
 
     /// <summary>Países con los que se puede iniciar sesión / registrarse (prefijos SMS). Público, sin token.</summary>
     [HttpGet("sign-in-countries")]

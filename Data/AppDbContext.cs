@@ -13,6 +13,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<StoredMediaRow> StoredMedia => Set<StoredMediaRow>();
     public DbSet<AuthSessionRow> AuthSessions => Set<AuthSessionRow>();
     public DbSet<AuthPendingOtpRow> AuthPendingOtps => Set<AuthPendingOtpRow>();
+    public DbSet<UserContactRow> UserContacts => Set<UserContactRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -136,6 +137,26 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.ExpiresAt);
             e.Property(x => x.CreatedAt);
             e.HasIndex(x => x.ExpiresAt);
+        });
+
+        modelBuilder.Entity<UserContactRow>(e =>
+        {
+            e.ToTable("user_contacts");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.OwnerUserId).HasMaxLength(64);
+            e.Property(x => x.ContactUserId).HasMaxLength(64);
+            e.Property(x => x.CreatedAt);
+            e.HasIndex(x => x.OwnerUserId);
+            e.HasIndex(x => new { x.OwnerUserId, x.ContactUserId }).IsUnique();
+            e.HasOne<UserAccount>()
+                .WithMany()
+                .HasForeignKey(x => x.OwnerUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<UserAccount>()
+                .WithMany()
+                .HasForeignKey(x => x.ContactUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
