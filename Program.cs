@@ -9,7 +9,6 @@ using VibeTrade.Backend.Features.Bootstrap;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Api.Swagger;
 using VibeTrade.Backend.Infrastructure;
-using VibeTrade.Backend.Infrastructure.DataRepair;
 using VibeTrade.Backend.Utils.TimeZone;
 void TryLoadEnv(string path)
 {
@@ -104,19 +103,6 @@ if (migrateError is not null)
     throw new InvalidOperationException(
         $"Database migration failed after {migrateMaxAttempts} attempts. Is PostgreSQL running and reachable?",
         migrateError);
-
-await using (var schemaScope = app.Services.CreateAsyncScope())
-{
-    var db = schemaScope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await CatalogOfferColumnsRepair.RunAsync(db);
-}
-
-// Data repair: make identity invariant (user id = phoneDigits) for existing rows.
-// {
-//     await using var repairScope = app.Services.CreateAsyncScope();
-//     var db = repairScope.ServiceProvider.GetRequiredService<AppDbContext>();
-//     await UserIdPhoneDigitsRepair.RunAsync(db);
-// }
 
 
 app.UseCors("Dev");
