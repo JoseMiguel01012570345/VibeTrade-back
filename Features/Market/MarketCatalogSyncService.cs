@@ -17,68 +17,140 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
     /// </summary>
     private const string DefaultServiceOfferImageUrl = "/tool.png";
 
-    public async Task ApplyStoresAndCatalogsFromWorkspaceAsync(
+    public Task ApplyStoreProfilesFromWorkspaceAsync(
         JsonElement workspaceRoot,
+        CancellationToken cancellationToken = default) =>
+        ApplyCoreAsync(workspaceRoot, storeProfiles: true, catalogs: false, offerQa: false, cancellationToken);
+
+    public Task ApplyStoreCatalogsFromWorkspaceAsync(
+        JsonElement workspaceRoot,
+        CancellationToken cancellationToken = default) =>
+        ApplyCoreAsync(workspaceRoot, storeProfiles: false, catalogs: true, offerQa: false, cancellationToken);
+
+    public Task ApplyOfferInquiriesFromWorkspaceAsync(
+        JsonElement workspaceRoot,
+        CancellationToken cancellationToken = default) =>
+        ApplyCoreAsync(workspaceRoot, storeProfiles: false, catalogs: false, offerQa: true, cancellationToken);
+
+    public async Task<JsonObject?> AppendOfferInquiryAsync(
+        string offerId,
+        string question,
+        string askedById,
+        string askedByName,
+        int trustScore,
+        long? createdAtMs,
         CancellationToken cancellationToken = default)
     {
-        if (!TryGetStoresObject(workspaceRoot, out var storesEl))
-            return;
+        if (string.IsNullOrWhiteSpace(offerId))
+            throw new ArgumentException("offerId is required.", nameof(offerId));
 
         var now = DateTimeOffset.UtcNow;
+        var qaId = $"qa_{Guid.NewGuid():N}";
+        var createdMs = createdAtMs is long ms && ms > 0 && ms < 4_102_441_920_000L
+            ? ms
+            : now.ToUnixTimeMilliseconds();
 
-        // No borrar tiendas que no vengan en el JSON: el PUT /workspace suele ser un snapshot parcial
-        // del cliente (p. ej. solo las tiendas del usuario), no el catálogo global de la plataforma.
-
-        JsonElement catalogs = default;
-        var hasCatalogs = workspaceRoot.TryGetProperty("storeCatalogs", out catalogs)
-                          && catalogs.ValueKind == JsonValueKind.Object;
-
-        foreach (var prop in storesEl.EnumerateObject())
+        var newItem = new JsonObject
         {
-            var storeId = prop.Name;
-            var el = prop.Value;
-            var ownerUserId = el.TryGetProperty("ownerUserId", out var ou) && ou.ValueKind == JsonValueKind.String
-                ? ou.GetString()!
-                : "unknown";
-
-            await EnsureUserExistsAsync(ownerUserId, now, cancellationToken);
-
-            var row = await db.Stores.FindAsync([storeId], cancellationToken);
-            if (row is null)
+            ["id"] = qaId,
+            ["question"] = question,
+            ["askedBy"] = new JsonObject
             {
-                row = new StoreRow
-                {
-                    Id = storeId,
-                    CreatedAt = now,
-                    JoinedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                };
-                db.Stores.Add(row);
-            }
+                ["id"] = askedById,
+                ["name"] = askedByName,
+                ["trustScore"] = trustScore,
+            },
+            ["createdAt"] = createdMs,
+        };
 
-            row.OwnerUserId = ownerUserId;
-            row.Name = GetString(el, "name") ?? row.Name;
-            row.NormalizedName = NormalizeStoreName(row.Name);
-            row.Verified = el.TryGetProperty("verified", out var v) && v.ValueKind == JsonValueKind.True;
-            row.TransportIncluded = el.TryGetProperty("transportIncluded", out var t) &&
-                                    t.ValueKind == JsonValueKind.True;
-            row.TrustScore = el.TryGetProperty("trustScore", out var ts) && ts.TryGetInt32(out var ti) ? ti : row.TrustScore;
-            row.AvatarUrl = GetString(el, "avatarUrl");
-            row.CategoriesJson = SerializeStringArray(el, "categories");
-            row.UpdatedAt = now;
-            ApplyLocationFromWorkspace(el, row);
-
-            if (hasCatalogs && catalogs.TryGetProperty(storeId, out var catEl) && catEl.ValueKind == JsonValueKind.Object)
-            {
-                row.Pitch = GetString(catEl, "pitch") ?? "";
-                row.JoinedAtMs = catEl.TryGetProperty("joinedAt", out var ja) && ja.TryGetInt64(out var jn) ? jn : row.JoinedAtMs;
-                await SyncProductsAsync(storeId, catEl, now, cancellationToken);
-                await SyncServicesAsync(storeId, catEl, now, cancellationToken);
-            }
+        var product = await db.StoreProducts.FindAsync([offerId], cancellationToken);
+        if (product is not null)
+        {
+            var arr = ParseOfferQaJsonNode(product.OfferQaJson);
+            arr.Insert(0, newItem);
+            product.OfferQaJson = arr.ToJsonString();
+            product.UpdatedAt = now;
+            await db.SaveChangesAsync(cancellationToken);
+            return newItem;
         }
 
-        ApplyOfferQaFromWorkspace(workspaceRoot, now);
+        var service = await db.StoreServices.FindAsync([offerId], cancellationToken);
+        if (service is not null)
+        {
+            var arr = ParseOfferQaJsonNode(service.OfferQaJson);
+            arr.Insert(0, newItem);
+            service.OfferQaJson = arr.ToJsonString();
+            service.UpdatedAt = now;
+            await db.SaveChangesAsync(cancellationToken);
+            return newItem;
+        }
 
-        EnsureNoDuplicateStoreNames();
+        return null;
+    }
+
+    /// <summary>
+    /// No borrar tiendas que no vengan en el JSON: los PUT suelen ser snapshots parciales del cliente.
+    /// </summary>
+    private async Task ApplyCoreAsync(
+        JsonElement workspaceRoot,
+        bool storeProfiles,
+        bool catalogs,
+        bool offerQa,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var hasStores = TryGetStoresObject(workspaceRoot, out var storesEl);
+
+        if (hasStores)
+        {
+            JsonElement catalogsEl = default;
+            var hasCatalogsObj = workspaceRoot.TryGetProperty("storeCatalogs", out catalogsEl)
+                                 && catalogsEl.ValueKind == JsonValueKind.Object;
+            var catalogSync = catalogs && hasCatalogsObj;
+
+            foreach (var prop in storesEl.EnumerateObject())
+            {
+                var storeId = prop.Name;
+                var el = prop.Value;
+                var ownerUserId = el.TryGetProperty("ownerUserId", out var ou) && ou.ValueKind == JsonValueKind.String
+                    ? ou.GetString()!
+                    : "unknown";
+
+                await EnsureUserExistsAsync(ownerUserId, now, cancellationToken);
+
+                var row = await db.Stores.FindAsync([storeId], cancellationToken);
+                if (row is null)
+                {
+                    row = new StoreRow
+                    {
+                        Id = storeId,
+                        CreatedAt = now,
+                        JoinedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    };
+                    db.Stores.Add(row);
+                    ApplyStoreRowFieldsFromWorkspace(el, row, now);
+                }
+                else if (storeProfiles)
+                {
+                    ApplyStoreRowFieldsFromWorkspace(el, row, now);
+                }
+
+                if (catalogSync && catalogsEl.TryGetProperty(storeId, out var catEl) && catEl.ValueKind == JsonValueKind.Object)
+                {
+                    row.Pitch = GetString(catEl, "pitch") ?? "";
+                    row.JoinedAtMs = catEl.TryGetProperty("joinedAt", out var ja) && ja.TryGetInt64(out var jn) ? jn : row.JoinedAtMs;
+                    row.UpdatedAt = now;
+                    await SyncProductsAsync(storeId, catEl, now, cancellationToken);
+                    await SyncServicesAsync(storeId, catEl, now, cancellationToken);
+                }
+            }
+
+            if (storeProfiles)
+                EnsureNoDuplicateStoreNames();
+        }
+
+        if (offerQa)
+            ApplyOfferQaFromWorkspace(workspaceRoot, now);
 
         try
         {
@@ -88,6 +160,24 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
         {
             throw new DuplicateStoreNameException(null);
         }
+    }
+
+    private static void ApplyStoreRowFieldsFromWorkspace(JsonElement el, StoreRow row, DateTimeOffset now)
+    {
+        var ownerUserId = el.TryGetProperty("ownerUserId", out var ou) && ou.ValueKind == JsonValueKind.String
+            ? ou.GetString()!
+            : "unknown";
+        row.OwnerUserId = ownerUserId;
+        row.Name = GetString(el, "name") ?? row.Name;
+        row.NormalizedName = NormalizeStoreName(row.Name);
+        row.Verified = el.TryGetProperty("verified", out var v) && v.ValueKind == JsonValueKind.True;
+        row.TransportIncluded = el.TryGetProperty("transportIncluded", out var t) &&
+                                t.ValueKind == JsonValueKind.True;
+        row.TrustScore = el.TryGetProperty("trustScore", out var ts) && ts.TryGetInt32(out var ti) ? ti : row.TrustScore;
+        row.AvatarUrl = GetString(el, "avatarUrl");
+        row.CategoriesJson = SerializeStringArray(el, "categories");
+        row.UpdatedAt = now;
+        ApplyLocationFromWorkspace(el, row);
     }
 
     /// <summary>Misma regla que <c>normStoreName</c> en el cliente (espacios colapsados, trim, minúsculas).</summary>
@@ -185,35 +275,7 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             var id = GetString(item, "id");
             if (string.IsNullOrEmpty(id))
                 continue;
-
-            ThrowIfProductCurrencyInvalid(item, id);
-
-            var row = await db.StoreProducts.FindAsync([id], cancellationToken);
-            if (row is null)
-            {
-                row = new StoreProductRow { Id = id, StoreId = storeId };
-                db.StoreProducts.Add(row);
-            }
-
-            row.Category = GetString(item, "category") ?? "";
-            row.Name = GetString(item, "name") ?? "";
-            row.Model = GetString(item, "model");
-            row.ShortDescription = GetString(item, "shortDescription") ?? "";
-            row.MainBenefit = GetString(item, "mainBenefit") ?? "";
-            row.TechnicalSpecs = GetString(item, "technicalSpecs") ?? "";
-            row.Condition = GetString(item, "condition") ?? "";
-            row.Price = GetString(item, "price") ?? "";
-            row.MonedaPrecio = GetString(item, "monedaPrecio");
-            row.MonedasJson = SerializeMonedasFromCatalogItemJson(item);
-            row.TaxesShippingInstall = GetString(item, "taxesShippingInstall");
-            row.Availability = GetString(item, "availability") ?? "";
-            row.WarrantyReturn = GetString(item, "warrantyReturn") ?? "";
-            row.ContentIncluded = GetString(item, "contentIncluded") ?? "";
-            row.UsageConditions = GetString(item, "usageConditions") ?? "";
-            row.Published = item.TryGetProperty("published", out var pub) && pub.ValueKind == JsonValueKind.True;
-            row.PhotoUrlsJson = SerializeJsonElement(item, "photoUrls") ?? "[]";
-            row.CustomFieldsJson = SerializeJsonElement(item, "customFields") ?? "[]";
-            row.UpdatedAt = now;
+            await UpsertSingleProductRowAsync(storeId, id, item, now, cancellationToken);
         }
     }
 
@@ -245,40 +307,204 @@ public sealed class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSy
             var id = GetString(item, "id");
             if (string.IsNullOrEmpty(id))
                 continue;
-
-            ThrowIfServiceCurrencyInvalid(item, id);
-
-            var row = await db.StoreServices.FindAsync([id], cancellationToken);
-            if (row is null)
-            {
-                row = new StoreServiceRow { Id = id, StoreId = storeId };
-                db.StoreServices.Add(row);
-            }
-
-            row.Published = item.TryGetProperty("published", out var p)
-                ? p.ValueKind switch
-                {
-                    JsonValueKind.True => true,
-                    JsonValueKind.False => false,
-                    _ => null,
-                }
-                : null;
-            row.Category = GetString(item, "category") ?? "";
-            row.TipoServicio = GetString(item, "tipoServicio") ?? "";
-            row.Descripcion = GetString(item, "descripcion") ?? "";
-            row.RiesgosJson = SerializeJsonElement(item, "riesgos") ?? row.RiesgosJson;
-            row.Incluye = GetString(item, "incluye") ?? "";
-            row.NoIncluye = GetString(item, "noIncluye") ?? "";
-            row.DependenciasJson = SerializeJsonElement(item, "dependencias") ?? row.DependenciasJson;
-            row.Entregables = GetString(item, "entregables") ?? "";
-            row.GarantiasJson = SerializeJsonElement(item, "garantias") ?? row.GarantiasJson;
-            row.PropIntelectual = GetString(item, "propIntelectual") ?? "";
-            row.MonedasJson = SerializeMonedasFromCatalogItemJson(item);
-            row.CustomFieldsJson = SerializeJsonElement(item, "customFields") ?? "[]";
-            if (item.TryGetProperty("photoUrls", out var phEl) && phEl.ValueKind == JsonValueKind.Array)
-                row.PhotoUrlsJson = await FilterIncomingServicePhotoUrlsToImageMediaJsonAsync(phEl, cancellationToken);
-            row.UpdatedAt = now;
+            await UpsertSingleServiceRowAsync(storeId, id, item, now, cancellationToken);
         }
+    }
+
+    private async Task UpsertSingleProductRowAsync(
+        string storeId,
+        string id,
+        JsonElement item,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfProductCurrencyInvalid(item, id);
+
+        var row = await db.StoreProducts.FindAsync([id], cancellationToken);
+        if (row is not null && row.StoreId != storeId)
+            return;
+
+        if (row is null)
+        {
+            row = new StoreProductRow { Id = id, StoreId = storeId };
+            db.StoreProducts.Add(row);
+        }
+
+        row.Category = GetString(item, "category") ?? "";
+        row.Name = GetString(item, "name") ?? "";
+        row.Model = GetString(item, "model");
+        row.ShortDescription = GetString(item, "shortDescription") ?? "";
+        row.MainBenefit = GetString(item, "mainBenefit") ?? "";
+        row.TechnicalSpecs = GetString(item, "technicalSpecs") ?? "";
+        row.Condition = GetString(item, "condition") ?? "";
+        row.Price = GetString(item, "price") ?? "";
+        row.MonedaPrecio = GetString(item, "monedaPrecio");
+        row.MonedasJson = SerializeMonedasFromCatalogItemJson(item);
+        row.TaxesShippingInstall = GetString(item, "taxesShippingInstall");
+        row.Availability = GetString(item, "availability") ?? "";
+        row.WarrantyReturn = GetString(item, "warrantyReturn") ?? "";
+        row.ContentIncluded = GetString(item, "contentIncluded") ?? "";
+        row.UsageConditions = GetString(item, "usageConditions") ?? "";
+        row.Published = item.TryGetProperty("published", out var pub) && pub.ValueKind == JsonValueKind.True;
+        row.PhotoUrlsJson = SerializeJsonElement(item, "photoUrls") ?? "[]";
+        row.CustomFieldsJson = SerializeJsonElement(item, "customFields") ?? "[]";
+        row.UpdatedAt = now;
+    }
+
+    private async Task UpsertSingleServiceRowAsync(
+        string storeId,
+        string id,
+        JsonElement item,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfServiceCurrencyInvalid(item, id);
+
+        var row = await db.StoreServices.FindAsync([id], cancellationToken);
+        if (row is not null && row.StoreId != storeId)
+            return;
+
+        if (row is null)
+        {
+            row = new StoreServiceRow { Id = id, StoreId = storeId };
+            db.StoreServices.Add(row);
+        }
+
+        row.Published = item.TryGetProperty("published", out var p)
+            ? p.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                _ => null,
+            }
+            : null;
+        row.Category = GetString(item, "category") ?? "";
+        row.TipoServicio = GetString(item, "tipoServicio") ?? "";
+        row.Descripcion = GetString(item, "descripcion") ?? "";
+        row.RiesgosJson = SerializeJsonElement(item, "riesgos") ?? row.RiesgosJson;
+        row.Incluye = GetString(item, "incluye") ?? "";
+        row.NoIncluye = GetString(item, "noIncluye") ?? "";
+        row.DependenciasJson = SerializeJsonElement(item, "dependencias") ?? row.DependenciasJson;
+        row.Entregables = GetString(item, "entregables") ?? "";
+        row.GarantiasJson = SerializeJsonElement(item, "garantias") ?? row.GarantiasJson;
+        row.PropIntelectual = GetString(item, "propIntelectual") ?? "";
+        row.MonedasJson = SerializeMonedasFromCatalogItemJson(item);
+        row.CustomFieldsJson = SerializeJsonElement(item, "customFields") ?? "[]";
+        if (item.TryGetProperty("photoUrls", out var phEl) && phEl.ValueKind == JsonValueKind.Array)
+            row.PhotoUrlsJson = await FilterIncomingServicePhotoUrlsToImageMediaJsonAsync(phEl, cancellationToken);
+        row.UpdatedAt = now;
+    }
+
+    public async Task<StoreCatalogUpsertResult> UpsertStoreProductAsync(
+        string storeId,
+        string productId,
+        string userId,
+        JsonElement product,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return StoreCatalogUpsertResult.Unauthorized;
+
+        var store = await db.Stores.FindAsync([storeId], cancellationToken);
+        if (store is null)
+            return StoreCatalogUpsertResult.StoreNotFound;
+        if (store.OwnerUserId != userId)
+            return StoreCatalogUpsertResult.Forbidden;
+
+        if (product.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+        {
+            if (idEl.GetString() != productId)
+                return StoreCatalogUpsertResult.IdMismatch;
+        }
+
+        var existing = await db.StoreProducts.FindAsync([productId], cancellationToken);
+        if (existing is not null && existing.StoreId != storeId)
+            return StoreCatalogUpsertResult.Forbidden;
+
+        var now = DateTimeOffset.UtcNow;
+        await UpsertSingleProductRowAsync(storeId, productId, product, now, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        return StoreCatalogUpsertResult.Ok;
+    }
+
+    public async Task<StoreCatalogUpsertResult> DeleteStoreProductAsync(
+        string storeId,
+        string productId,
+        string userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return StoreCatalogUpsertResult.Unauthorized;
+
+        var store = await db.Stores.FindAsync([storeId], cancellationToken);
+        if (store is null)
+            return StoreCatalogUpsertResult.StoreNotFound;
+        if (store.OwnerUserId != userId)
+            return StoreCatalogUpsertResult.Forbidden;
+
+        var row = await db.StoreProducts.FindAsync([productId], cancellationToken);
+        if (row is null || row.StoreId != storeId)
+            return StoreCatalogUpsertResult.EntityNotFound;
+
+        db.StoreProducts.Remove(row);
+        await db.SaveChangesAsync(cancellationToken);
+        return StoreCatalogUpsertResult.Ok;
+    }
+
+    public async Task<StoreCatalogUpsertResult> UpsertStoreServiceAsync(
+        string storeId,
+        string serviceId,
+        string userId,
+        JsonElement service,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return StoreCatalogUpsertResult.Unauthorized;
+
+        var store = await db.Stores.FindAsync([storeId], cancellationToken);
+        if (store is null)
+            return StoreCatalogUpsertResult.StoreNotFound;
+        if (store.OwnerUserId != userId)
+            return StoreCatalogUpsertResult.Forbidden;
+
+        if (service.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+        {
+            if (idEl.GetString() != serviceId)
+                return StoreCatalogUpsertResult.IdMismatch;
+        }
+
+        var existing = await db.StoreServices.FindAsync([serviceId], cancellationToken);
+        if (existing is not null && existing.StoreId != storeId)
+            return StoreCatalogUpsertResult.Forbidden;
+
+        var now = DateTimeOffset.UtcNow;
+        await UpsertSingleServiceRowAsync(storeId, serviceId, service, now, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        return StoreCatalogUpsertResult.Ok;
+    }
+
+    public async Task<StoreCatalogUpsertResult> DeleteStoreServiceAsync(
+        string storeId,
+        string serviceId,
+        string userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return StoreCatalogUpsertResult.Unauthorized;
+
+        var store = await db.Stores.FindAsync([storeId], cancellationToken);
+        if (store is null)
+            return StoreCatalogUpsertResult.StoreNotFound;
+        if (store.OwnerUserId != userId)
+            return StoreCatalogUpsertResult.Forbidden;
+
+        var row = await db.StoreServices.FindAsync([serviceId], cancellationToken);
+        if (row is null || row.StoreId != storeId)
+            return StoreCatalogUpsertResult.EntityNotFound;
+
+        db.StoreServices.Remove(row);
+        await db.SaveChangesAsync(cancellationToken);
+        return StoreCatalogUpsertResult.Ok;
     }
 
     /// <summary>

@@ -6,21 +6,30 @@ using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Api;
 
-/// <summary>Persistencia del workspace de mercado (tiendas, ofertas, hilos, rutas públicas).</summary>
+/// <summary>Mercado: workspace (GET), tiendas/catálogo/consultas (PUT por recurso), búsqueda y detalle.</summary>
 [ApiController]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
-public sealed class MarketController(IMarketWorkspaceService marketWorkspace, AppDbContext db) : ControllerBase
+public sealed class MarketController(
+    IMarketWorkspaceService marketWorkspace,
+    IMarketCatalogSyncService catalog,
+    IAuthService auth,
+    AppDbContext db) : ControllerBase
 {
     public sealed record CatalogCategoriesResponse(IReadOnlyList<string> Categories);
 
     public sealed record CurrenciesResponse(IReadOnlyList<string> Currencies);
 
     public sealed record StoreDetailBody(string? ViewerUserId, string? ViewerRole);
+
+    public sealed record PostInquiryAskedBy(string Id, string Name, int TrustScore);
+
+    public sealed record PostInquiryBody(string OfferId, string Question, PostInquiryAskedBy AskedBy, long? CreatedAt);
 
     public sealed record StoreSearchItem(JsonObject Store, int PublishedProducts, int PublishedServices, double? DistanceKm);
 
@@ -203,25 +212,224 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace, Ap
         return Content(json, "application/json");
     }
 
-    /// <summary>Reemplaza el snapshot del mercado (misma forma que el store Zustand del frontend).</summary>
-    /// <param name="body">JSON con stores, offers, offerIds, storeCatalogs, threads, routeOfferPublic.</param>
-    /// <param name="cancellationToken">Token de cancelación.</param>
-    [HttpPut("workspace")]
-    [RequestSizeLimit(524_288_000L)] // 500 MiB; alinear con Kestrel en Program.cs
+    /// <summary>Lista de tiendas desde tablas relacionales (<c>stores</c>).</summary>
+    [HttpGet("workspace/stores")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetWorkspaceStores(CancellationToken cancellationToken)
+    {
+        using var doc = await marketWorkspace.GetStoresSnapshotAsync(cancellationToken);
+        return Content(doc.RootElement.GetRawText(), "application/json");
+    }
+
+    /// <summary>
+    /// Metadatos de tienda (perfil). Cuerpo: ficha plana con <c>id</c> (nombre, categorías, etc.) o legado
+    /// <c>{"stores":{"&lt;id&gt;":{...}}}</c>. Se fusiona con el workspace en servidor.
+    /// </summary>
+    [HttpPut("workspace/stores")]
+    [RequestSizeLimit(524_288_000L)]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> PutWorkspace([FromBody] JsonDocument body, CancellationToken cancellationToken)
+    public async Task<IActionResult> PutWorkspaceStores([FromBody] JsonDocument body, CancellationToken cancellationToken)
     {
+        JsonDocument toSave;
         try
         {
-            await marketWorkspace.SaveAsync(body, cancellationToken);
+            toSave = NormalizeWorkspaceStoresPutBody(body);
+        }
+        catch (ArgumentException)
+        {
+            body.Dispose();
+            return BadRequest(new { error = "invalid_stores_body", message = "Indicá la tienda con un campo \"id\" o usá la forma \"stores\".{...}." });
+        }
+
+        try
+        {
+            await marketWorkspace.SaveStoreProfilesAsync(toSave, cancellationToken);
         }
         catch (DuplicateStoreNameException)
         {
             return Conflict(new { error = "duplicate_store_name", message = "Ya existe una tienda con ese nombre en la plataforma." });
+        }
+        catch (CatalogCurrencyValidationException ex)
+        {
+            return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
+        }
+
+        return Ok();
+    }
+
+    /// <summary>
+    /// Catálogo (productos/servicios y pitch). Cuerpo parcial:
+    /// <c>{"stores":{...},"storeCatalogs":{"&lt;id&gt;":{...}}}</c>. Se fusiona con el workspace en servidor.
+    /// </summary>
+    [HttpPut("workspace/catalogs")]
+    [RequestSizeLimit(524_288_000L)]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> PutWorkspaceCatalogs([FromBody] JsonDocument body, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await marketWorkspace.SaveStoreCatalogsAsync(body, cancellationToken);
+        }
+        catch (DuplicateStoreNameException)
+        {
+            return Conflict(new { error = "duplicate_store_name", message = "Ya existe una tienda con ese nombre en la plataforma." });
+        }
+        catch (CatalogCurrencyValidationException ex)
+        {
+            return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
+        }
+
+        return Ok();
+    }
+
+    /// <summary>Persiste una sola ficha de producto (cuerpo = JSON del producto, sin envolver en catálogo).</summary>
+    [HttpPut("stores/{storeId}/products/{productId}")]
+    [RequestSizeLimit(524_288_000L)]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PutStoreProduct(
+        string storeId,
+        string productId,
+        [FromBody] JsonDocument body,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
+        try
+        {
+            var r = await catalog.UpsertStoreProductAsync(storeId, productId, userId, body.RootElement, cancellationToken);
+            return MapCatalogUpsert(r);
+        }
+        catch (CatalogCurrencyValidationException ex)
+        {
+            return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
+        }
+    }
+
+    [HttpDelete("stores/{storeId}/products/{productId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteStoreProduct(
+        string storeId,
+        string productId,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
+        var r = await catalog.DeleteStoreProductAsync(storeId, productId, userId, cancellationToken);
+        return MapCatalogUpsert(r);
+    }
+
+    /// <summary>Persiste una sola ficha de servicio (cuerpo = JSON del servicio).</summary>
+    [HttpPut("stores/{storeId}/services/{serviceId}")]
+    [RequestSizeLimit(524_288_000L)]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PutStoreService(
+        string storeId,
+        string serviceId,
+        [FromBody] JsonDocument body,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
+        try
+        {
+            var r = await catalog.UpsertStoreServiceAsync(storeId, serviceId, userId, body.RootElement, cancellationToken);
+            return MapCatalogUpsert(r);
+        }
+        catch (CatalogCurrencyValidationException ex)
+        {
+            return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
+        }
+    }
+
+    [HttpDelete("stores/{storeId}/services/{serviceId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteStoreService(
+        string storeId,
+        string serviceId,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
+        var r = await catalog.DeleteStoreServiceAsync(storeId, serviceId, userId, cancellationToken);
+        return MapCatalogUpsert(r);
+    }
+
+    /// <summary>Añade una pregunta pública a la oferta (producto/servicio) identificada por <paramref name="body"/>.OfferId.</summary>
+    [HttpPost("inquiries")]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostInquiry([FromBody] PostInquiryBody body, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(body.OfferId) || string.IsNullOrWhiteSpace(body.Question))
+            return BadRequest(new { error = "invalid_inquiry", message = "Indicá la oferta y el texto de la pregunta." });
+        if (body.AskedBy is null || string.IsNullOrWhiteSpace(body.AskedBy.Id))
+            return BadRequest(new { error = "invalid_inquiry", message = "Faltan datos de quien pregunta." });
+
+        var q = body.Question.Trim();
+        if (q.Length > 12_000)
+            return BadRequest(new { error = "invalid_inquiry", message = "La pregunta es demasiado larga." });
+
+        try
+        {
+            var item = await catalog.AppendOfferInquiryAsync(
+                body.OfferId.Trim(),
+                q,
+                body.AskedBy.Id.Trim(),
+                (body.AskedBy.Name ?? "").Trim(),
+                body.AskedBy.TrustScore,
+                body.CreatedAt,
+                cancellationToken);
+            if (item is null)
+                return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
+
+            return Content(item.ToJsonString(), "application/json");
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = "invalid_inquiry", message = ex.Message });
+        }
+    }
+
+    /// <summary>Sincronización masiva de <c>offers[*].qa</c> (legado / herramientas).</summary>
+    [HttpPut("inquiries")]
+    [HttpPut("workspace/inquiries")]
+    [RequestSizeLimit(524_288_000L)]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PutWorkspaceInquiries([FromBody] JsonDocument body, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await marketWorkspace.SaveOfferInquiriesAsync(body, cancellationToken);
         }
         catch (CatalogCurrencyValidationException ex)
         {
@@ -258,4 +466,59 @@ public sealed class MarketController(IMarketWorkspaceService marketWorkspace, Ap
 
         return Content(root.ToJsonString(), "application/json");
     }
+
+    /// <summary>
+    /// Acepta <c>{"id":"...","name":...}</c> y lo convierte al patch interno <c>stores[id]</c>.
+    /// Si ya viene <c>stores</c>, se devuelve el mismo documento.
+    /// </summary>
+    private static JsonDocument NormalizeWorkspaceStoresPutBody(JsonDocument body)
+    {
+        var root = body.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new ArgumentException("Root must be an object.", nameof(body));
+
+        if (root.TryGetProperty("stores", out var storesEl) && storesEl.ValueKind == JsonValueKind.Object)
+            return body;
+
+        if (root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+        {
+            var storeId = idEl.GetString();
+            if (string.IsNullOrWhiteSpace(storeId))
+                throw new ArgumentException("Store id is empty.", nameof(body));
+
+            var wrapped = new JsonObject
+            {
+                ["stores"] = new JsonObject { [storeId] = JsonNode.Parse(root.GetRawText())! },
+            };
+            var doc = JsonDocument.Parse(wrapped.ToJsonString());
+            body.Dispose();
+            return doc;
+        }
+
+        throw new ArgumentException("Missing stores object or store id.", nameof(body));
+    }
+
+    private string? GetBearerUserId()
+    {
+        if (!Request.Headers.TryGetValue("Authorization", out var authHdr))
+            return null;
+        if (!auth.TryGetUserByToken(authHdr, out var user))
+            return null;
+        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.String)
+            return null;
+        var id = idEl.GetString();
+        return string.IsNullOrWhiteSpace(id) ? null : id;
+    }
+
+    private IActionResult MapCatalogUpsert(StoreCatalogUpsertResult r) =>
+        r switch
+        {
+            StoreCatalogUpsertResult.Ok => Ok(),
+            StoreCatalogUpsertResult.Unauthorized => Unauthorized(new { error = "unauthorized", message = "Sesión requerida." }),
+            StoreCatalogUpsertResult.StoreNotFound => NotFound(),
+            StoreCatalogUpsertResult.Forbidden => StatusCode(StatusCodes.Status403Forbidden),
+            StoreCatalogUpsertResult.IdMismatch => BadRequest(new { error = "id_mismatch", message = "El id del cuerpo no coincide con la ruta." }),
+            StoreCatalogUpsertResult.EntityNotFound => NotFound(),
+            _ => StatusCode(StatusCodes.Status500InternalServerError),
+        };
 }

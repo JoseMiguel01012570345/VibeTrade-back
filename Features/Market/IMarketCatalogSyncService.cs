@@ -6,8 +6,25 @@ namespace VibeTrade.Backend.Features.Market;
 /// <summary>Sincroniza tiendas, productos y servicios entre PostgreSQL y el shape JSON del cliente.</summary>
 public interface IMarketCatalogSyncService
 {
-    /// <summary>Persiste <c>stores</c> y <c>storeCatalogs</c> del workspace en tablas relacionales.</summary>
-    Task ApplyStoresAndCatalogsFromWorkspaceAsync(JsonElement workspaceRoot, CancellationToken cancellationToken = default);
+    /// <summary>Solo metadatos de tienda (ficha de perfil): sin productos/servicios ni pitch.</summary>
+    Task ApplyStoreProfilesFromWorkspaceAsync(JsonElement workspaceRoot, CancellationToken cancellationToken = default);
+
+    /// <summary>Solo catálogo (productos/servicios y pitch) para las tiendas indicadas en el JSON.</summary>
+    Task ApplyStoreCatalogsFromWorkspaceAsync(JsonElement workspaceRoot, CancellationToken cancellationToken = default);
+
+    /// <summary>Solo <c>offers[*].qa</c> persistido en filas de producto/servicio.</summary>
+    Task ApplyOfferInquiriesFromWorkspaceAsync(JsonElement workspaceRoot, CancellationToken cancellationToken = default);
+
+    /// <summary>Añade una pregunta al array <c>OfferQaJson</c> del producto o servicio (<paramref name="offerId"/>).</summary>
+    /// <returns>El ítem creado, o <c>null</c> si no existe producto/servicio con ese id.</returns>
+    Task<JsonObject?> AppendOfferInquiryAsync(
+        string offerId,
+        string question,
+        string askedById,
+        string askedByName,
+        int trustScore,
+        long? createdAtMs,
+        CancellationToken cancellationToken = default);
 
     Task<JsonObject> BuildStoresJsonObjectAsync(CancellationToken cancellationToken = default);
 
@@ -15,6 +32,34 @@ public interface IMarketCatalogSyncService
 
     /// <summary><c>{"store":...,"catalog":...}</c> o null si no existe la tienda.</summary>
     Task<JsonDocument?> GetStoreDetailDocumentAsync(string storeId, CancellationToken cancellationToken = default);
+
+    /// <summary>Upsert de un solo producto; cuerpo = ficha de producto (mismo shape que en catálogo).</summary>
+    Task<StoreCatalogUpsertResult> UpsertStoreProductAsync(
+        string storeId,
+        string productId,
+        string userId,
+        JsonElement product,
+        CancellationToken cancellationToken = default);
+
+    Task<StoreCatalogUpsertResult> DeleteStoreProductAsync(
+        string storeId,
+        string productId,
+        string userId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Upsert de un solo servicio; cuerpo = ficha de servicio.</summary>
+    Task<StoreCatalogUpsertResult> UpsertStoreServiceAsync(
+        string storeId,
+        string serviceId,
+        string userId,
+        JsonElement service,
+        CancellationToken cancellationToken = default);
+
+    Task<StoreCatalogUpsertResult> DeleteStoreServiceAsync(
+        string storeId,
+        string serviceId,
+        string userId,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Feed de ofertas para el Home: una entrada por producto/servicio publicado (shape alineado al tipo Offer del cliente).
