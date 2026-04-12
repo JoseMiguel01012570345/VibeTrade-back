@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.SavedOffers;
 
 namespace VibeTrade.Backend.Features.Bootstrap;
@@ -10,8 +11,14 @@ namespace VibeTrade.Backend.Features.Bootstrap;
 public sealed class BootstrapService(
     IMarketWorkspaceService marketWorkspace,
     AppDbContext db,
-    ISavedOffersService savedOffers) : IBootstrapService
+    ISavedOffersService savedOffers,
+    IRecommendationService recommendations) : IBootstrapService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
     public async Task<JsonDocument> GetBootstrapAsync(string viewerPhoneDigits, CancellationToken cancellationToken = default)
     {
         using var market = await marketWorkspace.GetOrSeedAsync(cancellationToken);
@@ -61,7 +68,6 @@ public sealed class BootstrapService(
             }
         }
 
-        var m = marketObj.ToJsonString();
         const string reels =
             """{"items":[],"initialComments":{},"initialLikeCounts":{}}""";
         const string profileNames = "{}";
@@ -71,10 +77,25 @@ public sealed class BootstrapService(
         var savedList = viewerUser is null
             ? Array.Empty<string>()
             : (await savedOffers.GetFilteredForBootstrapAsync(viewerUser.Id, cancellationToken)).ToArray();
-        var savedIdsJson = JsonSerializer.Serialize(savedList);
+        var recommendationFeed = viewerUser is null
+            ? RecommendationBatchResponse.Empty(RecommendationService.DefaultBatchSize, RecommendationService.ScoreThreshold)
+            : await recommendations.GetBatchAsync(
+                viewerUser.Id,
+                RecommendationService.DefaultBatchSize,
+                0,
+                cancellationToken);
 
-        var json =
-            $"{{\"market\":{m},\"reels\":{reels},\"profileDisplayNames\":{profileNames},\"savedOfferIds\":{savedIdsJson}}}";
-        return JsonDocument.Parse(json);
+        marketObj["offerIds"] = JsonSerializer.SerializeToNode(recommendationFeed.OfferIds, JsonOptions) ?? new JsonArray();
+
+        var root = new JsonObject
+        {
+            ["market"] = marketObj,
+            ["reels"] = JsonNode.Parse(reels),
+            ["profileDisplayNames"] = JsonNode.Parse(profileNames),
+            ["savedOfferIds"] = JsonSerializer.SerializeToNode(savedList, JsonOptions) ?? new JsonArray(),
+            ["recommendations"] = JsonSerializer.SerializeToNode(recommendationFeed, JsonOptions),
+        };
+
+        return JsonDocument.Parse(root.ToJsonString(JsonOptions));
     }
 }

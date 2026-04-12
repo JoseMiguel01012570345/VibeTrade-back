@@ -2,18 +2,21 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using VibeTrade.Backend.Data;
 
 #nullable disable
 
-namespace VibeTrade.Backend.Migrations
+namespace VibeTrade.Backend.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260411174427_UserContacts")]
+    partial class UserContacts
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -452,45 +455,6 @@ namespace VibeTrade.Backend.Migrations
                         .IsUnique();
 
                     b.ToTable("user_contacts", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserOfferInteractionRow", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("EventType")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("OfferId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("OfferId");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("OfferId", "CreatedAt");
-
-                    b.HasIndex("UserId", "CreatedAt");
-
-                    b.ToTable("user_offer_interactions", (string)null);
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreProductRow", b =>

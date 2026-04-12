@@ -1,12 +1,14 @@
 using System.Reflection;
 using DotNetEnv;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.OpenApi.Models;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Bootstrap;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.SavedOffers;
 using VibeTrade.Backend.Api.Swagger;
 using VibeTrade.Backend.Infrastructure;
@@ -30,7 +32,8 @@ builder.WebHost.ConfigureKestrel(o =>
 
 var connectionString = PostgresConfiguration.BuildConnectionString();
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString)
+        .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
 builder.Services.AddScoped<RequestTimeZoneContext>();
 builder.Services.AddSingleton<IMarketWorkspaceIntegrity, MarketWorkspaceIntegrity>();
@@ -39,6 +42,7 @@ builder.Services.AddScoped<IMarketCatalogSyncService, MarketCatalogSyncService>(
 builder.Services.AddScoped<IMarketWorkspaceService, MarketWorkspaceService>();
 builder.Services.AddScoped<IBootstrapService, BootstrapService>();
 builder.Services.AddScoped<ISavedOffersService, SavedOffersService>();
+builder.Services.AddScoped<IRecommendationService, RecommendationService>();
 builder.Services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
 builder.Services.AddScoped<IUserContactsService, UserContactsService>();
 builder.Services.AddScoped<IAuthService, AuthService>();

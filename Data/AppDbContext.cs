@@ -14,6 +14,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<AuthSessionRow> AuthSessions => Set<AuthSessionRow>();
     public DbSet<AuthPendingOtpRow> AuthPendingOtps => Set<AuthPendingOtpRow>();
     public DbSet<UserContactRow> UserContacts => Set<UserContactRow>();
+    public DbSet<UserOfferInteractionRow> UserOfferInteractions => Set<UserOfferInteractionRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -157,6 +158,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithMany()
                 .HasForeignKey(x => x.ContactUserId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<UserOfferInteractionRow>(e =>
+        {
+            e.ToTable("user_offer_interactions");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.UserId).HasMaxLength(64);
+            e.Property(x => x.OfferId).HasMaxLength(64);
+            e.Property(x => x.EventType).HasMaxLength(32);
+            e.Property(x => x.CreatedAt);
+            e.HasIndex(x => x.UserId);
+            e.HasIndex(x => x.OfferId);
+            e.HasIndex(x => x.CreatedAt);
+            e.HasIndex(x => new { x.UserId, x.CreatedAt });
+            e.HasIndex(x => new { x.OfferId, x.CreatedAt });
         });
     }
 }

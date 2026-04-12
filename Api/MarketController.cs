@@ -8,6 +8,7 @@ using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Recommendations;
 
 namespace VibeTrade.Backend.Api;
 
@@ -19,6 +20,7 @@ public sealed class MarketController(
     IMarketWorkspaceService marketWorkspace,
     IMarketCatalogSyncService catalog,
     IAuthService auth,
+    IRecommendationService recommendations,
     AppDbContext db) : ControllerBase
 {
     public sealed record CatalogCategoriesResponse(IReadOnlyList<string> Categories);
@@ -410,6 +412,12 @@ public sealed class MarketController(
             if (item is null)
                 return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
 
+            await recommendations.RecordInteractionAsync(
+                body.AskedBy.Id.Trim(),
+                body.OfferId.Trim(),
+                RecommendationInteractionType.Inquiry,
+                cancellationToken);
+
             return Content(item.ToJsonString(), "application/json");
         }
         catch (ArgumentException ex)
@@ -476,9 +484,6 @@ public sealed class MarketController(
         var root = body.RootElement;
         if (root.ValueKind != JsonValueKind.Object)
             throw new ArgumentException("Root must be an object.", nameof(body));
-
-        if (root.TryGetProperty("stores", out var storesEl) && storesEl.ValueKind == JsonValueKind.Object)
-            return body;
 
         if (root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
         {

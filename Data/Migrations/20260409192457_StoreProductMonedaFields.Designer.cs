@@ -2,18 +2,21 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using VibeTrade.Backend.Data;
 
 #nullable disable
 
-namespace VibeTrade.Backend.Migrations
+namespace VibeTrade.Backend.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260409192457_StoreProductMonedaFields")]
+    partial class StoreProductMonedaFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -21,56 +24,6 @@ namespace VibeTrade.Backend.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AuthPendingOtpRow", b =>
-                {
-                    b.Property<string>("PhoneDigits")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<int>("CodeLength")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("PhoneDigits");
-
-                    b.HasIndex("ExpiresAt");
-
-                    b.ToTable("auth_pending_otps", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AuthSessionRow", b =>
-                {
-                    b.Property<string>("Token")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UserJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.HasKey("Token");
-
-                    b.HasIndex("ExpiresAt");
-
-                    b.ToTable("auth_sessions", (string)null);
-                });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.MarketWorkspaceRow", b =>
                 {
@@ -136,10 +89,6 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");
-
-                    b.Property<string>("OfferQaJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
 
                     b.Property<string>("PhotoUrlsJson")
                         .IsRequired()
@@ -286,21 +235,9 @@ namespace VibeTrade.Backend.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("MonedasJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
                     b.Property<string>("NoIncluye")
                         .IsRequired()
                         .HasColumnType("text");
-
-                    b.Property<string>("OfferQaJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("PhotoUrlsJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
 
                     b.Property<string>("PropIntelectual")
                         .IsRequired()
@@ -396,10 +333,6 @@ namespace VibeTrade.Backend.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<string>("SavedOfferIdsJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
                     b.Property<string>("Telegram")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
@@ -421,76 +354,6 @@ namespace VibeTrade.Backend.Migrations
                         .HasFilter("\"PhoneDigits\" IS NOT NULL");
 
                     b.ToTable("user_accounts", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserContactRow", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ContactUserId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("OwnerUserId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ContactUserId");
-
-                    b.HasIndex("OwnerUserId");
-
-                    b.HasIndex("OwnerUserId", "ContactUserId")
-                        .IsUnique();
-
-                    b.ToTable("user_contacts", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserOfferInteractionRow", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("EventType")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("OfferId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedAt");
-
-                    b.HasIndex("OfferId");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("OfferId", "CreatedAt");
-
-                    b.HasIndex("UserId", "CreatedAt");
-
-                    b.ToTable("user_offer_interactions", (string)null);
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreProductRow", b =>
@@ -524,21 +387,6 @@ namespace VibeTrade.Backend.Migrations
                         .IsRequired();
 
                     b.Navigation("Store");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserContactRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.UserAccount", null)
-                        .WithMany()
-                        .HasForeignKey("ContactUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("VibeTrade.Backend.Data.Entities.UserAccount", null)
-                        .WithMany()
-                        .HasForeignKey("OwnerUserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreRow", b =>
