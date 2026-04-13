@@ -42,11 +42,15 @@ builder.Services.AddScoped<IMarketWorkspaceRepository, MarketWorkspaceRepository
 builder.Services.AddScoped<IMarketCatalogSyncService, MarketCatalogSyncService>();
 builder.Services.AddScoped<IMarketWorkspaceService, MarketWorkspaceService>();
 builder.Services.AddScoped<IBootstrapService, BootstrapService>();
+builder.Services.AddScoped<IGuestBootstrapService, GuestBootstrapService>();
 builder.Services.AddScoped<ISavedOffersService, SavedOffersService>();
 builder.Services.AddScoped<IRecommendationService, RecommendationService>();
+builder.Services.AddSingleton<IGuestInteractionStore, GuestInteractionStore>();
+builder.Services.AddScoped<IGuestRecommendationService, GuestRecommendationService>();
 builder.Services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
 builder.Services.AddScoped<IUserContactsService, UserContactsService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddMemoryCache();
 
 builder.Services.Configure<ElasticsearchStoreSearchOptions>(
     builder.Configuration.GetSection(ElasticsearchStoreSearchOptions.SectionName));

@@ -235,11 +235,36 @@ public sealed class ElasticsearchStoreSearchQuery(
 
             if (!string.IsNullOrEmpty(catQ))
             {
-                var esc = StoreSearchWildcard.Escape(catQ);
-                filters.Add(f => f.Wildcard(w => w
-                    .Field(fd => fd.Categories)
-                    .Value($"*{esc}*")
-                    .CaseInsensitive(true)));
+                var parts = catQ
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(x => x.Trim())
+                    .Where(x => x.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
+                if (parts.Length <= 1)
+                {
+                    var esc = StoreSearchWildcard.Escape(catQ);
+                    filters.Add(f => f.Wildcard(w => w
+                        .Field(fd => fd.Categories)
+                        .Value($"*{esc}*")
+                        .CaseInsensitive(true)));
+                }
+                else
+                {
+                    filters.Add(f => f.Bool(bb =>
+                    {
+                        bb.MinimumShouldMatch(1);
+                        bb.Should(parts.Select(p =>
+                        {
+                            var esc = StoreSearchWildcard.Escape(p);
+                            return (Action<QueryDescriptor<CatalogSearchDocument>>)(ss => ss.Wildcard(w => w
+                                .Field(fd => fd.Categories)
+                                .Value($"*{esc}*")
+                                .CaseInsensitive(true)));
+                        }).ToArray());
+                    }));
+                }
             }
 
             if (hasDistanceFilter)

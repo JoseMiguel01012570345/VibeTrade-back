@@ -9,7 +9,9 @@ namespace VibeTrade.Backend.Api;
 [Produces("application/json")]
 public sealed class RecommendationsController(
     IRecommendationService recommendations,
-    IAuthService auth) : ControllerBase
+    IAuthService auth,
+    IGuestRecommendationService guestRecommendations,
+    IGuestInteractionStore guestInteractions) : ControllerBase
 {
     public sealed record TrackInteractionBody(string? OfferId, string? EventType);
 
@@ -55,6 +57,47 @@ public sealed class RecommendationsController(
             body.OfferId.Trim(),
             eventType,
             cancellationToken);
+        return NoContent();
+    }
+
+    public sealed record TrackGuestInteractionBody(string? GuestId, string? OfferId, string? EventType);
+
+    [HttpGet("guest")]
+    [ProducesResponseType(typeof(RecommendationBatchResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<RecommendationBatchResponse>> GetGuest(
+        [FromQuery] string? guestId,
+        [FromQuery] int? cursor,
+        [FromQuery] int? take,
+        CancellationToken cancellationToken)
+    {
+        var gid = (guestId ?? "").Trim();
+        if (gid.Length < 8)
+            return BadRequest(new { error = "invalid_guest_id", message = "guestId requerido." });
+
+        var batch = await guestRecommendations.GetBatchAsync(
+            gid,
+            take ?? RecommendationService.DefaultBatchSize,
+            cursor ?? 0,
+            cancellationToken);
+        return Ok(batch);
+    }
+
+    [HttpPost("guest/interactions")]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public IActionResult PostGuestInteraction([FromBody] TrackGuestInteractionBody body)
+    {
+        var gid = (body.GuestId ?? "").Trim();
+        if (gid.Length < 8)
+            return BadRequest(new { error = "invalid_guest_id", message = "guestId requerido." });
+        if (string.IsNullOrWhiteSpace(body.OfferId))
+            return BadRequest(new { error = "invalid_offer_id", message = "Indicá la oferta." });
+        if (!TryParseEventType(body.EventType, out var eventType))
+            return BadRequest(new { error = "invalid_event_type", message = "Usá click, inquiry o chat_start." });
+
+        guestInteractions.Record(gid, body.OfferId.Trim(), eventType);
         return NoContent();
     }
 

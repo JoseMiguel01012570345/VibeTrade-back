@@ -6,7 +6,7 @@ using VibeTrade.Backend.Features.Auth;
 
 namespace VibeTrade.Backend.Api;
 
-/// <summary>Subida y descarga de archivos binarios (imágenes, PDFs, docs). Requiere sesión.</summary>
+/// <summary>Subida y descarga de archivos binarios (imágenes, PDFs, docs). GET es público; POST requiere sesión.</summary>
 [ApiController]
 [Route("api/v1/[controller]")]
 public sealed class MediaController(AppDbContext db, IAuthService auth) : ControllerBase
@@ -56,9 +56,6 @@ public sealed class MediaController(AppDbContext db, IAuthService auth) : Contro
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Get(string id, CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out _))
-            return Unauthorized();
-
         var row = await db.StoredMedia.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (row is null)
             return NotFound();

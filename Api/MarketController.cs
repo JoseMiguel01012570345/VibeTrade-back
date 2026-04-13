@@ -323,6 +323,8 @@ public sealed class MarketController(
         };
         try { o["acceptedCurrencies"] = JsonNode.Parse(p.MonedasJson) ?? new JsonArray(); }
         catch { o["acceptedCurrencies"] = new JsonArray(); }
+        try { o["photoUrls"] = JsonNode.Parse(p.PhotoUrlsJson) ?? new JsonArray(); }
+        catch { o["photoUrls"] = new JsonArray(); }
         if (!string.IsNullOrEmpty(p.ShortDescription))
             o["shortDescription"] = p.ShortDescription;
         return o;
@@ -339,6 +341,8 @@ public sealed class MarketController(
         };
         try { o["acceptedCurrencies"] = JsonNode.Parse(s.MonedasJson) ?? new JsonArray(); }
         catch { o["acceptedCurrencies"] = new JsonArray(); }
+        try { o["photoUrls"] = JsonNode.Parse(s.PhotoUrlsJson) ?? new JsonArray(); }
+        catch { o["photoUrls"] = new JsonArray(); }
         if (!string.IsNullOrEmpty(s.Descripcion))
             o["descripcion"] = s.Descripcion;
         return o;
@@ -533,8 +537,16 @@ public sealed class MarketController(
     {
         if (string.IsNullOrWhiteSpace(body.OfferId) || string.IsNullOrWhiteSpace(body.Question))
             return BadRequest(new { error = "invalid_inquiry", message = "Indicá la oferta y el texto de la pregunta." });
-        if (body.AskedBy is null || string.IsNullOrWhiteSpace(body.AskedBy.Id))
-            return BadRequest(new { error = "invalid_inquiry", message = "Faltan datos de quien pregunta." });
+        var askedById = (body.AskedBy?.Id ?? "").Trim();
+        var askedByName = (body.AskedBy?.Name ?? "").Trim();
+        var askedByTrust = body.AskedBy?.TrustScore ?? 0;
+        var isAnonymous = askedById.Length == 0 || string.Equals(askedById, "guest", StringComparison.OrdinalIgnoreCase);
+        if (isAnonymous)
+        {
+            askedById = "guest";
+            if (askedByName.Length == 0) askedByName = "Anónimo";
+            askedByTrust = 0;
+        }
 
         var q = body.Question.Trim();
         if (q.Length > 12_000)
@@ -545,19 +557,22 @@ public sealed class MarketController(
             var item = await catalog.AppendOfferInquiryAsync(
                 body.OfferId.Trim(),
                 q,
-                body.AskedBy.Id.Trim(),
-                (body.AskedBy.Name ?? "").Trim(),
-                body.AskedBy.TrustScore,
+                askedById,
+                askedByName,
+                askedByTrust,
                 body.CreatedAt,
                 cancellationToken);
             if (item is null)
                 return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
 
-            await recommendations.RecordInteractionAsync(
-                body.AskedBy.Id.Trim(),
-                body.OfferId.Trim(),
-                RecommendationInteractionType.Inquiry,
-                cancellationToken);
+            if (!isAnonymous)
+            {
+                await recommendations.RecordInteractionAsync(
+                    askedById,
+                    body.OfferId.Trim(),
+                    RecommendationInteractionType.Inquiry,
+                    cancellationToken);
+            }
 
             return Content(item.ToJsonString(), "application/json");
         }

@@ -32,3 +32,24 @@ public sealed class BootstrapController(IBootstrapService bootstrap, IAuthServic
         return Content(json, "application/json");
     }
 }
+
+[ApiController]
+[Route("api/v1/bootstrap/guest")]
+[Produces("application/json")]
+public sealed class GuestBootstrapController(IGuestBootstrapService bootstrap) : ControllerBase
+{
+    /// <summary>Bootstrap público para invitado (sin sesión).</summary>
+    [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> Get([FromQuery] string? guestId, CancellationToken cancellationToken)
+    {
+        var gid = (guestId ?? "").Trim();
+        if (gid.Length < 8)
+            return BadRequest(new { error = "invalid_guest_id", message = "guestId requerido." });
+
+        using var doc = await bootstrap.GetGuestBootstrapAsync(gid, cancellationToken);
+        var json = doc.RootElement.GetRawText();
+        return Content(json, "application/json");
+    }
+}
