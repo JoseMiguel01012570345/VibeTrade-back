@@ -1,6 +1,11 @@
 namespace VibeTrade.Backend.Features.Search;
 
-public sealed record ElasticsearchStoreSearchHit(string StoreId, double? DistanceKm);
+public sealed record ElasticsearchStoreSearchHit(
+    string DocumentId,
+    string Kind,
+    string StoreId,
+    string? OfferId,
+    double? DistanceKm);
 
 public sealed record ElasticsearchStoreSearchResult(
     IReadOnlyList<ElasticsearchStoreSearchHit> Hits,
@@ -13,6 +18,7 @@ public interface IElasticsearchStoreSearchQuery
     Task<ElasticsearchStoreSearchResult?> SearchAsync(
         string? name,
         string? category,
+        IReadOnlyList<string> kinds,
         bool hasDistanceFilter,
         double userLat,
         double userLng,

@@ -50,6 +50,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 
 builder.Services.Configure<ElasticsearchStoreSearchOptions>(
     builder.Configuration.GetSection(ElasticsearchStoreSearchOptions.SectionName));
+builder.Services.AddSingleton<IStoreSearchTextEmbeddingService, StoreSearchMlNetTfIdfEmbeddingService>();
 builder.Services.AddScoped<IElasticsearchStoreSearchQuery, ElasticsearchStoreSearchQuery>();
 builder.Services.AddScoped<IStoreSearchIndexWriter, ElasticsearchStoreSearchIndexWriter>();
 

@@ -49,6 +49,11 @@ public sealed class BearerSessionAuthMiddleware(RequestDelegate next)
 
     private static bool AllowsAnonymousApi(PathString path, string method)
     {
+        // GET /api/v1/market/stores/search (búsqueda pública)
+        if (HttpMethods.IsGet(method) &&
+            path.Equals("/api/v1/market/stores/search", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         // POST /api/v1/auth/request-code
         if (HttpMethods.IsPost(method) &&
             path.Equals("/api/v1/auth/request-code", StringComparison.OrdinalIgnoreCase))
