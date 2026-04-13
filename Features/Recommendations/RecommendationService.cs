@@ -9,8 +9,8 @@ namespace VibeTrade.Backend.Features.Recommendations;
 
 public sealed class RecommendationService(AppDbContext db) : IRecommendationService
 {
-    public const int DefaultBatchSize = 50;
-    public const int MaxBatchSize = 100;
+    public const int DefaultBatchSize = 20;
+    public const int MaxBatchSize = 20;
     public const double ScoreThreshold = 0.35d;
     private const int TrustPenaltyThreshold = 40;
 
@@ -30,8 +30,8 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
             return RecommendationBatchResponse.Empty(DefaultBatchSize, ScoreThreshold);
 
         var batchSize = Math.Clamp(take, 1, MaxBatchSize);
-        var orderedIds = await BuildOrderedOfferIdsAsync(viewer, cancellationToken);
-        var page = BuildPage(orderedIds, batchSize, cursor);
+        var (orderedIds, candidates) = await BuildOrderedFeedAsync(viewer, cancellationToken);
+        var page = BuildPage(orderedIds, candidates, batchSize, cursor);
         var offers = await BuildOffersJsonForIdsAsync(page.OfferIds, cancellationToken);
         return page with { Offers = offers };
     }
@@ -61,13 +61,14 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<IReadOnlyList<string>> BuildOrderedOfferIdsAsync(
-        UserAccount viewer,
-        CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<string> OrderedIds, Dictionary<string, OfferCandidate> Candidates)>
+        BuildOrderedFeedAsync(
+            UserAccount viewer,
+            CancellationToken cancellationToken)
     {
         var candidates = await LoadCandidatesAsync(viewer.Id, cancellationToken);
         if (candidates.Count == 0)
-            return Array.Empty<string>();
+            return (Array.Empty<string>(), candidates);
 
         var now = DateTimeOffset.UtcNow;
         var contacts = await LoadViewerContactsAsync(viewer.Id, cancellationToken);
@@ -90,7 +91,8 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
             popularityWeights);
 
         scored = OrderScoredList(scored, contactSignals.SeedIds);
-        return DedupeOrderedIdsByThreshold(scored);
+        var orderedIds = DedupeOrderedIdsByThreshold(scored);
+        return (orderedIds, candidates);
     }
 
     private async Task<ViewerContacts> LoadViewerContactsAsync(string viewerId, CancellationToken cancellationToken)
@@ -309,6 +311,7 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
             .Select(p => new
             {
                 p.Id,
+                p.StoreId,
                 p.Category,
                 p.UpdatedAt,
                 p.OfferQaJson,
@@ -322,6 +325,7 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
             .Select(s => new
             {
                 s.Id,
+                s.StoreId,
                 s.Category,
                 s.UpdatedAt,
                 s.OfferQaJson,
@@ -335,6 +339,7 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
         {
             map[item.Id] = new OfferCandidate(
                 item.Id,
+                item.StoreId,
                 item.Category ?? "",
                 item.OwnerUserId,
                 item.TrustScore,
@@ -346,6 +351,7 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
         {
             map[item.Id] = new OfferCandidate(
                 item.Id,
+                item.StoreId,
                 item.Category ?? "",
                 item.OwnerUserId,
                 item.TrustScore,
@@ -369,6 +375,7 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
 
     private static RecommendationBatchResponse BuildPage(
         IReadOnlyList<string> orderedIds,
+        IReadOnlyDictionary<string, OfferCandidate> candidates,
         int take,
         int cursor)
     {
@@ -389,6 +396,8 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
             wrapped = true;
         }
 
+        var recommendedStores = RankRecommendedStoreIds(orderedIds, page, start, candidates, take);
+
         return new RecommendationBatchResponse(
             page,
             new JsonObject(),
@@ -396,7 +405,47 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
             orderedIds.Count,
             take,
             ScoreThreshold,
-            wrapped);
+            wrapped,
+            recommendedStores);
+    }
+
+    /// <summary>
+    /// Por ventana [start, start + page.Count): peso (lengthFeed - pos) por posición; score tienda = suma de pesos
+    /// de sus ofertas en la ventana, normalizado por la suma total de pesos de la ventana. Orden desc, hasta take ids.
+    /// </summary>
+    private static string[] RankRecommendedStoreIds(
+        IReadOnlyList<string> orderedIds,
+        IReadOnlyList<string> pageOfferIds,
+        int pageStart,
+        IReadOnlyDictionary<string, OfferCandidate> candidates,
+        int maxStores)
+    {
+        var lengthFeed = orderedIds.Count;
+        if (lengthFeed == 0 || pageOfferIds.Count == 0 || maxStores <= 0)
+            return Array.Empty<string>();
+
+        var storeRaw = new Dictionary<string, double>(StringComparer.Ordinal);
+        var denom = 0d;
+        for (var i = 0; i < pageOfferIds.Count; i++)
+        {
+            var pos = pageStart + i;
+            var w = lengthFeed - pos;
+            denom += w;
+            var offerId = pageOfferIds[i];
+            if (!candidates.TryGetValue(offerId, out var c))
+                continue;
+            storeRaw[c.StoreId] = storeRaw.GetValueOrDefault(c.StoreId) + w;
+        }
+
+        if (denom <= 0d)
+            return Array.Empty<string>();
+
+        return storeRaw
+            .OrderByDescending(kv => kv.Value / denom)
+            .ThenBy(kv => kv.Key, StringComparer.Ordinal)
+            .Take(maxStores)
+            .Select(kv => kv.Key)
+            .ToArray();
     }
 
     private async Task<JsonObject> BuildOffersJsonForIdsAsync(
@@ -531,6 +580,7 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
 
     private sealed record OfferCandidate(
         string OfferId,
+        string StoreId,
         string Category,
         string OwnerUserId,
         int TrustScore,

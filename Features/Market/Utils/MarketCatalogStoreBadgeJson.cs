@@ -29,6 +29,8 @@ internal static class MarketCatalogStoreBadgeJson
 
         if (s.LocationLatitude is { } la && s.LocationLongitude is { } lo)
             node["location"] = new JsonObject { ["lat"] = la, ["lng"] = lo };
+        if (!string.IsNullOrWhiteSpace(s.Pitch))
+            node["pitch"] = s.Pitch.Trim();
         return node;
     }
 }
