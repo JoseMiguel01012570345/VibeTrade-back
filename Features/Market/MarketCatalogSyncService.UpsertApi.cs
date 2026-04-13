@@ -34,6 +34,7 @@ public sealed partial class MarketCatalogSyncService
         var now = DateTimeOffset.UtcNow;
         await UpsertSingleProductRowAsync(storeId, productId, product, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await storeSearchIndex.UpsertStoresAsync([storeId], cancellationToken);
         return StoreCatalogUpsertResult.Ok;
     }
 
@@ -58,6 +59,7 @@ public sealed partial class MarketCatalogSyncService
 
         db.StoreProducts.Remove(row);
         await db.SaveChangesAsync(cancellationToken);
+        await storeSearchIndex.UpsertStoresAsync([storeId], cancellationToken);
         return StoreCatalogUpsertResult.Ok;
     }
 
@@ -90,6 +92,7 @@ public sealed partial class MarketCatalogSyncService
         var now = DateTimeOffset.UtcNow;
         await UpsertSingleServiceRowAsync(storeId, serviceId, service, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await storeSearchIndex.UpsertStoresAsync([storeId], cancellationToken);
         return StoreCatalogUpsertResult.Ok;
     }
 
@@ -114,6 +117,7 @@ public sealed partial class MarketCatalogSyncService
 
         db.StoreServices.Remove(row);
         await db.SaveChangesAsync(cancellationToken);
+        await storeSearchIndex.UpsertStoresAsync([storeId], cancellationToken);
         return StoreCatalogUpsertResult.Ok;
     }
 }

@@ -76,6 +76,12 @@ public sealed partial class MarketCatalogSyncService
         {
             throw new DuplicateStoreNameException(null);
         }
+
+        if (hasStores && (storeProfiles || catalogs))
+        {
+            var ids = storesEl.EnumerateObject().Select(p => p.Name).ToList();
+            await storeSearchIndex.UpsertStoresAsync(ids, cancellationToken);
+        }
     }
 
     private async Task EnsureUserExistsAsync(string userId, DateTimeOffset now, CancellationToken cancellationToken)

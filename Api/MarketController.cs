@@ -9,6 +9,7 @@ using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Search;
 
 namespace VibeTrade.Backend.Api;
 
@@ -21,6 +22,7 @@ public sealed class MarketController(
     IMarketCatalogSyncService catalog,
     IAuthService auth,
     IRecommendationService recommendations,
+    IElasticsearchStoreSearchQuery storeSearchQuery,
     AppDbContext db) : ControllerBase
 {
     public sealed record CatalogCategoriesResponse(IReadOnlyList<string> Categories);
@@ -73,9 +75,38 @@ public sealed class MarketController(
         [FromQuery] int? offset,
         CancellationToken cancellationToken)
     {
+        var ctx = ParseStoreSearchContext(name, category, lat, lng, km, limit, offset);
+
+        var esResponse = await TrySearchStoresViaElasticsearchAsync(ctx, cancellationToken);
+        if (esResponse is not null)
+            return Ok(esResponse);
+
+        return Ok(await SearchStoresInMemoryAsync(ctx, cancellationToken));
+    }
+
+    private sealed record StoreSearchContext(
+        int Take,
+        int Skip,
+        string? NameParam,
+        string? CategoryParam,
+        string NameQuery,
+        string CategoryQuery,
+        bool HasDistanceFilter,
+        double? Lat,
+        double? Lng,
+        double? Km);
+
+    private static StoreSearchContext ParseStoreSearchContext(
+        string? name,
+        string? category,
+        double? lat,
+        double? lng,
+        double? km,
+        int? limit,
+        int? offset)
+    {
         var take = Math.Clamp(limit ?? 40, 1, 200);
         var skip = Math.Max(0, offset ?? 0);
-
         var nameQ = (name ?? "").Trim();
         var catQ = (category ?? "").Trim();
 
@@ -87,98 +118,192 @@ public sealed class MarketController(
             if (!double.IsFinite(km!.Value) || km.Value is <= 0 or > 25_000) hasDistanceFilter = false;
         }
 
-        // Cargar stores base.
+        return new StoreSearchContext(take, skip, name, category, nameQ, catQ, hasDistanceFilter, lat, lng, km);
+    }
+
+    private async Task<StoreSearchResponse?> TrySearchStoresViaElasticsearchAsync(
+        StoreSearchContext ctx,
+        CancellationToken cancellationToken)
+    {
+        if (!storeSearchQuery.IsConfigured)
+            return null;
+
+        var es = await storeSearchQuery.SearchAsync(
+            ctx.NameParam,
+            ctx.CategoryParam,
+            ctx.HasDistanceFilter,
+            ctx.Lat ?? 0,
+            ctx.Lng ?? 0,
+            ctx.Km ?? 0,
+            ctx.Skip,
+            ctx.Take,
+            cancellationToken);
+        if (es is null)
+            return null;
+
+        return await BuildStoreSearchResponseFromElasticsearchAsync(es, ctx, cancellationToken);
+    }
+
+    private async Task<StoreSearchResponse> BuildStoreSearchResponseFromElasticsearchAsync(
+        ElasticsearchStoreSearchResult es,
+        StoreSearchContext ctx,
+        CancellationToken cancellationToken)
+    {
+        var total = (int)Math.Min(es.TotalCount, int.MaxValue);
+        if (es.Hits.Count == 0)
+            return new StoreSearchResponse([], total, ctx.Skip, ctx.Take);
+
+        var ids = es.Hits.Select(h => h.StoreId).ToList();
+        var rows = await db.Stores.AsNoTracking()
+            .Where(s => ids.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, cancellationToken);
+
+        var (pubProducts, pubServices) = await LoadPublishedCountsForStoreIdsAsync(ids, cancellationToken);
+
+        var items = new List<StoreSearchItem>(es.Hits.Count);
+        foreach (var hit in es.Hits)
+        {
+            if (!rows.TryGetValue(hit.StoreId, out var row))
+                continue;
+            pubProducts.TryGetValue(row.Id, out var pp);
+            pubServices.TryGetValue(row.Id, out var ps);
+            items.Add(BuildStoreSearchItem(row, pp, ps, hit.DistanceKm));
+        }
+
+        return new StoreSearchResponse(items, total, ctx.Skip, ctx.Take);
+    }
+
+    private async Task<(Dictionary<string, int> Products, Dictionary<string, int> Services)> LoadPublishedCountsForStoreIdsAsync(
+        IReadOnlyCollection<string> storeIds,
+        CancellationToken cancellationToken)
+    {
+        var pubProducts = await db.StoreProducts.AsNoTracking()
+            .Where(p => p.Published && storeIds.Contains(p.StoreId))
+            .GroupBy(p => p.StoreId)
+            .Select(g => new { StoreId = g.Key, Cnt = g.Count() })
+            .ToDictionaryAsync(x => x.StoreId, x => x.Cnt, cancellationToken);
+
+        var pubServices = await db.StoreServices.AsNoTracking()
+            .Where(s => (s.Published == null || s.Published == true) && storeIds.Contains(s.StoreId))
+            .GroupBy(s => s.StoreId)
+            .Select(g => new { StoreId = g.Key, Cnt = g.Count() })
+            .ToDictionaryAsync(x => x.StoreId, x => x.Cnt, cancellationToken);
+
+        return (pubProducts, pubServices);
+    }
+
+    private async Task<StoreSearchResponse> SearchStoresInMemoryAsync(
+        StoreSearchContext ctx,
+        CancellationToken cancellationToken)
+    {
         var stores = await db.Stores.AsNoTracking().ToListAsync(cancellationToken);
 
-        // Pre-cargar contadores publicados (vitrina).
-        var pubProductCounts = await db.StoreProducts.AsNoTracking()
+        var (pubProducts, pubServices) = await LoadAllPublishedCountsAsync(cancellationToken);
+
+        var matched = FilterStoresInMemory(stores, ctx, pubProducts, pubServices);
+        var ordered = OrderFilteredStores(matched, ctx.HasDistanceFilter);
+        var page = ordered
+            .Skip(ctx.Skip)
+            .Take(ctx.Take)
+            .Select(x => BuildStoreSearchItem(x.row, x.pp, x.ps, x.dist))
+            .ToList();
+
+        return new StoreSearchResponse(page, ordered.Count, ctx.Skip, ctx.Take);
+    }
+
+    private async Task<(Dictionary<string, int> Products, Dictionary<string, int> Services)> LoadAllPublishedCountsAsync(
+        CancellationToken cancellationToken)
+    {
+        var pubProducts = await db.StoreProducts.AsNoTracking()
             .Where(p => p.Published)
             .GroupBy(p => p.StoreId)
             .Select(g => new { StoreId = g.Key, Cnt = g.Count() })
             .ToDictionaryAsync(x => x.StoreId, x => x.Cnt, cancellationToken);
 
-        var pubServiceCounts = await db.StoreServices.AsNoTracking()
+        var pubServices = await db.StoreServices.AsNoTracking()
             .Where(s => s.Published == null || s.Published == true)
             .GroupBy(s => s.StoreId)
             .Select(g => new { StoreId = g.Key, Cnt = g.Count() })
             .ToDictionaryAsync(x => x.StoreId, x => x.Cnt, cancellationToken);
 
-        // Filtrar por nombre/categoría/vitrina/distancia en memoria (sin PostGIS).
-        var items = new List<(StoreRow row, int pp, int ps, double? dist)>(capacity: Math.Min(take, stores.Count));
+        return (pubProducts, pubServices);
+    }
+
+    private static List<(StoreRow row, int pp, int ps, double? dist)> FilterStoresInMemory(
+        IReadOnlyList<StoreRow> stores,
+        StoreSearchContext ctx,
+        IReadOnlyDictionary<string, int> pubProducts,
+        IReadOnlyDictionary<string, int> pubServices)
+    {
+        var items = new List<(StoreRow row, int pp, int ps, double? dist)>(capacity: Math.Min(ctx.Take, stores.Count));
         foreach (var s in stores)
         {
-            if (!string.IsNullOrEmpty(nameQ))
+            if (!string.IsNullOrEmpty(ctx.NameQuery))
             {
                 var hay = s.Name ?? "";
                 var idx = CultureInfo.GetCultureInfo("es").CompareInfo.IndexOf(
                     hay,
-                    nameQ,
+                    ctx.NameQuery,
                     CompareOptions.IgnoreCase | CompareOptions.IgnoreNonSpace);
                 if (idx < 0)
                     continue;
             }
 
-            if (!string.IsNullOrEmpty(catQ))
-            {
-                if (!StoreHasCategory(s, catQ))
-                    continue;
-            }
+            if (!string.IsNullOrEmpty(ctx.CategoryQuery) && !StoreHasCategory(s, ctx.CategoryQuery))
+                continue;
 
-            pubProductCounts.TryGetValue(s.Id, out var pp);
-            pubServiceCounts.TryGetValue(s.Id, out var ps);
+            pubProducts.TryGetValue(s.Id, out var pp);
+            pubServices.TryGetValue(s.Id, out var ps);
 
             double? dist = null;
-            if (hasDistanceFilter)
+            if (ctx.HasDistanceFilter)
             {
                 if (s.LocationLatitude is null || s.LocationLongitude is null)
                     continue;
-                dist = HaversineKm(lat!.Value, lng!.Value, s.LocationLatitude.Value, s.LocationLongitude.Value);
-                if (dist > km!.Value)
+                dist = HaversineKm(ctx.Lat!.Value, ctx.Lng!.Value, s.LocationLatitude.Value, s.LocationLongitude.Value);
+                if (dist > ctx.Km!.Value)
                     continue;
             }
 
             items.Add((s, pp, ps, dist));
         }
 
-        // Orden: por distancia si aplica, si no por trustScore desc, luego nombre.
-        IEnumerable<(StoreRow row, int pp, int ps, double? dist)> ordered = items;
+        return items;
+    }
+
+    private static List<(StoreRow row, int pp, int ps, double? dist)> OrderFilteredStores(
+        List<(StoreRow row, int pp, int ps, double? dist)> items,
+        bool hasDistanceFilter)
+    {
         if (hasDistanceFilter)
-            ordered = ordered.OrderBy(x => x.dist ?? double.MaxValue);
-        else
-            ordered = ordered.OrderByDescending(x => x.row.TrustScore).ThenBy(x => x.row.Name, StringComparer.CurrentCultureIgnoreCase);
-
-        var orderedList = ordered.ToList();
-        var totalCount = orderedList.Count;
-        var outItems = orderedList
-            .Skip(skip)
-            .Take(take)
-            .Select(x =>
-            {
-                var node = new JsonObject
-                {
-                    ["id"] = x.row.Id,
-                    ["name"] = x.row.Name,
-                    ["verified"] = x.row.Verified,
-                    ["transportIncluded"] = x.row.TransportIncluded,
-                    ["trustScore"] = x.row.TrustScore,
-                    ["ownerUserId"] = x.row.OwnerUserId,
-                };
-                if (!string.IsNullOrEmpty(x.row.AvatarUrl))
-                    node["avatarUrl"] = x.row.AvatarUrl;
-
-                try { node["categories"] = JsonNode.Parse(x.row.CategoriesJson) ?? new JsonArray(); }
-                catch { node["categories"] = new JsonArray(); }
-
-                if (x.row.LocationLatitude is { } la && x.row.LocationLongitude is { } lo)
-                {
-                    node["location"] = new JsonObject { ["lat"] = la, ["lng"] = lo };
-                }
-
-                return new StoreSearchItem(node, x.pp, x.ps, x.dist);
-            })
+            return items.OrderBy(x => x.dist ?? double.MaxValue).ToList();
+        return items
+            .OrderByDescending(x => x.row.TrustScore)
+            .ThenBy(x => x.row.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+    }
 
-        return Ok(new StoreSearchResponse(outItems, totalCount, skip, take));
+    private static StoreSearchItem BuildStoreSearchItem(StoreRow row, int pp, int ps, double? dist)
+    {
+        var node = new JsonObject
+        {
+            ["id"] = row.Id,
+            ["name"] = row.Name,
+            ["verified"] = row.Verified,
+            ["transportIncluded"] = row.TransportIncluded,
+            ["trustScore"] = row.TrustScore,
+            ["ownerUserId"] = row.OwnerUserId,
+        };
+        if (!string.IsNullOrEmpty(row.AvatarUrl))
+            node["avatarUrl"] = row.AvatarUrl;
+
+        try { node["categories"] = JsonNode.Parse(row.CategoriesJson) ?? new JsonArray(); }
+        catch { node["categories"] = new JsonArray(); }
+
+        if (row.LocationLatitude is { } la && row.LocationLongitude is { } lo)
+            node["location"] = new JsonObject { ["lat"] = la, ["lng"] = lo };
+
+        return new StoreSearchItem(node, pp, ps, dist);
     }
 
     private static bool StoreHasCategory(StoreRow row, string categoryQ)

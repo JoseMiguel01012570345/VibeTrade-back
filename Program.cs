@@ -9,6 +9,7 @@ using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Bootstrap;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Search;
 using VibeTrade.Backend.Features.SavedOffers;
 using VibeTrade.Backend.Api.Swagger;
 using VibeTrade.Backend.Infrastructure;
@@ -46,6 +47,11 @@ builder.Services.AddScoped<IRecommendationService, RecommendationService>();
 builder.Services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
 builder.Services.AddScoped<IUserContactsService, UserContactsService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+builder.Services.Configure<ElasticsearchStoreSearchOptions>(
+    builder.Configuration.GetSection(ElasticsearchStoreSearchOptions.SectionName));
+builder.Services.AddScoped<IElasticsearchStoreSearchQuery, ElasticsearchStoreSearchQuery>();
+builder.Services.AddScoped<IStoreSearchIndexWriter, ElasticsearchStoreSearchIndexWriter>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase);
@@ -118,6 +124,29 @@ await using (var seedScope = app.Services.CreateAsyncScope())
     var seedLog = seedScope.ServiceProvider.GetRequiredService<ILoggerFactory>()
         .CreateLogger("VibeTrade.Backend.Infrastructure.DemoDataSeed");
     await DemoDataSeed.RunIfNeededAsync(seedDb, seedCfg, seedLog);
+}
+
+await using (var esScope = app.Services.CreateAsyncScope())
+{
+    var esCfg = esScope.ServiceProvider.GetRequiredService<IConfiguration>()
+        .GetSection(ElasticsearchStoreSearchOptions.SectionName)
+        .Get<ElasticsearchStoreSearchOptions>();
+    if (esCfg is { Enabled: true } && !string.IsNullOrWhiteSpace(esCfg.Uri))
+    {
+        var esWriter = esScope.ServiceProvider.GetRequiredService<IStoreSearchIndexWriter>();
+        var esLog = esScope.ServiceProvider.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("VibeTrade.Backend.Features.Search.Startup");
+        try
+        {
+            await esWriter.EnsureIndexAsync();
+            if (esCfg.ReindexOnStartup)
+                await esWriter.ReindexAllStoresAsync();
+        }
+        catch (Exception ex)
+        {
+            esLog.LogWarning(ex, "Elasticsearch: no se pudo preparar el índice; /stores/search usará fallback en memoria.");
+        }
+    }
 }
 
 app.UseCors("Dev");

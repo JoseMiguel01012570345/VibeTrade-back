@@ -2,10 +2,13 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Market.Utils;
+using VibeTrade.Backend.Features.Search;
 
 namespace VibeTrade.Backend.Features.Market;
 
-public sealed partial class MarketCatalogSyncService(AppDbContext db) : IMarketCatalogSyncService
+public sealed partial class MarketCatalogSyncService(
+    AppDbContext db,
+    IStoreSearchIndexWriter storeSearchIndex) : IMarketCatalogSyncService
 {
     public Task ApplyStoreProfilesFromWorkspaceAsync(
         JsonElement workspaceRoot,
