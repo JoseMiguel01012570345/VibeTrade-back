@@ -35,7 +35,11 @@ public sealed class MarketController(
 
     public sealed record StoreSearchItem(JsonObject Store, int PublishedProducts, int PublishedServices, double? DistanceKm);
 
-    public sealed record StoreSearchResponse(IReadOnlyList<StoreSearchItem> Items);
+    public sealed record StoreSearchResponse(
+        IReadOnlyList<StoreSearchItem> Items,
+        int TotalCount,
+        int Offset,
+        int Limit);
 
     /// <summary>Categorías permitidas para productos, servicios y sugerencias en acuerdos (misma lista).</summary>
     [HttpGet("catalog-categories")]
@@ -66,9 +70,11 @@ public sealed class MarketController(
         [FromQuery] double? lng,
         [FromQuery] double? km,
         [FromQuery] int? limit,
+        [FromQuery] int? offset,
         CancellationToken cancellationToken)
     {
         var take = Math.Clamp(limit ?? 40, 1, 200);
+        var skip = Math.Max(0, offset ?? 0);
 
         var nameQ = (name ?? "").Trim();
         var catQ = (category ?? "").Trim();
@@ -141,32 +147,38 @@ public sealed class MarketController(
         else
             ordered = ordered.OrderByDescending(x => x.row.TrustScore).ThenBy(x => x.row.Name, StringComparer.CurrentCultureIgnoreCase);
 
-        var outItems = ordered.Take(take).Select(x =>
-        {
-            var node = new JsonObject
+        var orderedList = ordered.ToList();
+        var totalCount = orderedList.Count;
+        var outItems = orderedList
+            .Skip(skip)
+            .Take(take)
+            .Select(x =>
             {
-                ["id"] = x.row.Id,
-                ["name"] = x.row.Name,
-                ["verified"] = x.row.Verified,
-                ["transportIncluded"] = x.row.TransportIncluded,
-                ["trustScore"] = x.row.TrustScore,
-                ["ownerUserId"] = x.row.OwnerUserId,
-            };
-            if (!string.IsNullOrEmpty(x.row.AvatarUrl))
-                node["avatarUrl"] = x.row.AvatarUrl;
+                var node = new JsonObject
+                {
+                    ["id"] = x.row.Id,
+                    ["name"] = x.row.Name,
+                    ["verified"] = x.row.Verified,
+                    ["transportIncluded"] = x.row.TransportIncluded,
+                    ["trustScore"] = x.row.TrustScore,
+                    ["ownerUserId"] = x.row.OwnerUserId,
+                };
+                if (!string.IsNullOrEmpty(x.row.AvatarUrl))
+                    node["avatarUrl"] = x.row.AvatarUrl;
 
-            try { node["categories"] = JsonNode.Parse(x.row.CategoriesJson) ?? new JsonArray(); }
-            catch { node["categories"] = new JsonArray(); }
+                try { node["categories"] = JsonNode.Parse(x.row.CategoriesJson) ?? new JsonArray(); }
+                catch { node["categories"] = new JsonArray(); }
 
-            if (x.row.LocationLatitude is { } la && x.row.LocationLongitude is { } lo)
-            {
-                node["location"] = new JsonObject { ["lat"] = la, ["lng"] = lo };
-            }
+                if (x.row.LocationLatitude is { } la && x.row.LocationLongitude is { } lo)
+                {
+                    node["location"] = new JsonObject { ["lat"] = la, ["lng"] = lo };
+                }
 
-            return new StoreSearchItem(node, x.pp, x.ps, x.dist);
-        }).ToList();
+                return new StoreSearchItem(node, x.pp, x.ps, x.dist);
+            })
+            .ToList();
 
-        return Ok(new StoreSearchResponse(outItems));
+        return Ok(new StoreSearchResponse(outItems, totalCount, skip, take));
     }
 
     private static bool StoreHasCategory(StoreRow row, string categoryQ)
