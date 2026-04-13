@@ -193,7 +193,6 @@ public sealed class MarketController(
             .Where(s => storeIds.Contains(s.Id))
             .ToDictionaryAsync(s => s.Id, cancellationToken);
 
-        var (pubProducts, pubServices) = await LoadPublishedCountsForStoreIdsAsync(storeIds, cancellationToken);
 
         var productIds = es.Hits
             .Where(h => h.Kind == CatalogSearchKinds.Product && !string.IsNullOrEmpty(h.OfferId))
@@ -206,17 +205,7 @@ public sealed class MarketController(
             .Distinct()
             .ToList();
 
-        var products = productIds.Count == 0
-            ? new Dictionary<string, StoreProductRow>()
-            : await db.StoreProducts.AsNoTracking()
-                .Where(p => productIds.Contains(p.Id))
-                .ToDictionaryAsync(p => p.Id, cancellationToken);
-
-        var services = serviceIds.Count == 0
-            ? new Dictionary<string, StoreServiceRow>()
-            : await db.StoreServices.AsNoTracking()
-                .Where(s => serviceIds.Contains(s.Id))
-                .ToDictionaryAsync(s => s.Id, cancellationToken);
+        var (pubProducts, pubServices) = await LoadPublishedCountsForStoreIdsAsync(storeIds, productIds, serviceIds, cancellationToken); // load the published products and services from the store filtering by productIds and ServiceIds in just one pass
 
         var items = new List<CatalogSearchItem>(es.Hits.Count);
         foreach (var hit in es.Hits)
@@ -233,34 +222,34 @@ public sealed class MarketController(
                     CatalogSearchKinds.Store,
                     storeJson,
                     null,
-                    pp,
-                    ps,
+                    pp.count,
+                    ps.count,
                     hit.DistanceKm));
                 continue;
             }
 
             if (hit.Kind == CatalogSearchKinds.Product && hit.OfferId is { } pid
-                                                     && products.TryGetValue(pid, out var pr))
+                                                     && pubProducts.TryGetValue(pid, out var pr))
             {
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Product,
                     storeJson,
-                    BuildProductOfferJson(pr),
-                    pp,
-                    ps,
+                    BuildProductOfferJson(pr.product),
+                    pp.count,
+                    ps.count,
                     hit.DistanceKm));
                 continue;
             }
 
             if (hit.Kind == CatalogSearchKinds.Service && hit.OfferId is { } sid
-                                                      && services.TryGetValue(sid, out var sv))
+                                                      && pubServices.TryGetValue(sid, out var sv))
             {
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Service,
                     storeJson,
-                    BuildServiceOfferJson(sv),
-                    pp,
-                    ps,
+                    BuildServiceOfferJson(sv.service),
+                    pp.count,
+                    ps.count,
                     hit.DistanceKm));
             }
         }
@@ -268,21 +257,24 @@ public sealed class MarketController(
         return new StoreSearchResponse(items, total, ctx.Skip, ctx.Take);
     }
 
-    private async Task<(Dictionary<string, int> Products, Dictionary<string, int> Services)> LoadPublishedCountsForStoreIdsAsync(
+    private async Task<(Dictionary<string, (StoreProductRow product, int count)> Products, Dictionary<string, (StoreServiceRow service, int count)> Services)> LoadPublishedCountsForStoreIdsAsync(
         IReadOnlyCollection<string> storeIds,
+        IReadOnlyCollection<string> productIds,
+        IReadOnlyCollection<string> serviceIds,
         CancellationToken cancellationToken)
     {
         var pubProducts = await db.StoreProducts.AsNoTracking()
-            .Where(p => p.Published && storeIds.Contains(p.StoreId))
+            .Where(p => p.Published && storeIds.Contains(p.StoreId) && productIds.Contains(p.Id))
             .GroupBy(p => p.StoreId)
-            .Select(g => new { StoreId = g.Key, Cnt = g.Count() })
-            .ToDictionaryAsync(x => x.StoreId, x => x.Cnt, cancellationToken);
+            .Select(g => new { pruduct = g.First(), Cnt = g.Count() })
+            .ToDictionaryAsync(x => x.pruduct.Id, x => (x.pruduct, x.Cnt), cancellationToken);
 
         var pubServices = await db.StoreServices.AsNoTracking()
-            .Where(s => (s.Published == null || s.Published == true) && storeIds.Contains(s.StoreId))
+            .Where(s => (s.Published == null || s.Published == true) && storeIds.Contains(s.StoreId) && serviceIds.Contains(s.Id))
             .GroupBy(s => s.StoreId)
-            .Select(g => new { StoreId = g.Key, Cnt = g.Count() })
-            .ToDictionaryAsync(x => x.StoreId, x => x.Cnt, cancellationToken);
+            .Select(g => new { service = g.First(), Cnt = g.Count() })
+            .ToDictionaryAsync(x => x.service.StoreId, x => (x.service, x.Cnt), cancellationToken);
+       
 
         return (pubProducts, pubServices);
     }
