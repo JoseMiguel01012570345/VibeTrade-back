@@ -20,12 +20,17 @@ internal static class MarketCatalogOfferJsonBuilder
         var photoUrls = MarketCatalogPhotoRules.CollectDisplayablePhotoUrls(p.PhotoUrlsJson);
         var primary = photoUrls.Count > 0 ? photoUrls[0] : null;
 
+        var accepted = TryParseArray(p.MonedasJson);
+        var currency = (p.MonedaPrecio ?? "").Trim();
+
         return new JsonObject
         {
             ["id"] = p.Id,
             ["storeId"] = p.StoreId,
             ["title"] = title,
             ["price"] = price,
+            ["currency"] = currency.Length == 0 ? null : currency,
+            ["acceptedCurrencies"] = accepted,
             ["description"] = OfferDescriptionForProduct(p),
             ["tags"] = new JsonArray(tags.Select(t => (JsonNode?)JsonValue.Create(t)).ToArray()),
             ["imageUrl"] = primary,
@@ -52,18 +57,33 @@ internal static class MarketCatalogOfferJsonBuilder
             ? new JsonArray(photoUrls.Select(u => (JsonNode?)JsonValue.Create(u)).ToArray())
             : new JsonArray((JsonNode?)JsonValue.Create(MarketCatalogConstants.DefaultServiceOfferImageUrl));
 
+        var accepted = TryParseArray(s.MonedasJson);
+
         return new JsonObject
         {
             ["id"] = s.Id,
             ["storeId"] = s.StoreId,
             ["title"] = title,
             ["price"] = FormatServicePriceLine(s),
+            ["acceptedCurrencies"] = accepted,
             ["description"] = OfferDescriptionForService(s),
             ["tags"] = new JsonArray(tags.Select(t => (JsonNode?)JsonValue.Create(t)).ToArray()),
             ["imageUrl"] = primary,
             ["imageUrls"] = imageUrlsNode,
             ["qa"] = MarketCatalogJsonHelpers.ParseOfferQaArray(s.OfferQaJson),
         };
+    }
+
+    private static JsonNode TryParseArray(string? json)
+    {
+        try
+        {
+            return JsonNode.Parse(json ?? "[]") ?? new JsonArray();
+        }
+        catch
+        {
+            return new JsonArray();
+        }
     }
 
     private static string OfferDescriptionForProduct(StoreProductRow p)
