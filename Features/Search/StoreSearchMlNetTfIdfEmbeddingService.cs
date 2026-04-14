@@ -59,7 +59,7 @@ public sealed class StoreSearchMlNetTfIdfEmbeddingService(
                         dims);
                 }
 
-                var v = CopyVectorToFixedLength(buffer, dims);
+                var v = CopyVectorToFixedLength(buffer, dims); // copy the vector to a fixed length array because the elasticsearch vector is fixed length and the ml.net vector mught be sparced and we need to pad or truncate it to the fixed length
                 if (!StoreSearchVectorMath.HasNonTrivialL2Norm(v))
                     return null;
                 return v;
@@ -93,11 +93,13 @@ public sealed class StoreSearchMlNetTfIdfEmbeddingService(
                 },
             };
 
+            // configure the pipeline to featurize the text
             var pipeline = _ml.Transforms.Text.FeaturizeText(
                 outputColumnName: FeaturesColumn,
                 options: featurizeOptions,
                 inputColumnNames: nameof(TextInput.Text));
 
+            // get the corpus to train the model, this is a lazy load, so the following code will be executed for each load of a word
             var bootstrap = BuildBootstrapRows(dimensions);
             var trainData = _ml.Data.LoadFromEnumerable(bootstrap);
             _transformer = pipeline.Fit(trainData);
@@ -105,7 +107,7 @@ public sealed class StoreSearchMlNetTfIdfEmbeddingService(
 
             var preview = _transformer.Transform(trainData);
             var col = preview.Schema[FeaturesColumn];
-            using var cursor = preview.GetRowCursor(new[] { col });
+            using var cursor = preview.GetRowCursor(new[] { col }); // this cursos gives you a getter to index on the column and create a buffer to store the features and check  if the length is the same as the dimensions
             var getter = cursor.GetGetter<VBuffer<float>>(col);
             if (cursor.MoveNext())
             {
@@ -113,7 +115,7 @@ public sealed class StoreSearchMlNetTfIdfEmbeddingService(
                 getter(ref buf);
                 if (buf.Length != dimensions)
                     logger.LogInformation(
-                        "ML.NET TF‑IDF: tras el fit, el vector tiene {Actual} slots (SemanticVectorDimensions {Expected}); se normaliza al indexar y al consultar.",
+                        "ML.NET TF-IDF: tras el fit, el vector tiene {Actual} slots (SemanticVectorDimensions {Expected}); se normaliza al indexar y al consultar.",
                         buf.Length,
                         dimensions);
             }

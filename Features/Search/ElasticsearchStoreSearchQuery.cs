@@ -179,11 +179,11 @@ public sealed class ElasticsearchStoreSearchQuery(
                         .Field(f => f.Name)
                         .Query(nameQ)
                         .Operator(Operator.And)
-                        .Fuzziness(new Fuzziness("AUTO"))
+                        .Fuzziness(new Fuzziness("AUTO")) // allows typos in the name and allos 1 edit distance on 2 letter words
                         .FuzzyTranspositions(true)
                         .Boost(2.5f)),
                     s => s.MultiMatch(mm => mm
-                        .Fields(Fields.FromString("name^2,searchText,categories"))
+                        .Fields(Fields.FromString("name^2,searchText,categories")) // searches over name, searchText, and categories but gives more weight to name
                         .Query(nameQ)
                         .Type(TextQueryType.BestFields)
                         .Operator(Operator.And)),
@@ -194,7 +194,7 @@ public sealed class ElasticsearchStoreSearchQuery(
                         .Operator(Operator.And)
                         .Fuzziness(new Fuzziness("AUTO"))
                         .FuzzyTranspositions(true)
-                        .Lenient(true)
+                        .Lenient(true) // allows typos in the name and allos 1 edit distance on 2 letter words
                         .Boost(1.15f)),
                     s => s.MatchBoolPrefix(mbp => mbp
                         .Field(f => f.Name)
@@ -203,14 +203,14 @@ public sealed class ElasticsearchStoreSearchQuery(
                     s => s.MatchPhrase(mp => mp
                         .Field(f => f.Name)
                         .Query(nameQ)
-                        .Slop(3)),
+                        .Slop(3)), // allows examples like  Query: "cafe artesano" -> Match "cafe muy artesano en casa"
                     s => s.MatchPhrase(mp => mp
                         .Field(f => f.SearchText)
                         .Query(nameQ)
                         .Slop(5)),
                 };
 
-                // Fuzzy robusto vía query_string (Lucene). Útil si el cliente no serializa fuzziness como se espera.
+                // configures fuzzy to 1 edit if the word is 4 letters or more otherwise exact match
                 var qs = BuildLuceneFuzzyQueryString(nameQ);
                 if (!string.IsNullOrEmpty(qs))
                 {
