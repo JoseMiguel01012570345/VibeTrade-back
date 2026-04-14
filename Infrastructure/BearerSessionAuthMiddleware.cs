@@ -9,6 +9,20 @@ namespace VibeTrade.Backend.Infrastructure;
 public sealed class BearerSessionAuthMiddleware(RequestDelegate next)
 {
     private static readonly PathString ApiV1Prefix = new("/api/v1");
+    private static readonly (string, string)[] AnonymousApi = new[] {
+        ("GET", "/api/v1/market/stores/search"),
+        ("GET", "/api/v1/market/stores/autocomplete"),
+        ("GET", "/api/v1/market/catalog-categories"),
+        ("GET", "/api/v1/bootstrap/guest"),
+        ("GET", "/api/v1/recommendations/guest"),
+        ("GET", "/api/v1/auth/sign-in-countries"),
+        ("GET", "/api/v1/media"),
+        ("POST", "/api/v1/recommendations/guest/interactions"),
+        ("POST", "/api/v1/market/inquiries"),
+        ("POST", "/api/v1/auth/request-code"),
+        ("POST", "/api/v1/auth/verify"),
+        ("POST", "/api/v1/market/stores"),
+    };
 
     public async Task InvokeAsync(HttpContext context, IAuthService auth)
     {
@@ -49,62 +63,12 @@ public sealed class BearerSessionAuthMiddleware(RequestDelegate next)
 
     private static bool AllowsAnonymousApi(PathString path, string method)
     {
-        // GET /api/v1/market/stores/search (búsqueda pública)
-        if (HttpMethods.IsGet(method) &&
-            path.Equals("/api/v1/market/stores/search", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // GET /api/v1/market/catalog-categories (categorías públicas)
-        if (HttpMethods.IsGet(method) &&
-            path.Equals("/api/v1/market/catalog-categories", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // GET /api/v1/bootstrap/guest (bootstrap público invitado)
-        if (HttpMethods.IsGet(method) &&
-            path.Equals("/api/v1/bootstrap/guest", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // GET /api/v1/recommendations/guest (recomendaciones público invitado)
-        if (HttpMethods.IsGet(method) &&
-            path.Equals("/api/v1/recommendations/guest", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // POST /api/v1/recommendations/guest/interactions (señales de invitado)
-        if (HttpMethods.IsPost(method) &&
-            path.Equals("/api/v1/recommendations/guest/interactions", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // GET /api/v1/media/{id} (descarga pública de media por id)
-        if (HttpMethods.IsGet(method) &&
-            path.StartsWithSegments("/api/v1/media", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // POST /api/v1/market/inquiries (consultas públicas; anon permitido)
-        if (HttpMethods.IsPost(method) &&
-            path.Equals("/api/v1/market/inquiries", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // POST /api/v1/market/stores/{storeId}/detail (detalle público; carga bajo demanda)
-        if (HttpMethods.IsPost(method) &&
-            path.StartsWithSegments("/api/v1/market/stores", StringComparison.OrdinalIgnoreCase) &&
-            path.Value?.EndsWith("/detail", StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        // POST /api/v1/auth/request-code
-        if (HttpMethods.IsPost(method) &&
-            path.Equals("/api/v1/auth/request-code", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // POST /api/v1/auth/verify
-        if (HttpMethods.IsPost(method) &&
-            path.Equals("/api/v1/auth/verify", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // GET /api/v1/auth/sign-in-countries
-        if (HttpMethods.IsGet(method) &&
-            path.Equals("/api/v1/auth/sign-in-countries", StringComparison.OrdinalIgnoreCase))
-            return true;
-
+        foreach (var (m, p) in AnonymousApi)
+        {
+            if (method == m &&
+                path.StartsWithSegments(new PathString(p)))
+                return true;
+        }
         return false;
     }
 

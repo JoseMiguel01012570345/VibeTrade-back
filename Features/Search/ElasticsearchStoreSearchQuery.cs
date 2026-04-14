@@ -21,6 +21,7 @@ public sealed class ElasticsearchStoreSearchQuery(
         string? name,
         string? category,
         IReadOnlyList<string> kinds,
+        int? trustMin,
         bool hasDistanceFilter,
         double userLat,
         double userLng,
@@ -71,6 +72,7 @@ public sealed class ElasticsearchStoreSearchQuery(
                 BuildSearchRequest(
                     s, nameQ, catQ,
                     kindSet,
+                    trustMin,
                     hasDistanceFilter, userLat, userLng, maxKm,
                     skip, take,
                     queryVector);
@@ -100,6 +102,7 @@ public sealed class ElasticsearchStoreSearchQuery(
         string nameQ,
         string catQ,
         IReadOnlyList<string> kinds,
+        int? trustMin,
         bool hasDistanceFilter,
         double userLat,
         double userLng,
@@ -108,16 +111,20 @@ public sealed class ElasticsearchStoreSearchQuery(
         int take,
         float[]? queryVector)
     {
+        // Sobre-fetch: ES puede devolver hits que luego se descartan al materializar desde DB.
+        // Pedimos más documentos para poder devolver "take" items reales.
+        var effectiveTake = Math.Clamp(take * 3, take, 200);
+
         s.Index(_opt.IndexName)
             .From(skip)
-            .Size(take)
+            .Size(effectiveTake)
             .TrackTotalHits(new TrackHits(true));
 
-        s.Query(q => BuildQuery(q, nameQ, catQ, kinds, hasDistanceFilter, userLat, userLng, maxKm));
+        s.Query(q => BuildQuery(q, nameQ, catQ, kinds, trustMin, hasDistanceFilter, userLat, userLng, maxKm));
 
         if (queryVector is { Length: > 0 } && StoreSearchVectorMath.HasNonTrivialL2Norm(queryVector))
         {
-            var want = Math.Max(skip + take, 10);
+            var want = Math.Max(skip + effectiveTake, 10);
             var numCandidates = Math.Clamp(want * 8, 100, 512);
             var k = Math.Min(numCandidates, want + 40);
             s.Knn(kn => kn
@@ -152,6 +159,7 @@ public sealed class ElasticsearchStoreSearchQuery(
         string nameQ,
         string catQ,
         IReadOnlyList<string> kinds,
+        int? trustMin,
         bool hasDistanceFilter,
         double userLat,
         double userLng,
@@ -175,6 +183,19 @@ public sealed class ElasticsearchStoreSearchQuery(
                 b.MinimumShouldMatch(1);
                 var shoulds = new List<Action<QueryDescriptor<CatalogSearchDocument>>>(10)
                 {
+                    // Match exacto de TIENDA (kind=store + vtCatalogSk exact) con boost muy alto.
+                    s => s.Bool(bb => bb
+                        .Must(
+                            m => m.Term(t => t.Field(fd => fd.Kind).Value(CatalogSearchKinds.Store)),
+                            m => m.Term(t => t
+                                .Field(new Field(CatalogSearchDocument.ElasticsearchVtCatalogSkField))
+                                .Value(StoreSearchTextNormalize.FoldLowerKeyword(nameQ))))
+                        .Boost(20.0f)),
+                    // Match exacto (keyword folded) con boost alto para rankear arriba.
+                    s => s.Term(t => t
+                        .Field(new Field(CatalogSearchDocument.ElasticsearchVtCatalogSkField))
+                        .Value(StoreSearchTextNormalize.FoldLowerKeyword(nameQ))
+                        .Boost(8.0f)),
                     s => s.Match(mt => mt
                         .Field(f => f.Name)
                         .Query(nameQ)
@@ -182,6 +203,12 @@ public sealed class ElasticsearchStoreSearchQuery(
                         .Fuzziness(new Fuzziness("AUTO")) // allows typos in the name and allos 1 edit distance on 2 letter words
                         .FuzzyTranspositions(true)
                         .Boost(2.5f)),
+                    // Phrase exacta con boost: mismo orden, sin slop.
+                    s => s.MatchPhrase(mp => mp
+                        .Field(f => f.Name)
+                        .Query(nameQ)
+                        .Slop(0)
+                        .Boost(3.5f)),
                     s => s.MultiMatch(mm => mm
                         .Fields(Fields.FromString("name^2,searchText,categories")) // searches over name, searchText, and categories but gives more weight to name
                         .Query(nameQ)
@@ -265,6 +292,14 @@ public sealed class ElasticsearchStoreSearchQuery(
                         }).ToArray());
                     }));
                 }
+            }
+
+            if (trustMin is not null)
+            {
+                filters.Add(f => f.Range(r => r
+                    .NumberRange(n => n
+                        .Field(fd => fd.TrustScore)
+                        .Gte(trustMin.Value))));
             }
 
             if (hasDistanceFilter)

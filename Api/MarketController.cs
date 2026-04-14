@@ -45,9 +45,11 @@ public sealed class MarketController(
 
     public sealed record StoreSearchResponse(
         IReadOnlyList<CatalogSearchItem> Items,
-        int TotalCount,
+        bool hasMore,
         int Offset,
         int Limit);
+
+    public sealed record StoreAutocompleteResponse(IReadOnlyList<string> Suggestions);
 
     /// <summary>Categorías permitidas para productos, servicios y sugerencias en acuerdos (misma lista).</summary>
     [HttpGet("catalog-categories")]
@@ -76,6 +78,7 @@ public sealed class MarketController(
         [FromQuery] string? name,
         [FromQuery] string? category,
         [FromQuery] string? kinds,
+        [FromQuery] int? trustMin,
         [FromQuery] double? lat,
         [FromQuery] double? lng,
         [FromQuery] double? km,
@@ -83,13 +86,257 @@ public sealed class MarketController(
         [FromQuery] int? offset,
         CancellationToken cancellationToken)
     {
-        var ctx = ParseStoreSearchContext(name, category, kinds, lat, lng, km, limit, offset);
+        var ctx = ParseStoreSearchContext(name, category, kinds, trustMin, lat, lng, km, limit, offset);
 
         var esResponse = await TrySearchStoresViaElasticsearchAsync(ctx, cancellationToken);
         if (esResponse is not null)
             return Ok(esResponse);
 
-        return Ok(new StoreSearchResponse([], 0, ctx.Skip, ctx.Take));
+        return Ok(new StoreSearchResponse([], false, ctx.Skip, ctx.Take));
+    }
+
+    /// <summary>
+    /// Autocomplete público para el input "Buscar" del catálogo (tiendas + ofertas publicadas).
+    /// Devuelve sugerencias de texto para <c>name</c> (no ejecuta búsqueda completa).
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("stores/autocomplete")]
+    [ProducesResponseType(typeof(StoreAutocompleteResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<StoreAutocompleteResponse>> AutocompleteStores(
+        [FromQuery] string? q,
+        [FromQuery] string? category,
+        [FromQuery] string? kinds,
+        [FromQuery] int? limit,
+        CancellationToken cancellationToken)
+    {
+        var query = (q ?? "").Trim();
+        if (query.Length < 2)
+            return Ok(new StoreAutocompleteResponse(Array.Empty<string>()));
+        if (query.Length > 80)
+            query = query[..80];
+
+        var take = Math.Clamp(limit ?? 10, 1, 25);
+
+        var kindList = ParseKindsParam(kinds);
+        var wantStores = kindList.Contains(CatalogSearchKinds.Store, StringComparer.Ordinal);
+        var wantProducts = kindList.Contains(CatalogSearchKinds.Product, StringComparer.Ordinal);
+        var wantServices = kindList.Contains(CatalogSearchKinds.Service, StringComparer.Ordinal);
+
+        var catQ = (category ?? "").Trim();
+        var catParts = catQ.Length == 0
+            ? Array.Empty<string>()
+            : catQ.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(x => x.Trim())
+                .Where(x => x.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(8)
+                .ToArray();
+        var catLowerParts = catParts.Length == 0
+            ? Array.Empty<string>()
+            : catParts.Select(x => x.ToLowerInvariant()).ToArray();
+
+        static IReadOnlyList<string> BuildIlikePatterns(string q)
+        {
+            q = (q ?? "").Trim();
+            if (q.Length == 0) return Array.Empty<string>();
+            if (q.Length > 80) q = q[..80];
+
+            var patterns = new List<string>(12) { $"%{q}%" };
+
+            // Fallback leve para 1 typo: reemplazar 1 char por '_' (comodín 1-char).
+            // Esto permite hav -> ha_ (match hab...), havana -> ha_ana (match habana), etc.
+            if (q.Length is >= 3 and <= 10)
+            {
+                for (var i = 0; i < q.Length && patterns.Count < 10; i++)
+                {
+                    var one = q.ToCharArray();
+                    one[i] = '_';
+                    patterns.Add($"%{new string(one)}%");
+                }
+            }
+
+            return patterns.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        }
+
+        var patterns = BuildIlikePatterns(query);
+        var like = patterns[0];
+
+        // Candidatos (SQL): usamos LIKE amplio para no traer toda la tabla.
+        // Luego rankeamos en memoria con tolerancia a typos (edit distance + prefix/contains).
+        const int MaxCandidatesPerKind = 120;
+
+        var storeCandidates = new List<string>();
+        if (wantStores)
+        {
+            var storeRows = new List<(string? Name, string? CategoriesJson)>(MaxCandidatesPerKind);
+            foreach (var pat in patterns)
+            {
+                if (storeRows.Count >= MaxCandidatesPerKind) break;
+                var qStores = db.Stores.AsNoTracking()
+                    .Where(s =>
+                        (s.Name != null && EF.Functions.ILike(s.Name, pat)) ||
+                        (s.NormalizedName != null && EF.Functions.ILike(s.NormalizedName, pat)));
+
+                var slice = await qStores
+                    .OrderByDescending(s => s.TrustScore)
+                    .Select(s => new { s.Name, s.CategoriesJson })
+                    .Take(MaxCandidatesPerKind)
+                    .ToListAsync(cancellationToken);
+
+                foreach (var r in slice)
+                    storeRows.Add((r.Name, r.CategoriesJson));
+            }
+
+            // Filtro de categorías para tiendas (in-memory) para evitar expresiones no traducibles (Any + Like).
+            if (catLowerParts.Length == 0)
+                storeCandidates = storeRows.Select(x => x.Name).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).ToList();
+            else
+                storeCandidates = storeRows
+                    .Where(x =>
+                    {
+                        var cj = (x.CategoriesJson ?? "").ToLowerInvariant();
+                        return cj.Length > 0 && catLowerParts.Any(c => cj.Contains(c, StringComparison.Ordinal));
+                    })
+                    .Select(x => x.Name)
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x!)
+                    .ToList();
+        }
+
+        var productCandidates = new List<string>();
+        if (wantProducts)
+        {
+            var outNames = new List<string>(MaxCandidatesPerKind);
+            foreach (var pat in patterns)
+            {
+                if (outNames.Count >= MaxCandidatesPerKind) break;
+                var qProducts = db.StoreProducts.AsNoTracking()
+                    .Where(p => p.Published &&
+                                (EF.Functions.ILike(p.Name, pat) ||
+                                 (p.Model != null && EF.Functions.ILike(p.Model, pat))));
+                if (catParts.Length > 0)
+                    qProducts = qProducts.Where(p => catLowerParts.Contains((p.Category ?? "").ToLower()));
+
+                var slice = await qProducts
+                    .OrderBy(p => p.Name)
+                    .Select(p => p.Name)
+                    .Take(MaxCandidatesPerKind)
+                    .ToListAsync(cancellationToken);
+
+                outNames.AddRange(slice);
+            }
+
+            productCandidates = outNames;
+        }
+
+        var serviceCandidates = new List<string>();
+        if (wantServices)
+        {
+            var outNames = new List<string>(MaxCandidatesPerKind);
+            foreach (var pat in patterns)
+            {
+                if (outNames.Count >= MaxCandidatesPerKind) break;
+                var qServices = db.StoreServices.AsNoTracking()
+                    .Where(s => (s.Published == null || s.Published == true) &&
+                                (EF.Functions.ILike(s.TipoServicio, pat) ||
+                                 (s.Category != null && EF.Functions.ILike(s.Category, pat))));
+                if (catParts.Length > 0)
+                    qServices = qServices.Where(s => catLowerParts.Contains((s.Category ?? "").ToLower()));
+
+                var slice = await qServices
+                    .OrderBy(s => s.TipoServicio)
+                    .Select(s => s.TipoServicio)
+                    .Take(MaxCandidatesPerKind)
+                    .ToListAsync(cancellationToken);
+
+                outNames.AddRange(slice);
+            }
+
+            serviceCandidates = outNames;
+        }
+
+        static string Fold(string s) => (s ?? "").Trim().ToLowerInvariant();
+
+        static int EditDistanceLevenshtein(string a, string b, int maxDistance)
+        {
+            // Bounded Levenshtein to keep it cheap.
+            if (a.Length == 0) return b.Length;
+            if (b.Length == 0) return a.Length;
+            if (Math.Abs(a.Length - b.Length) > maxDistance) return maxDistance + 1;
+
+            // Ensure a is shorter.
+            if (a.Length > b.Length)
+            {
+                var tmp = a;
+                a = b;
+                b = tmp;
+            }
+
+            var prev = new int[b.Length + 1];
+            var curr = new int[b.Length + 1];
+            for (var j = 0; j <= b.Length; j++) prev[j] = j;
+
+            for (var i = 1; i <= a.Length; i++)
+            {
+                curr[0] = i;
+                var bestRow = curr[0];
+                var ca = a[i - 1];
+                for (var j = 1; j <= b.Length; j++)
+                {
+                    var cost = ca == b[j - 1] ? 0 : 1;
+                    var ins = curr[j - 1] + 1;
+                    var del = prev[j] + 1;
+                    var sub = prev[j - 1] + cost;
+                    var v = ins < del ? ins : del;
+                    if (sub < v) v = sub;
+                    curr[j] = v;
+                    if (v < bestRow) bestRow = v;
+                }
+
+                if (bestRow > maxDistance) return maxDistance + 1;
+
+                var t = prev;
+                prev = curr;
+                curr = t;
+            }
+
+            return prev[b.Length];
+        }
+
+        static int ScoreCandidate(string qFold, string cand)
+        {
+            var c = (cand ?? "").Trim();
+            if (c.Length == 0) return int.MinValue;
+            var cf = Fold(c);
+            if (cf == qFold) return 10_000;
+            if (cf.StartsWith(qFold, StringComparison.Ordinal)) return 9_000 - (cf.Length - qFold.Length);
+            if (cf.Contains(qFold, StringComparison.Ordinal)) return 7_500 - Math.Max(0, cf.Length - qFold.Length);
+
+            // typo tolerance (bounded).
+            var maxD = qFold.Length <= 4 ? 1 : qFold.Length <= 8 ? 2 : 3;
+            var d = EditDistanceLevenshtein(qFold, cf, maxD);
+            if (d <= maxD) return 6_000 - d * 500 - Math.Abs(cf.Length - qFold.Length) * 10;
+            return int.MinValue;
+        }
+
+        var qFold = Fold(query);
+
+        static IEnumerable<string> Clean(IEnumerable<string> xs) =>
+            xs.Select(x => (x ?? "").Trim()).Where(x => x.Length > 0);
+
+        var merged = Clean(storeCandidates)
+            .Concat(Clean(productCandidates))
+            .Concat(Clean(serviceCandidates))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(s => (s, score: ScoreCandidate(qFold, s)))
+            .Where(x => x.score > int.MinValue / 2)
+            .OrderByDescending(x => x.score)
+            .ThenBy(x => x.s.Length)
+            .Take(take)
+            .Select(x => x.s)
+            .ToList();
+
+        return Ok(new StoreAutocompleteResponse(merged));
     }
 
     private sealed record StoreSearchContext(
@@ -98,6 +345,7 @@ public sealed class MarketController(
         string? NameParam,
         string? CategoryParam,
         IReadOnlyList<string> Kinds,
+        int? TrustMin,
         string NameQuery,
         string CategoryQuery,
         bool HasDistanceFilter,
@@ -109,6 +357,7 @@ public sealed class MarketController(
         string? name,
         string? category,
         string? kinds,
+        int? trustMin,
         double? lat,
         double? lng,
         double? km,
@@ -120,6 +369,12 @@ public sealed class MarketController(
         var nameQ = (name ?? "").Trim();
         var catQ = (category ?? "").Trim();
         var kindList = ParseKindsParam(kinds);
+        var tm = trustMin;
+        if (tm.HasValue)
+        {
+            if (tm.Value < 0) tm = 0;
+            if (tm.Value > 100) tm = 100;
+        }
 
         var hasDistanceFilter = lat.HasValue && lng.HasValue && km.HasValue && km.Value > 0;
         if (hasDistanceFilter)
@@ -129,7 +384,7 @@ public sealed class MarketController(
             if (!double.IsFinite(km!.Value) || km.Value is <= 0 or > 25_000) hasDistanceFilter = false;
         }
 
-        return new StoreSearchContext(take, skip, name, category, kindList, nameQ, catQ, hasDistanceFilter, lat, lng, km);
+        return new StoreSearchContext(take, skip, name, category, kindList, tm, nameQ, catQ, hasDistanceFilter, lat, lng, km);
     }
 
     private static IReadOnlyList<string> ParseKindsParam(string? kinds)
@@ -162,59 +417,121 @@ public sealed class MarketController(
         if (!storeSearchQuery.IsConfigured)
             return null;
 
+        return await SearchStoresViaElasticsearchFillPageAsync(ctx, cancellationToken);
+    }
+
+    private async Task<StoreSearchResponse?> SearchStoresViaElasticsearchFillPageAsync(
+        StoreSearchContext ctx,
+        CancellationToken cancellationToken)
+    {
+        // Estrategia: pedir ES en páginas de `take` y materializar;
+        // si por cualquier motivo se descartan hits (desync, borrados, etc.),
+        // seguir pidiendo páginas siguientes hasta llenar `take` o agotar hits.
+        var want = ctx.Take;
+        var skipCursor = ctx.Skip;
+        var chunk = ctx.Take;
+
+        ElasticsearchStoreSearchResult? first = null;
+        var items = new List<CatalogSearchItem>(want);
+        var seenKeys = new HashSet<string>(StringComparer.Ordinal);
+
         var es = await storeSearchQuery.SearchAsync(
             ctx.NameQuery,
             ctx.CategoryQuery,
             ctx.Kinds,
+            ctx.TrustMin,
             ctx.HasDistanceFilter,
             ctx.Lat ?? 0,
             ctx.Lng ?? 0,
             ctx.Km ?? 0,
-            ctx.Skip,
-            ctx.Take,
+            skipCursor,
+            chunk,
             cancellationToken);
         if (es is null)
             return null;
 
-        return await BuildCatalogSearchResponseFromElasticsearchAsync(es, ctx, cancellationToken);
+        while (items.Count < want && es.Hits.Count > 0)
+        {
+            es = await storeSearchQuery.SearchAsync(
+                 ctx.NameQuery,
+                 ctx.CategoryQuery,
+                 ctx.Kinds,
+                 ctx.TrustMin,
+                 ctx.HasDistanceFilter,
+                 ctx.Lat ?? 0,
+                 ctx.Lng ?? 0,
+                 ctx.Km ?? 0,
+                 skipCursor,
+                 chunk,
+                 cancellationToken);
+            if (es is null)
+                return null;
+
+            first ??= es;
+
+            var batchItems = await BuildCatalogSearchItemsFromElasticsearchHitsAsync(es.Hits, ctx, cancellationToken);
+            foreach (var it in batchItems)
+            {
+                var key = it.Kind == CatalogSearchKinds.Store
+                    ? $"store:{it.Store["id"]}"
+                    : it.Offer is null
+                        ? $"x:{it.Store["id"]}"
+                        : $"{it.Kind}:{it.Offer["id"]}";
+
+                if (!seenKeys.Add(key))
+                    continue;
+
+                items.Add(it);
+                if (items.Count >= want)
+                    break;
+            }
+
+            skipCursor += es.Hits.Count;
+            if (first.TotalCount > 0 && skipCursor >= first.TotalCount)
+                break;
+        }
+        bool hasMore = items.Count == want;
+        return new StoreSearchResponse(items, hasMore, ctx.Skip, ctx.Take);
     }
 
-    private async Task<StoreSearchResponse> BuildCatalogSearchResponseFromElasticsearchAsync(
-        ElasticsearchStoreSearchResult es,
+    private async Task<List<CatalogSearchItem>> BuildCatalogSearchItemsFromElasticsearchHitsAsync(
+        IReadOnlyList<ElasticsearchStoreSearchHit> hits,
         StoreSearchContext ctx,
         CancellationToken cancellationToken)
     {
-        var total = (int)Math.Min(es.TotalCount, int.MaxValue);
-        if (es.Hits.Count == 0)
-            return new StoreSearchResponse([], total, ctx.Skip, ctx.Take);
+        if (hits.Count == 0)
+            return new List<CatalogSearchItem>();
 
-        var storeIds = es.Hits.Select(h => h.StoreId).Distinct().ToList();
+        var storeIds = hits.Select(h => h.StoreId).Distinct().ToList();
         var rows = await db.Stores.AsNoTracking()
             .Where(s => storeIds.Contains(s.Id))
             .ToDictionaryAsync(s => s.Id, cancellationToken);
 
-
-        var productIds = es.Hits
+        var productIds = hits
             .Where(h => h.Kind == CatalogSearchKinds.Product && !string.IsNullOrEmpty(h.OfferId))
             .Select(h => h.OfferId!)
             .Distinct()
             .ToList();
-        var serviceIds = es.Hits
+        var serviceIds = hits
             .Where(h => h.Kind == CatalogSearchKinds.Service && !string.IsNullOrEmpty(h.OfferId))
             .Select(h => h.OfferId!)
             .Distinct()
             .ToList();
 
-        var (pubProducts, pubServices) = await LoadPublishedCountsForStoreIdsAsync(storeIds, productIds, serviceIds, cancellationToken); // load the published products and services from the store filtering by productIds and ServiceIds in just one pass
+        var (publishedProductCountByStore, publishedServiceCountByStore, productsById, servicesById) =
+            await LoadPublishedCountsForStoreIdsAsync(storeIds, productIds, serviceIds, cancellationToken);
 
-        var items = new List<CatalogSearchItem>(es.Hits.Count);
-        foreach (var hit in es.Hits)
+        var items = new List<CatalogSearchItem>(hits.Count);
+        foreach (var hit in hits)
         {
             if (!rows.TryGetValue(hit.StoreId, out var row))
                 continue;
-            pubProducts.TryGetValue(row.Id, out var pp);
-            pubServices.TryGetValue(row.Id, out var ps);
+            publishedProductCountByStore.TryGetValue(row.Id, out var pp);
+            publishedServiceCountByStore.TryGetValue(row.Id, out var ps);
             var storeJson = BuildStoreBadgeJson(row);
+
+            if( ctx?.TrustMin is not null && (row.TrustScore < ctx.TrustMin!.Value))
+                continue;
 
             if (hit.Kind == CatalogSearchKinds.Store)
             {
@@ -222,61 +539,88 @@ public sealed class MarketController(
                     CatalogSearchKinds.Store,
                     storeJson,
                     null,
-                    pp.count,
-                    ps.count,
+                    pp,
+                    ps,
                     hit.DistanceKm));
                 continue;
             }
 
             if (hit.Kind == CatalogSearchKinds.Product && hit.OfferId is { } pid
-                                                     && pubProducts.TryGetValue(pid, out var pr))
+                                                     && productsById.TryGetValue(pid, out var pr))
             {
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Product,
                     storeJson,
-                    BuildProductOfferJson(pr.product),
-                    pp.count,
-                    ps.count,
+                    BuildProductOfferJson(pr),
+                    pp,
+                    ps,
                     hit.DistanceKm));
                 continue;
             }
 
             if (hit.Kind == CatalogSearchKinds.Service && hit.OfferId is { } sid
-                                                      && pubServices.TryGetValue(sid, out var sv))
+                                                      && servicesById.TryGetValue(sid, out var sv))
             {
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Service,
                     storeJson,
-                    BuildServiceOfferJson(sv.service),
-                    pp.count,
-                    ps.count,
+                    BuildServiceOfferJson(sv),
+                    pp,
+                    ps,
                     hit.DistanceKm));
             }
         }
 
-        return new StoreSearchResponse(items, total, ctx.Skip, ctx.Take);
+        return items;
     }
 
-    private async Task<(Dictionary<string, (StoreProductRow product, int count)> Products, Dictionary<string, (StoreServiceRow service, int count)> Services)> LoadPublishedCountsForStoreIdsAsync(
+    private async Task<(
+        Dictionary<string, long> PublishedProductCountByStore,
+        Dictionary<string, long> PublishedServiceCountByStore,
+        Dictionary<string, StoreProductRow> ProductsById,
+        Dictionary<string, StoreServiceRow> ServicesById)> LoadPublishedCountsForStoreIdsAsync(
         IReadOnlyCollection<string> storeIds,
         IReadOnlyCollection<string> productIds,
         IReadOnlyCollection<string> serviceIds,
         CancellationToken cancellationToken)
     {
-        var pubProducts = await db.StoreProducts.AsNoTracking()
-            .Where(p => p.Published && storeIds.Contains(p.StoreId) && productIds.Contains(p.Id))
+
+        var productIdSet = productIds.Count == 0 ? null : productIds.ToHashSet(StringComparer.Ordinal);
+        var serviceIdSet = serviceIds.Count == 0 ? null : serviceIds.ToHashSet(StringComparer.Ordinal);
+
+        var publishedProducts = await db.StoreProducts.AsNoTracking()
+            .Where(p => p.Published && storeIds.Contains(p.StoreId))
+            .ToListAsync(cancellationToken);
+
+        var publishedServices = await db.StoreServices.AsNoTracking()
+            .Where(s => (s.Published == null || s.Published == true) && storeIds.Contains(s.StoreId))
+            .ToListAsync(cancellationToken);
+
+        var publishedProductCountByStore = publishedProducts
             .GroupBy(p => p.StoreId)
-            .Select(g => new { pruduct = g.First(), Cnt = g.Count() })
-            .ToDictionaryAsync(x => x.pruduct.Id, x => (x.pruduct, x.Cnt), cancellationToken);
+            .ToDictionary(g => g.Key, g => (long)g.Count(), StringComparer.Ordinal);
 
-        var pubServices = await db.StoreServices.AsNoTracking()
-            .Where(s => (s.Published == null || s.Published == true) && storeIds.Contains(s.StoreId) && serviceIds.Contains(s.Id))
+        var publishedServiceCountByStore = publishedServices
             .GroupBy(s => s.StoreId)
-            .Select(g => new { service = g.First(), Cnt = g.Count() })
-            .ToDictionaryAsync(x => x.service.StoreId, x => (x.service, x.Cnt), cancellationToken);
-       
+            .ToDictionary(g => g.Key, g => (long)g.Count(), StringComparer.Ordinal);
 
-        return (pubProducts, pubServices);
+        var productsById = productIdSet is null
+            ? new Dictionary<string, StoreProductRow>(StringComparer.Ordinal)
+            : publishedProducts
+                .Where(p => productIdSet.Contains(p.Id))
+                .GroupBy(p => p.Id)
+                .Select(g => g.First())
+                .ToDictionary(p => p.Id, p => p, StringComparer.Ordinal);
+
+        var servicesById = serviceIdSet is null
+            ? new Dictionary<string, StoreServiceRow>(StringComparer.Ordinal)
+            : publishedServices
+                .Where(s => serviceIdSet.Contains(s.Id))
+                .GroupBy(s => s.Id)
+                .Select(g => g.First())
+                .ToDictionary(s => s.Id, s => s, StringComparer.Ordinal);
+
+        return (publishedProductCountByStore, publishedServiceCountByStore, productsById, servicesById);
     }
 
     private static JsonObject BuildStoreBadgeJson(StoreRow row)

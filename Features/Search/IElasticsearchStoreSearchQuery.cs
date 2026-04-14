@@ -19,6 +19,7 @@ public interface IElasticsearchStoreSearchQuery
         string? name,
         string? category,
         IReadOnlyList<string> kinds,
+        int? trustMin,
         bool hasDistanceFilter,
         double userLat,
         double userLng,
