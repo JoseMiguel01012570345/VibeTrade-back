@@ -9,16 +9,13 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends postgresql postgresql-contrib \
+    && apt-get install -y --no-install-recommends postgresql postgresql-contrib ca-certificates curl gnupg openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 8080
-ENV ASPNETCORE_URLS=http://+:8080
-ENV POSTGRES_HOST=127.0.0.1
-ENV POSTGRES_PORT=5432
-ENV PGDATA=/var/lib/postgresql/data
 COPY --from=build /app/publish .
 COPY start.sh /app/start.sh
+COPY elasticsearch.yml /app/elasticsearch.yml
 
 RUN chmod +x /app/start.sh
 
