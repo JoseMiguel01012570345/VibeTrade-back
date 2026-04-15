@@ -1,5 +1,7 @@
+using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Search;
@@ -8,7 +10,8 @@ namespace VibeTrade.Backend.Features.Market;
 
 public sealed class MarketCatalogStoreSearchService(
     IElasticsearchStoreSearchQuery storeSearchQuery,
-    AppDbContext db) : IMarketCatalogStoreSearchService
+    AppDbContext db,
+    ILogger<MarketCatalogStoreSearchService> logger) : IMarketCatalogStoreSearchService
 {
     private sealed record StoreSearchContext(
         int Take,
@@ -51,18 +54,54 @@ public sealed class MarketCatalogStoreSearchService(
         int? limit,
         CancellationToken cancellationToken)
     {
-        var query = (q ?? "").Trim();
+        // Preprocess and validate input
+        var (query, take, kindList, catParts, catLowerParts) = PreprocessAutocompleteInputs(q, category, kinds, limit);
+
         if (query.Length < 2)
             return new StoreAutocompleteResponse(Array.Empty<string>());
+
+        const int MaxCandidatesPerKind = 120;
+
+        // Fetch candidates
+        var storeCandidates = kindList.Contains(CatalogSearchKinds.Store, StringComparer.Ordinal)
+            ? await GetStoreCandidatesAsync(query, catLowerParts, MaxCandidatesPerKind, cancellationToken)
+            : new List<string>();
+
+        var productCandidates = kindList.Contains(CatalogSearchKinds.Product, StringComparer.Ordinal)
+            ? await GetProductCandidatesAsync(query, catParts, catLowerParts, MaxCandidatesPerKind, cancellationToken)
+            : new List<string>();
+
+        var serviceCandidates = kindList.Contains(CatalogSearchKinds.Service, StringComparer.Ordinal)
+            ? await GetServiceCandidatesAsync(query, catParts, catLowerParts, MaxCandidatesPerKind, cancellationToken)
+            : new List<string>();
+
+        // LogInformation: LogDebug no aparece con "Default": "Information" en appsettings.
+        logger.LogInformation(
+            "Autocomplete query=\"{Query}\" counts stores={StoreCount} products={ProductCount} services={ServiceCount}",
+            query.Length > 40 ? query[..40] + "…" : query,
+            storeCandidates.Count,
+            productCandidates.Count,
+            serviceCandidates.Count);
+
+        var merged = Clean(storeCandidates)
+            .Concat(Clean(productCandidates))
+            .Concat(Clean(serviceCandidates))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(take)
+            .ToList();
+
+        return new StoreAutocompleteResponse(merged);
+    }
+
+    private (string query, int take, IReadOnlyList<string> kindList, string[] catParts, string[] catLowerParts)
+        PreprocessAutocompleteInputs(string? q, string? category, string? kinds, int? limit)
+    {
+        var query = (q ?? "").Trim();
         if (query.Length > 80)
             query = query[..80];
-
         var take = Math.Clamp(limit ?? 10, 1, 25);
 
         var kindList = ParseKindsParam(kinds);
-        var wantStores = kindList.Contains(CatalogSearchKinds.Store, StringComparer.Ordinal);
-        var wantProducts = kindList.Contains(CatalogSearchKinds.Product, StringComparer.Ordinal);
-        var wantServices = kindList.Contains(CatalogSearchKinds.Service, StringComparer.Ordinal);
 
         var catQ = (category ?? "").Trim();
         var catParts = catQ.Length == 0
@@ -77,127 +116,38 @@ public sealed class MarketCatalogStoreSearchService(
             ? Array.Empty<string>()
             : catParts.Select(x => x.ToLowerInvariant()).ToArray();
 
-        var patterns = BuildIlikePatterns(query);
-
-        const int MaxCandidatesPerKind = 120;
-
-        var storeCandidates = new List<string>();
-        if (wantStores)
-        {
-            var storeRows = new List<(string? Name, string? CategoriesJson)>(MaxCandidatesPerKind);
-            foreach (var pat in patterns)
-            {
-                if (storeRows.Count >= MaxCandidatesPerKind) break;
-                var qStores = db.Stores.AsNoTracking()
-                    .Where(s =>
-                        (s.Name != null && EF.Functions.ILike(s.Name, pat)) ||
-                        (s.NormalizedName != null && EF.Functions.ILike(s.NormalizedName, pat)));
-
-                var slice = await qStores
-                    .OrderByDescending(s => s.TrustScore)
-                    .Select(s => new { s.Name, s.CategoriesJson })
-                    .Take(MaxCandidatesPerKind)
-                    .ToListAsync(cancellationToken);
-
-                foreach (var r in slice)
-                    storeRows.Add((r.Name, r.CategoriesJson));
-            }
-
-            if (catLowerParts.Length == 0)
-                storeCandidates = storeRows.Select(x => x.Name).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).ToList();
-            else
-                storeCandidates = storeRows
-                    .Where(x =>
-                    {
-                        var cj = (x.CategoriesJson ?? "").ToLowerInvariant();
-                        return cj.Length > 0 && catLowerParts.Any(c => cj.Contains(c, StringComparison.Ordinal));
-                    })
-                    .Select(x => x.Name)
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Select(x => x!)
-                    .ToList();
-        }
-
-        var productCandidates = new List<string>();
-        if (wantProducts)
-        {
-            var outNames = new List<string>(MaxCandidatesPerKind);
-            foreach (var pat in patterns)
-            {
-                if (outNames.Count >= MaxCandidatesPerKind) break;
-                var qProducts = db.StoreProducts.AsNoTracking()
-                    .Where(p => p.Published &&
-                                (EF.Functions.ILike(p.Name, pat) ||
-                                 (p.Model != null && EF.Functions.ILike(p.Model, pat))));
-                if (catParts.Length > 0)
-                    qProducts = qProducts.Where(p => catLowerParts.Contains((p.Category ?? "").ToLower()));
-
-                var slice = await qProducts
-                    .OrderBy(p => p.Name)
-                    .Select(p => p.Name)
-                    .Take(MaxCandidatesPerKind)
-                    .ToListAsync(cancellationToken);
-
-                outNames.AddRange(slice);
-            }
-
-            productCandidates = outNames;
-        }
-
-        var serviceCandidates = new List<string>();
-        if (wantServices)
-        {
-            var outNames = new List<string>(MaxCandidatesPerKind);
-            foreach (var pat in patterns)
-            {
-                if (outNames.Count >= MaxCandidatesPerKind) break;
-                var qServices = db.StoreServices.AsNoTracking()
-                    .Where(s => (s.Published == null || s.Published == true) &&
-                                (EF.Functions.ILike(s.TipoServicio, pat) ||
-                                 (s.Category != null && EF.Functions.ILike(s.Category, pat))));
-                if (catParts.Length > 0)
-                    qServices = qServices.Where(s => catLowerParts.Contains((s.Category ?? "").ToLower()));
-
-                var slice = await qServices
-                    .OrderBy(s => s.TipoServicio)
-                    .Select(s => s.TipoServicio)
-                    .Take(MaxCandidatesPerKind)
-                    .ToListAsync(cancellationToken);
-
-                outNames.AddRange(slice);
-            }
-
-            serviceCandidates = outNames;
-        }
-
-        var qFold = Fold(query);
-
-        var merged = Clean(storeCandidates)
-            .Concat(Clean(productCandidates))
-            .Concat(Clean(serviceCandidates))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(s => (s, score: ScoreCandidate(qFold, s)))
-            .Where(x => x.score > int.MinValue / 2)
-            .OrderByDescending(x => x.score)
-            .ThenBy(x => x.s.Length)
-            .Take(take)
-            .Select(x => x.s)
-            .ToList();
-
-        return new StoreAutocompleteResponse(merged);
+        return (query, take, kindList, catParts, catLowerParts);
     }
 
+    /// <summary>Patrón ILIKE prefijo seguro (sin metacaracteres %/_ del usuario).</summary>
+    private static string AutocompleteLikePrefix(string trimmedQuery)
+    {
+        var sb = new StringBuilder(trimmedQuery.Length + 1);
+        foreach (var c in trimmedQuery)
+        {
+            if (c is '%' or '_') continue;
+            sb.Append(c);
+        }
+        var core = sb.ToString();
+        if (core.Length == 0) return "%";
+        return $"{core}%";
+    }
+
+    /// <summary>
+    /// Patrones <c>ILIKE</c> con un <c>_</c> por posición (p. ej. «hav» → «%ha_%») más el substring «%{q}%».
+    /// Más fiable que solo <c>similarity()</c> para texto corto vs nombres largos.
+    /// </summary>
     private static IReadOnlyList<string> BuildIlikePatterns(string q)
     {
         q = (q ?? "").Trim();
         if (q.Length == 0) return Array.Empty<string>();
         if (q.Length > 80) q = q[..80];
 
-        var patterns = new List<string>(12) { $"%{q}%" };
+        var patterns = new List<string>(12);
 
         if (q.Length is >= 3 and <= 10)
         {
-            for (var i = 0; i < q.Length && patterns.Count < 10; i++)
+            for (var i = 0; i < q.Length && patterns.Count < 9; i++)
             {
                 var one = q.ToCharArray();
                 one[i] = '_';
@@ -205,68 +155,159 @@ public sealed class MarketCatalogStoreSearchService(
             }
         }
 
+        patterns.Add($"%{q}%");
         return patterns.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    private static string Fold(string s) => (s ?? "").Trim().ToLowerInvariant();
+    private static int AutocompletePerPatternTake(int maxTotal, int patternCount) =>
+        patternCount <= 0
+            ? maxTotal
+            : Math.Clamp(maxTotal / patternCount, 40, maxTotal);
 
-    private static int EditDistanceLevenshtein(string a, string b, int maxDistance)
+    private async Task<List<string>> GetStoreCandidatesAsync(
+        string query,
+        string[] catLowerParts,
+        int maxCandidatesPerKind,
+        CancellationToken cancellationToken)
     {
-        if (a.Length == 0) return b.Length;
-        if (b.Length == 0) return a.Length;
-        if (Math.Abs(a.Length - b.Length) > maxDistance) return maxDistance + 1;
+        var likePrefix = AutocompleteLikePrefix(query);
+        var patterns = BuildIlikePatterns(query);
+        var perPattern = AutocompletePerPatternTake(maxCandidatesPerKind, patterns.Count);
+        var storeRows = new List<(string? Name, string? CategoriesJson)>(maxCandidatesPerKind);
+        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (a.Length > b.Length)
+        foreach (var pat in patterns)
         {
-            var tmp = a;
-            a = b;
-            b = tmp;
-        }
+            if (seenNames.Count >= maxCandidatesPerKind) break;
+            var remaining = maxCandidatesPerKind - seenNames.Count;
+            var takeThis = Math.Min(perPattern, remaining);
+            var qStores = db.Stores.AsNoTracking()
+                .Where(s =>
+                    (s.Name != null && (
+                        EF.Functions.ILike(s.Name, likePrefix) ||
+                        EF.Functions.ILike(s.Name, pat))) ||
+                    (s.NormalizedName != null && (
+                        EF.Functions.ILike(s.NormalizedName, likePrefix) ||
+                        EF.Functions.ILike(s.NormalizedName, pat))));
 
-        var prev = new int[b.Length + 1];
-        var curr = new int[b.Length + 1];
-        for (var j = 0; j <= b.Length; j++) prev[j] = j;
+            var slice = await qStores
+                .OrderByDescending(s => s.TrustScore)
+                .Select(s => new { s.Name, s.CategoriesJson })
+                .Take(takeThis)
+                .ToListAsync(cancellationToken);
 
-        for (var i = 1; i <= a.Length; i++)
-        {
-            curr[0] = i;
-            var bestRow = curr[0];
-            var ca = a[i - 1];
-            for (var j = 1; j <= b.Length; j++)
+            foreach (var r in slice)
             {
-                var cost = ca == b[j - 1] ? 0 : 1;
-                var ins = curr[j - 1] + 1;
-                var del = prev[j] + 1;
-                var sub = prev[j - 1] + cost;
-                var v = ins < del ? ins : del;
-                if (sub < v) v = sub;
-                curr[j] = v;
-                if (v < bestRow) bestRow = v;
+                var n = r.Name;
+                if (string.IsNullOrWhiteSpace(n)) continue;
+                if (!seenNames.Add(n)) continue;
+                storeRows.Add((r.Name, r.CategoriesJson));
             }
-
-            if (bestRow > maxDistance) return maxDistance + 1;
-
-            var t = prev;
-            prev = curr;
-            curr = t;
         }
 
-        return prev[b.Length];
+        if (catLowerParts.Length == 0)
+            return storeRows.Select(x => x.Name).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!).ToList();
+        else
+            return storeRows
+                .Where(x =>
+                {
+                    var cj = (x.CategoriesJson ?? "").ToLowerInvariant();
+                    return cj.Length > 0 && catLowerParts.Any(c => cj.Contains(c, StringComparison.Ordinal));
+                })
+                .Select(x => x.Name)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x!)
+                .ToList();
     }
 
-    private static int ScoreCandidate(string qFold, string cand)
+    private async Task<List<string>> GetProductCandidatesAsync(
+        string query,
+        string[] catParts,
+        string[] catLowerParts,
+        int maxCandidatesPerKind,
+        CancellationToken cancellationToken)
     {
-        var c = (cand ?? "").Trim();
-        if (c.Length == 0) return int.MinValue;
-        var cf = Fold(c);
-        if (cf == qFold) return 10_000;
-        if (cf.StartsWith(qFold, StringComparison.Ordinal)) return 9_000 - (cf.Length - qFold.Length);
-        if (cf.Contains(qFold, StringComparison.Ordinal)) return 7_500 - Math.Max(0, cf.Length - qFold.Length);
+        var likePrefix = AutocompleteLikePrefix(query);
+        var patterns = BuildIlikePatterns(query);
+        var perPattern = AutocompletePerPatternTake(maxCandidatesPerKind, patterns.Count);
+        var outNames = new List<string>(maxCandidatesPerKind);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var maxD = qFold.Length <= 4 ? 1 : qFold.Length <= 8 ? 2 : 3;
-        var d = EditDistanceLevenshtein(qFold, cf, maxD);
-        if (d <= maxD) return 6_000 - d * 500 - Math.Abs(cf.Length - qFold.Length) * 10;
-        return int.MinValue;
+        foreach (var pat in patterns)
+        {
+            if (seen.Count >= maxCandidatesPerKind) break;
+            var remaining = maxCandidatesPerKind - seen.Count;
+            var takeThis = Math.Min(perPattern, remaining);
+            var qProducts = db.StoreProducts.AsNoTracking()
+                .Where(p => p.Published &&
+                            (
+                                EF.Functions.ILike(p.Name, likePrefix) ||
+                                EF.Functions.ILike(p.Name, pat) ||
+                                (p.Model != null && EF.Functions.ILike(p.Model, likePrefix)) ||
+                                (p.Model != null && EF.Functions.ILike(p.Model, pat))));
+            if (catParts.Length > 0)
+                qProducts = qProducts.Where(p => catLowerParts.Contains((p.Category ?? "").ToLower()));
+
+            var slice = await qProducts
+                .OrderBy(p => p.Name)
+                .Select(p => p.Name)
+                .Take(takeThis)
+                .ToListAsync(cancellationToken);
+
+            foreach (var name in slice)
+            {
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (seen.Add(name))
+                    outNames.Add(name);
+            }
+        }
+
+        return outNames;
+    }
+
+    private async Task<List<string>> GetServiceCandidatesAsync(
+        string query,
+        string[] catParts,
+        string[] catLowerParts,
+        int maxCandidatesPerKind,
+        CancellationToken cancellationToken)
+    {
+        var likePrefix = AutocompleteLikePrefix(query);
+        var patterns = BuildIlikePatterns(query);
+        var perPattern = AutocompletePerPatternTake(maxCandidatesPerKind, patterns.Count);
+        var outNames = new List<string>(maxCandidatesPerKind);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var pat in patterns)
+        {
+            if (seen.Count >= maxCandidatesPerKind) break;
+            var remaining = maxCandidatesPerKind - seen.Count;
+            var takeThis = Math.Min(perPattern, remaining);
+            var qServices = db.StoreServices.AsNoTracking()
+                .Where(s => (s.Published == null || s.Published == true) &&
+                            (
+                                EF.Functions.ILike(s.TipoServicio, likePrefix) ||
+                                EF.Functions.ILike(s.TipoServicio, pat) ||
+                                EF.Functions.ILike(s.Category, likePrefix) ||
+                                EF.Functions.ILike(s.Category, pat)));
+            if (catParts.Length > 0)
+                qServices = qServices.Where(s => catLowerParts.Contains((s.Category ?? "").ToLower()));
+
+            var slice = await qServices
+                .OrderBy(s => s.TipoServicio)
+                .Select(s => s.TipoServicio)
+                .Take(takeThis)
+                .ToListAsync(cancellationToken);
+
+            foreach (var name in slice)
+            {
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                if (seen.Add(name))
+                    outNames.Add(name);
+            }
+        }
+
+        return outNames;
     }
 
     private static IEnumerable<string> Clean(IEnumerable<string> xs) =>
