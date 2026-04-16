@@ -1,0 +1,21 @@
+cluster.name: vibetrade
+node.name: vibetrade-node
+
+# Single-node setup (no discovery).
+discovery.type: single-node
+
+# Bind to all interfaces so other services can reach it.
+network.host: 0.0.0.0
+http.port: 9200
+
+# Enable security (auth required).
+xpack.security.enabled: true
+xpack.security.enrollment.enabled: false
+
+# TLS is strongly recommended for true production, but can be omitted when ES is only reachable
+# over private networking. If you later expose ES publicly, enable HTTP TLS.
+xpack.security.http.ssl.enabled: false
+
+# Single-node: transport is not exposed, so keep it simple.
+xpack.security.transport.ssl.enabled: false
+
