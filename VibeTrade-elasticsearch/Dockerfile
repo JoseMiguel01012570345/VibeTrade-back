@@ -7,8 +7,9 @@ ENV discovery.type=single-node
 ENV xpack.security.enabled=true
 ENV xpack.security.enrollment.enabled=false
 
-# Optional: keep memory low for small instances (override in Render env vars).
-ENV ES_JAVA_OPTS="-Xms512m -Xmx512m"
+# Low-memory default (Render 512Mi will OOM with larger heaps).
+# Override in Render env vars if you have more RAM.
+ENV ES_JAVA_OPTS="-Xms256m -Xmx256m"
 
 COPY elasticsearch.yml /usr/share/elasticsearch/config/elasticsearch.yml
 

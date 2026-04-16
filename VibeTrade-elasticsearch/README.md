@@ -16,7 +16,9 @@ This service runs Elasticsearch with **security enabled**. You must set a passwo
 In Render, set the following **environment variables** on the Elasticsearch service:
 
 - `ELASTIC_PASSWORD` (required; store as a secret)
-- `ES_JAVA_OPTS` (recommended; e.g. `-Xms512m -Xmx512m` or higher depending on your plan)
+- `ES_JAVA_OPTS` (required on 512Mi; recommended always)
+  - For 512Mi: `-Xms256m -Xmx256m`
+  - For 1Gi+: `-Xms512m -Xmx512m` (or higher depending on your plan)
 
 ### Networking
 
@@ -52,4 +54,5 @@ Set one of these on the backend service:
 
 - This setup keeps **HTTP TLS disabled** (`xpack.security.http.ssl.enabled=false`) and assumes Elasticsearch
   is only reachable over private networking. If you expose ES publicly, enable TLS and configure certs.
+- To reduce memory use on small instances, `xpack.ml.enabled` is disabled in `elasticsearch.yml`.
 
