@@ -112,7 +112,21 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         };
         db.ChatThreads.Add(row);
         await db.SaveChangesAsync(cancellationToken);
-        return MapThread(row);
+        var created = MapThread(row);
+        await NotifyThreadCreatedAsync(created, cancellationToken);
+        return created;
+    }
+
+    private async Task NotifyThreadCreatedAsync(ChatThreadDto dto, CancellationToken cancellationToken)
+    {
+        await hub.Clients.Group($"user:{dto.BuyerUserId}").SendAsync(
+            "threadCreated",
+            new { thread = dto },
+            cancellationToken);
+        await hub.Clients.Group($"user:{dto.SellerUserId}").SendAsync(
+            "threadCreated",
+            new { thread = dto },
+            cancellationToken);
     }
 
     public async Task<ChatThreadDto?> GetThreadIfVisibleAsync(

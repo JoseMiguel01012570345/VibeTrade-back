@@ -147,11 +147,6 @@ public sealed class ElasticsearchStoreSearchQuery(
                     GeoLocation.LatitudeLongitude(new LatLonGeoLocation { Lat = userLat, Lon = userLng }),
                 })));
         }
-        else
-        {
-            s.Sort(so => so.Field((CatalogSearchDocument d) => d.TrustScore, f => f.Order(SortOrder.Desc)));
-            s.Sort(so => so.Field(new Field(CatalogSearchDocument.ElasticsearchVtCatalogSkField), f => f.Order(SortOrder.Asc)));
-        }
     }
 
     private static QueryDescriptor<CatalogSearchDocument> BuildQuery(

@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
+using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Auth;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -33,8 +35,37 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
         await Groups.AddToGroupAsync(Context.ConnectionId, ThreadGroup(threadId));
     }
 
-    public async Task LeaveThread(string threadId)
+    /// <summary>Solo deja el grupo del hilo (p. ej. al navegar fuera). Sin aviso a otros.</summary>
+    public Task DisconnectFromThread(string threadId) =>
+        Groups.RemoveFromGroupAsync(Context.ConnectionId, ThreadGroup(threadId));
+
+    /// <summary>Aviso explícito «salir»: notifica al resto y luego desconecta del grupo.</summary>
+    public async Task NotifyOthersUserLeftChat(string threadId)
     {
+        if (!TryGetUserId(out var userId))
+            throw new HubException("Unauthorized");
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var chat = scope.ServiceProvider.GetRequiredService<IChatService>();
+        var t = await chat.GetThreadIfVisibleAsync(userId, threadId, Context.ConnectionAborted);
+        if (t is null)
+            return;
+
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var acc = await db.UserAccounts.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.DisplayName, u.PhoneDisplay, u.PhoneDigits })
+            .FirstOrDefaultAsync(Context.ConnectionAborted);
+
+        var displayName = acc is not null && !string.IsNullOrWhiteSpace(acc.DisplayName)
+            ? acc.DisplayName.Trim()
+            : (acc?.PhoneDisplay ?? acc?.PhoneDigits ?? userId);
+
+        await Clients.GroupExcept(ThreadGroup(threadId), Context.ConnectionId).SendAsync(
+            "participantLeft",
+            new { threadId, userId, displayName },
+            Context.ConnectionAborted);
+
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, ThreadGroup(threadId));
     }
 
