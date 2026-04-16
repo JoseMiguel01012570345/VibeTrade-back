@@ -11,6 +11,46 @@ export ASPNETCORE_URLS="http://+:${PORT:-8080}"
 START_ELASTICSEARCH="${START_ELASTICSEARCH:-false}"
 es_wrapper_pid=""
 if [[ "${START_ELASTICSEARCH}" == "1" || "${START_ELASTICSEARCH}" == "true" || "${START_ELASTICSEARCH}" == "TRUE" ]]; then
+  # Render/Docker build contexts can sometimes omit these files; Elasticsearch will fail hard if
+  # `ES_PATH_CONF=/app` doesn't contain them. Create minimal defaults so ES can start.
+  if [[ ! -f /app/log4j2.properties ]]; then
+    cat >/app/log4j2.properties <<'EOF'
+status = error
+
+appender.console.type = Console
+appender.console.name = console
+appender.console.layout.type = PatternLayout
+appender.console.layout.pattern = [%d{ISO8601}][%-5p][%-25c{1.}] %marker%m%n
+
+rootLogger.level = info
+rootLogger.appenderRef.console.ref = console
+EOF
+  fi
+
+  if [[ ! -f /app/elasticsearch.yml ]]; then
+    cat >/app/elasticsearch.yml <<'EOF'
+cluster.name: vibetrade
+node.name: vibetrade-node
+
+# Single-node development setup (no discovery).
+discovery.type: single-node
+
+# Keep ES private to the container (app connects via 127.0.0.1).
+network.host: 127.0.0.1
+http.port: 9200
+
+# Dev-only: disable security so the .NET client can talk over plain HTTP.
+xpack.security.enabled: false
+xpack.security.enrollment.enabled: false
+
+# Avoid bootstrap checks that assume production tuning.
+bootstrap.memory_lock: false
+
+path.data: /var/lib/elasticsearch
+path.logs: /var/log/elasticsearch
+EOF
+  fi
+
   ES_VERSION="${ES_VERSION:-8.17.3}"
   ES_HOME="${ES_HOME:-/usr/share/elasticsearch}"
   ES_DATA="${ES_DATA:-/var/lib/elasticsearch}"
@@ -38,7 +78,7 @@ if [[ "${START_ELASTICSEARCH}" == "1" || "${START_ELASTICSEARCH}" == "true" || "
     fi
 
     mkdir -p "${ES_DATA}" "${ES_LOGS}"
-    chown -R elasticsearch:elasticsearch "${ES_HOME}" "${ES_DATA}" "${ES_LOGS}" /app/elasticsearch.yml
+    chown -R elasticsearch:elasticsearch "${ES_HOME}" "${ES_DATA}" "${ES_LOGS}" /app/elasticsearch.yml /app/log4j2.properties
 
     echo "Starting Elasticsearch on 127.0.0.1:${ES_PORT} (background)..."
     exec su elasticsearch -s /bin/bash -c "export ES_PATH_CONF='/app'; export ES_JAVA_OPTS='${ES_JAVA_OPTS}'; '${ES_HOME}/bin/elasticsearch' -Epath.data='${ES_DATA}' -Epath.logs='${ES_LOGS}' -Ehttp.port='${ES_PORT}'"

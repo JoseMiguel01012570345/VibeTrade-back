@@ -26,6 +26,7 @@ EXPOSE 8080
 COPY --from=build /app/publish .
 COPY start.sh /app/start.sh
 COPY elasticsearch.yml /app/elasticsearch.yml
+COPY log4j2.properties /app/log4j2.properties
 
 RUN chmod +x /app/start.sh
 
