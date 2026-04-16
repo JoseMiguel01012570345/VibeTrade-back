@@ -4,56 +4,7 @@ set -euo pipefail
 # Render sets PORT; default to 8080 locally/in docker.
 export ASPNETCORE_URLS="http://+:${PORT:-8080}"
 
-# Optional: start Elasticsearch inside the container (dev only).
-# Enable with START_ELASTICSEARCH=true. Binds to 127.0.0.1 so it's private to the container.
-START_ELASTICSEARCH="${START_ELASTICSEARCH:-false}"
-es_started="false"
-if [[ "${START_ELASTICSEARCH}" == "1" || "${START_ELASTICSEARCH}" == "true" || "${START_ELASTICSEARCH}" == "TRUE" ]]; then
-  ES_VERSION="${ES_VERSION:-8.17.3}"
-  ES_HOME="${ES_HOME:-/usr/share/elasticsearch}"
-  ES_DATA="${ES_DATA:-/var/lib/elasticsearch}"
-  ES_LOGS="${ES_LOGS:-/var/log/elasticsearch}"
-  ES_PORT="${ES_PORT:-9200}"
-
-  if [[ ! -x "${ES_HOME}/bin/elasticsearch" ]]; then
-    echo "Installing Elasticsearch ${ES_VERSION}..."
-    mkdir -p /usr/share
-    curl -fsSL "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-${ES_VERSION}-linux-x86_64.tar.gz" -o /tmp/elasticsearch.tgz
-    tar -xzf /tmp/elasticsearch.tgz -C /usr/share
-    rm -f /tmp/elasticsearch.tgz
-    mv "/usr/share/elasticsearch-${ES_VERSION}" "${ES_HOME}"
-  fi
-
-  if ! id -u elasticsearch >/dev/null 2>&1; then
-    useradd -r -s /usr/sbin/nologin -d "${ES_HOME}" elasticsearch
-  fi
-
-  mkdir -p "${ES_DATA}" "${ES_LOGS}"
-  chown -R elasticsearch:elasticsearch "${ES_HOME}" "${ES_DATA}" "${ES_LOGS}" /app/elasticsearch.yml
-
-  echo "Starting Elasticsearch on 127.0.0.1:${ES_PORT}..."
-  su elasticsearch -s /bin/bash -c "export ES_PATH_CONF='/app'; '${ES_HOME}/bin/elasticsearch' -Epath.data='${ES_DATA}' -Epath.logs='${ES_LOGS}' -Ehttp.port='${ES_PORT}'" >/dev/null 2>&1 &
-  es_pid=$!
-
-  echo "Waiting for Elasticsearch to be ready..."
-  for _ in {1..60}; do
-    if curl -fsS "http://127.0.0.1:${ES_PORT}/" >/dev/null 2>&1; then
-      break
-    fi
-    sleep 1
-  done
-
-  if ! curl -fsS "http://127.0.0.1:${ES_PORT}/" >/dev/null 2>&1; then
-    echo "Elasticsearch did not become ready in time."
-    exit 1
-  fi
-
-  export Elasticsearch__Enabled=true
-  export Elasticsearch__Uri="http://127.0.0.1:${ES_PORT}"
-  es_started="true"
-fi
-
-# Optional: start a local Postgres inside the container (useful for local/dev only).
+# Optional: start a local Postgres inside the container (migrations need this first).
 START_POSTGRES="${START_POSTGRES:-false}"
 postgres_started="false"
 if [[ "${START_POSTGRES}" == "1" || "${START_POSTGRES}" == "true" || "${START_POSTGRES}" == "TRUE" ]]; then
@@ -107,14 +58,53 @@ if [[ "${START_POSTGRES}" == "1" || "${START_POSTGRES}" == "true" || "${START_PO
   postgres_started="true"
 fi
 
+# Optional: Elasticsearch in-container (dev). MUST NOT block Kestrel — Render scans PORT quickly.
+START_ELASTICSEARCH="${START_ELASTICSEARCH:-false}"
+es_wrapper_pid=""
+if [[ "${START_ELASTICSEARCH}" == "1" || "${START_ELASTICSEARCH}" == "true" || "${START_ELASTICSEARCH}" == "TRUE" ]]; then
+  ES_VERSION="${ES_VERSION:-8.17.3}"
+  ES_HOME="${ES_HOME:-/usr/share/elasticsearch}"
+  ES_DATA="${ES_DATA:-/var/lib/elasticsearch}"
+  ES_LOGS="${ES_LOGS:-/var/log/elasticsearch}"
+  ES_PORT="${ES_PORT:-9200}"
+  # Small defaults for Render free/small instances (override with ES_JAVA_OPTS).
+  export ES_JAVA_OPTS="${ES_JAVA_OPTS:--Xms256m -Xmx512m}"
+
+  export Elasticsearch__Enabled=true
+  export Elasticsearch__Uri="http://127.0.0.1:${ES_PORT}"
+
+  (
+    set +e
+    if [[ ! -x "${ES_HOME}/bin/elasticsearch" ]]; then
+      echo "Installing Elasticsearch ${ES_VERSION}..."
+      mkdir -p /usr/share
+      curl -fsSL "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-${ES_VERSION}-linux-x86_64.tar.gz" -o /tmp/elasticsearch.tgz
+      tar -xzf /tmp/elasticsearch.tgz -C /usr/share
+      rm -f /tmp/elasticsearch.tgz
+      mv "/usr/share/elasticsearch-${ES_VERSION}" "${ES_HOME}"
+    fi
+
+    if ! id -u elasticsearch >/dev/null 2>&1; then
+      useradd -r -s /usr/sbin/nologin -d "${ES_HOME}" elasticsearch
+    fi
+
+    mkdir -p "${ES_DATA}" "${ES_LOGS}"
+    chown -R elasticsearch:elasticsearch "${ES_HOME}" "${ES_DATA}" "${ES_LOGS}" /app/elasticsearch.yml
+
+    echo "Starting Elasticsearch on 127.0.0.1:${ES_PORT} (background)..."
+    exec su elasticsearch -s /bin/bash -c "export ES_PATH_CONF='/app'; export ES_JAVA_OPTS='${ES_JAVA_OPTS}'; '${ES_HOME}/bin/elasticsearch' -Epath.data='${ES_DATA}' -Epath.logs='${ES_LOGS}' -Ehttp.port='${ES_PORT}'"
+  ) &
+  es_wrapper_pid=$!
+fi
+
 term_handler() {
   if [[ -n "${app_pid:-}" ]]; then
     kill -TERM "$app_pid" 2>/dev/null || true
     wait "$app_pid" 2>/dev/null || true
   fi
-  if [[ "${es_started}" == "true" && -n "${es_pid:-}" ]]; then
-    kill -TERM "${es_pid}" 2>/dev/null || true
-    wait "${es_pid}" 2>/dev/null || true
+  if [[ -n "${es_wrapper_pid:-}" ]]; then
+    kill -TERM "$es_wrapper_pid" 2>/dev/null || true
+    wait "$es_wrapper_pid" 2>/dev/null || true
   fi
   if [[ "${postgres_started}" == "true" ]]; then
     su postgres -s /bin/bash -c "pg_ctl -D '$PGDATA' -m fast stop" || true
@@ -123,7 +113,7 @@ term_handler() {
 
 trap term_handler TERM INT
 
-echo "Starting VibeTrade backend..."
+echo "Starting VibeTrade backend (binding ${ASPNETCORE_URLS})..."
 dotnet VibeTrade.Backend.dll &
 app_pid=$!
 wait "$app_pid"
@@ -133,4 +123,3 @@ if [[ "${postgres_started}" == "true" ]]; then
   su postgres -s /bin/bash -c "pg_ctl -D '$PGDATA' -m fast stop" || true
 fi
 exit "$app_status"
-
