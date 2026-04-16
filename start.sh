@@ -4,59 +4,8 @@ set -euo pipefail
 # Render sets PORT; default to 8080 locally/in docker.
 export ASPNETCORE_URLS="http://+:${PORT:-8080}"
 
-# Optional: start a local Postgres inside the container (migrations need this first).
-START_POSTGRES="${START_POSTGRES:-false}"
-postgres_started="false"
-if [[ "${START_POSTGRES}" == "1" || "${START_POSTGRES}" == "true" || "${START_POSTGRES}" == "TRUE" ]]; then
-  export POSTGRES_HOST="${POSTGRES_HOST:-127.0.0.1}"
-  export POSTGRES_PORT="${POSTGRES_PORT:-5432}"
-  export POSTGRES_DB="${POSTGRES_DB:-vibetrade}"
-  export POSTGRES_USER="${POSTGRES_USER:-vibetrade}"
-  export PGDATA="${PGDATA:-/var/lib/postgresql/data}"
-
-  if [[ -z "${POSTGRES_PASSWORD:-}" ]]; then
-    echo "POSTGRES_PASSWORD is required when START_POSTGRES=true."
-    exit 1
-  fi
-
-  POSTGRES_BIN_DIR="$(find /usr/lib/postgresql -mindepth 2 -maxdepth 2 -type d -name bin | head -n 1)"
-  if [[ -z "$POSTGRES_BIN_DIR" ]]; then
-    echo "Could not find PostgreSQL binaries under /usr/lib/postgresql."
-    exit 1
-  fi
-  export PATH="$POSTGRES_BIN_DIR:$PATH"
-  echo "Using PostgreSQL binaries from: $POSTGRES_BIN_DIR"
-
-  mkdir -p "$PGDATA"
-  chown -R postgres:postgres "$PGDATA"
-  chmod 700 "$PGDATA"
-  echo "Using PGDATA at: $PGDATA"
-
-  if [[ ! -s "$PGDATA/PG_VERSION" ]]; then
-    echo "Initializing PostgreSQL data directory..."
-    su postgres -s /bin/bash -c "initdb -D '$PGDATA'"
-  fi
-
-  echo "Starting PostgreSQL on ${POSTGRES_HOST}:${POSTGRES_PORT}..."
-  su postgres -s /bin/bash -c "pg_ctl -D '$PGDATA' -o \"-p $POSTGRES_PORT -h $POSTGRES_HOST\" -w start"
-
-  echo "Waiting for PostgreSQL to accept connections..."
-  until su postgres -s /bin/bash -c "psql -h '$POSTGRES_HOST' -p '$POSTGRES_PORT' -d postgres -c '\q'" >/dev/null 2>&1; do
-    sleep 1
-  done
-
-  if ! su postgres -s /bin/bash -c "psql -h '$POSTGRES_HOST' -p '$POSTGRES_PORT' -d postgres -tAc \"SELECT 1 FROM pg_roles WHERE rolname = '$POSTGRES_USER'\"" | grep -q 1; then
-    echo "Creating PostgreSQL role: $POSTGRES_USER"
-    su postgres -s /bin/bash -c "psql -h '$POSTGRES_HOST' -p '$POSTGRES_PORT' -d postgres -c \"CREATE USER \\\"$POSTGRES_USER\\\" WITH PASSWORD '$POSTGRES_PASSWORD';\""
-  fi
-
-  if ! su postgres -s /bin/bash -c "psql -h '$POSTGRES_HOST' -p '$POSTGRES_PORT' -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB'\"" | grep -q 1; then
-    echo "Creating PostgreSQL database: $POSTGRES_DB"
-    su postgres -s /bin/bash -c "psql -h '$POSTGRES_HOST' -p '$POSTGRES_PORT' -d postgres -c \"CREATE DATABASE \\\"$POSTGRES_DB\\\" OWNER \\\"$POSTGRES_USER\\\";\""
-  fi
-
-  postgres_started="true"
-fi
+# Database: use a managed Postgres (e.g. Render) or docker-compose `postgres` service.
+# Set POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD in the environment.
 
 # Optional: Elasticsearch in-container (dev). MUST NOT block Kestrel — Render scans PORT quickly.
 START_ELASTICSEARCH="${START_ELASTICSEARCH:-false}"
@@ -106,9 +55,6 @@ term_handler() {
     kill -TERM "$es_wrapper_pid" 2>/dev/null || true
     wait "$es_wrapper_pid" 2>/dev/null || true
   fi
-  if [[ "${postgres_started}" == "true" ]]; then
-    su postgres -s /bin/bash -c "pg_ctl -D '$PGDATA' -m fast stop" || true
-  fi
 }
 
 trap term_handler TERM INT
@@ -117,9 +63,4 @@ echo "Starting VibeTrade backend (binding ${ASPNETCORE_URLS})..."
 dotnet VibeTrade.Backend.dll &
 app_pid=$!
 wait "$app_pid"
-app_status=$?
-
-if [[ "${postgres_started}" == "true" ]]; then
-  su postgres -s /bin/bash -c "pg_ctl -D '$PGDATA' -m fast stop" || true
-fi
-exit "$app_status"
+exit $?

@@ -9,7 +9,7 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends postgresql postgresql-contrib ca-certificates curl gnupg openjdk-17-jre-headless \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-install Elasticsearch so container boot does not block on curl (Render expects PORT bound quickly).
