@@ -138,7 +138,7 @@ public sealed class ElasticsearchStoreSearchQuery(
         if (hasDistanceFilter)
         {
             s.Sort(so => so.GeoDistance(g => g
-                .Field(new Field(CatalogSearchDocument.ElasticsearchVtLocationField))
+                .Field(new Field(CatalogSearchDocument.ElasticsearchVtGeoPointField))
                 .Order(SortOrder.Asc)
                 .Unit(DistanceUnit.Kilometers)
                 .DistanceType(GeoDistanceType.Arc)
@@ -305,7 +305,7 @@ public sealed class ElasticsearchStoreSearchQuery(
             if (hasDistanceFilter)
             {
                 filters.Add(f => f.GeoDistance(g => g
-                    .Field(new Field(CatalogSearchDocument.ElasticsearchVtLocationField))
+                    .Field(new Field(CatalogSearchDocument.ElasticsearchVtGeoPointField))
                     .Distance($"{maxKm}km")
                     .Location(GeoLocation.LatitudeLongitude(
                         new LatLonGeoLocation { Lat = userLat, Lon = userLng }))));

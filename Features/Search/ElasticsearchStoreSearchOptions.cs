@@ -11,22 +11,6 @@ public sealed class ElasticsearchStoreSearchOptions
     /// <summary>URI del nodo (p. ej. http://localhost:9200).</summary>
     public string? Uri { get; set; }
 
-    /// <summary>
-    /// Usuario para Basic Auth (p. ej. "elastic"). Recomendado en producción.
-    /// Si se setea, también debe setearse <see cref="Password"/>.
-    /// </summary>
-    public string? Username { get; set; }
-
-    /// <summary>
-    /// Password para Basic Auth. Debe venir de variables de entorno/secretos.
-    /// </summary>
-    public string? Password { get; set; }
-
-    /// <summary>
-    /// API key de Elasticsearch (si se setea, tiene prioridad sobre Basic Auth).
-    /// </summary>
-    public string? ApiKey { get; set; }
-
     /// <summary>Nombre del índice (tiendas + productos + servicios; por defecto vt-catalog).</summary>
     public string IndexName { get; set; } = "vt-catalog";
 

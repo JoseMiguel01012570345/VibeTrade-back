@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using VibeTrade.Backend.Data;
@@ -11,9 +12,11 @@ using VibeTrade.Backend.Data;
 namespace VibeTrade.Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260416182820_ChatPersistence")]
+    partial class ChatPersistence
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -81,9 +84,6 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTimeOffset?>("DeletedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("PayloadJson")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -93,16 +93,10 @@ namespace VibeTrade.Backend.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
                     b.Property<string>("ThreadId")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -183,9 +177,6 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTimeOffset?>("DeletedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<DateTimeOffset?>("FirstMessageSentAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -198,9 +189,6 @@ namespace VibeTrade.Backend.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
-
-                    b.Property<bool>("PurchaseMode")
-                        .HasColumnType("boolean");
 
                     b.Property<string>("SellerUserId")
                         .IsRequired()
@@ -221,8 +209,7 @@ namespace VibeTrade.Backend.Migrations
                     b.HasIndex("SellerUserId");
 
                     b.HasIndex("OfferId", "BuyerUserId")
-                        .IsUnique()
-                        .HasFilter("\"DeletedAtUtc\" IS NULL");
+                        .IsUnique();
 
                     b.ToTable("chat_threads", (string)null);
                 });
@@ -661,11 +648,13 @@ namespace VibeTrade.Backend.Migrations
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatNotificationRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.ChatMessageRow", null)
+                    b.HasOne("VibeTrade.Backend.Data.Entities.ChatMessageRow", "Message")
                         .WithMany()
                         .HasForeignKey("MessageId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Message");
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreProductRow", b =>

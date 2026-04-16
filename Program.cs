@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using DotNetEnv;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -7,6 +9,7 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Bootstrap;
+using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Search;
@@ -51,6 +54,7 @@ builder.Services.AddScoped<IGuestRecommendationService, GuestRecommendationServi
 builder.Services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
 builder.Services.AddScoped<IUserContactsService, UserContactsService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddMemoryCache();
 
 builder.Services.Configure<ElasticsearchStoreSearchOptions>(
@@ -60,7 +64,13 @@ builder.Services.AddScoped<IElasticsearchStoreSearchQuery, ElasticsearchStoreSea
 builder.Services.AddScoped<IStoreSearchIndexWriter, ElasticsearchStoreSearchIndexWriter>();
 
 builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase);
+    .AddJsonOptions(o =>
+    {
+        o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+    });
+
+builder.Services.AddSignalR();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o =>
@@ -84,9 +94,14 @@ builder.Services.AddSwaggerGen(o =>
 builder.Services.AddCors(o =>
 {
     o.AddPolicy("Dev", p =>
-        p.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+        p.SetIsOriginAllowed(origin =>
+                Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+                && (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                    || uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)))
             .AllowAnyHeader()
-            .AllowAnyMethod());
+            .AllowAnyMethod()
+            // SignalR negotiate + WebSockets from Vite (otro puerto) lo requieren.
+            .AllowCredentials());
 });
 
 builder.Services.AddHealthChecks()
@@ -155,6 +170,7 @@ await using (var esScope = app.Services.CreateAsyncScope())
     }
 }
 
+app.UseRouting();
 app.UseCors("Dev");
 
 app.UseMiddleware<BearerSessionAuthMiddleware>();
@@ -174,5 +190,6 @@ if (app.Configuration.GetValue("Swagger:Enabled", true))
 
 app.UseMiddleware<TimeZoneHeaderMiddleware>();
 app.MapControllers();
+app.MapHub<ChatHub>("/ws/chat").RequireCors("Dev");
 
 app.Run();

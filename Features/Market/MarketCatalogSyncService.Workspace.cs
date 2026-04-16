@@ -77,6 +77,14 @@ public sealed partial class MarketCatalogSyncService
             throw new DuplicateStoreNameException(null);
         }
 
+        if (offerQa
+            && workspaceRoot.TryGetProperty("offers", out var offersForChatEl)
+            && offersForChatEl.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in offersForChatEl.EnumerateObject())
+                await chat.SyncOfferQaAnswersForOfferAsync(prop.Name, cancellationToken);
+        }
+
         if (hasStores && (storeProfiles || catalogs))
         {
             var ids = storesEl.EnumerateObject().Select(p => p.Name).ToList();

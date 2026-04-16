@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Utils;
 using VibeTrade.Backend.Features.Recommendations;
@@ -19,7 +20,8 @@ public sealed class MarketController(
     IMarketCatalogSyncService catalog,
     IAuthService auth,
     IRecommendationService recommendations,
-    IMarketCatalogStoreSearchService catalogStoreSearch) : ControllerBase
+    IMarketCatalogStoreSearchService catalogStoreSearch,
+    IChatService chat) : ControllerBase
 {
     public sealed record CatalogCategoriesResponse(IReadOnlyList<string> Categories);
 
@@ -327,6 +329,39 @@ public sealed class MarketController(
                     body.OfferId.Trim(),
                     RecommendationInteractionType.Inquiry,
                     cancellationToken);
+            }
+
+            var sessionUserId = GetBearerUserId();
+            if (!isAnonymous
+                && sessionUserId is not null
+                && string.Equals(sessionUserId, askedById, StringComparison.Ordinal))
+            {
+                var th = await chat.CreateOrGetThreadForBuyerAsync(
+                    sessionUserId,
+                    body.OfferId.Trim(),
+                    purchaseIntent: false,
+                    cancellationToken);
+                if (th is not null)
+                {
+                    var qaId = item["id"]?.GetValue<string>();
+                    if (!string.IsNullOrEmpty(qaId))
+                    {
+                        var json = JsonSerializer.Serialize(new
+                        {
+                            type = "text",
+                            text = q,
+                            offerQaId = qaId,
+                        });
+                        using var payloadDoc = JsonDocument.Parse(json);
+                        var posted = await chat.PostMessageAsync(
+                            sessionUserId,
+                            th.Id,
+                            payloadDoc.RootElement.Clone(),
+                            cancellationToken);
+                        if (posted is not null)
+                            item["threadId"] = th.Id;
+                    }
+                }
             }
 
             return Content(item.ToJsonString(), "application/json");

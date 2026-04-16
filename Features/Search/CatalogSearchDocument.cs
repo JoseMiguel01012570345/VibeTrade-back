@@ -9,7 +9,10 @@ public sealed class CatalogSearchDocument
     public const string ElasticsearchVtCatalogSkField = "vtCatalogSk";
 
     /// <summary>Nombre JSON del campo geo para distancia; debe mapearse como <c>geo_point</c>.</summary>
-    public const string ElasticsearchVtLocationField = "vtLocation";
+    /// <remarks>
+    /// No usar <c>vtLocation</c>: índices antiguos pudieron mapearlo dinámicamente como <c>object</c>, y ES no permite pasarlo a <c>geo_point</c>.
+    /// </remarks>
+    public const string ElasticsearchVtGeoPointField = "vtGeoPoint";
 
     /// <summary><c>store</c>, <c>product</c> o <c>service</c>.</summary>
     public string Kind { get; set; } = "";
@@ -33,7 +36,7 @@ public sealed class CatalogSearchDocument
     public LatLonGeoLocation? Location { get; set; }
 
     /// <summary>Campo geo estable (geo_point) para sort y filtros de distancia, evitando conflictos con mappings viejos de <see cref="Location"/>.</summary>
-    public LatLonGeoLocation? VtLocation { get; set; }
+    public LatLonGeoLocation? VtGeoPoint { get; set; }
 
     public int TrustScore { get; set; }
 

@@ -1,0 +1,168 @@
+using System.Text.Json;
+using Microsoft.AspNetCore.Mvc;
+using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Chat;
+
+namespace VibeTrade.Backend.Api;
+
+[ApiController]
+[Route("api/v1/chat")]
+[Produces("application/json")]
+public sealed class ChatController(IAuthService auth, IChatService chat) : ControllerBase
+{
+    public sealed record CreateThreadBody(string OfferId, bool? PurchaseIntent);
+
+    [HttpPost("threads")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(ChatThreadDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostThread([FromBody] CreateThreadBody body, CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized();
+
+        var purchaseIntent = body.PurchaseIntent ?? true;
+        var dto = await chat.CreateOrGetThreadForBuyerAsync(userId, body.OfferId ?? "", purchaseIntent, cancellationToken);
+        if (dto is null)
+            return NotFound(new { error = "offer_not_found", message = "No se encontró la oferta o no podés abrir este chat." });
+
+        return Ok(dto);
+    }
+
+    [HttpGet("threads")]
+    [ProducesResponseType(typeof(IReadOnlyList<ChatThreadSummaryDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<IReadOnlyList<ChatThreadSummaryDto>>> GetThreads(CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized();
+        var list = await chat.ListThreadsForUserAsync(userId, cancellationToken);
+        return Ok(list);
+    }
+
+    [HttpGet("threads/by-offer/{offerId}")]
+    [ProducesResponseType(typeof(ChatThreadDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetThreadByOffer(string offerId, CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized();
+        var dto = await chat.GetThreadByOfferIfVisibleAsync(userId, offerId, cancellationToken);
+        if (dto is null)
+            return NotFound();
+        return Ok(dto);
+    }
+
+    [HttpDelete("threads/{threadId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteThread(string threadId, CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized();
+        var ok = await chat.DeleteThreadAsync(userId, threadId, cancellationToken);
+        if (!ok)
+            return NotFound(new { error = "not_found", message = "Hilo no encontrado o sin permiso." });
+        return NoContent();
+    }
+
+    [HttpGet("threads/{threadId}")]
+    [ProducesResponseType(typeof(ChatThreadDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetThread(string threadId, CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized();
+        var dto = await chat.GetThreadIfVisibleAsync(userId, threadId, cancellationToken);
+        if (dto is null)
+            return NotFound();
+        return Ok(dto);
+    }
+
+    [HttpGet("threads/{threadId}/messages")]
+    [ProducesResponseType(typeof(IReadOnlyList<ChatMessageDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetMessages(string threadId, CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized();
+        var list = await chat.ListMessagesAsync(userId, threadId, cancellationToken);
+        if (list.Count == 0)
+        {
+            var th = await chat.GetThreadIfVisibleAsync(userId, threadId, cancellationToken);
+            if (th is null)
+                return NotFound();
+        }
+        return Ok(list);
+    }
+
+    [HttpPost("threads/{threadId}/messages")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(ChatMessageDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostMessage(
+        string threadId,
+        [FromBody] JsonElement payload,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized();
+        var msg = await chat.PostMessageAsync(userId, threadId, payload, cancellationToken);
+        if (msg is null)
+            return NotFound(new { error = "not_found", message = "Hilo no encontrado o mensaje inválido." });
+        return Ok(msg);
+    }
+
+    public sealed record UpdateMessageStatusBody(string Status);
+
+    [HttpPost("threads/{threadId}/messages/{messageId}/status")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(ChatMessageDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostMessageStatus(
+        string threadId,
+        string messageId,
+        [FromBody] UpdateMessageStatusBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetBearerUserId();
+        if (userId is null)
+            return Unauthorized();
+        if (!Enum.TryParse<ChatMessageStatus>(body.Status, ignoreCase: true, out var st))
+            return BadRequest(new { error = "invalid_status" });
+        var msg = await chat.UpdateMessageStatusAsync(userId, threadId, messageId, st, cancellationToken);
+        if (msg is null)
+            return NotFound(new { error = "not_found", message = "Mensaje o hilo no encontrado." });
+        return Ok(msg);
+    }
+
+    private string? GetBearerUserId()
+    {
+        if (!Request.Headers.TryGetValue("Authorization", out var authHdr))
+            return null;
+        if (!auth.TryGetUserByToken(authHdr, out var user))
+            return null;
+        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.String)
+            return null;
+        var id = idEl.GetString();
+        return string.IsNullOrWhiteSpace(id) ? null : id;
+    }
+}

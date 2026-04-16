@@ -57,7 +57,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
                             .Text(t => t.Name)
                             .Text(t => t.SearchText)
                             .GeoPoint(g => g.Location)
-                            .GeoPoint(g => g.VtLocation)
+                            .GeoPoint(g => g.VtGeoPoint)
                             .IntegerNumber(n => n.TrustScore)
                             .LongNumber(n => n.PublishedProducts)
                             .LongNumber(n => n.PublishedServices);
@@ -151,7 +151,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         }
     }
 
-    private async Task PutVtLocationGeoPointMappingAsync(CancellationToken cancellationToken)
+    private async Task PutVtGeoPointMappingAsync(CancellationToken cancellationToken)
     {
         if (_client is null)
             return;
@@ -160,7 +160,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         {
             Properties = new Properties
             {
-                { CatalogSearchDocument.ElasticsearchVtLocationField, new GeoPointProperty() },
+                { CatalogSearchDocument.ElasticsearchVtGeoPointField, new GeoPointProperty() },
             },
         }, cancellationToken);
 
@@ -168,7 +168,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         {
             logger.LogWarning(
                 "Elasticsearch: no se pudo registrar {Field} como geo_point en {Index}: {Debug}",
-                CatalogSearchDocument.ElasticsearchVtLocationField,
+                CatalogSearchDocument.ElasticsearchVtGeoPointField,
                 _opt.IndexName,
                 put.DebugInformation);
         }
@@ -182,9 +182,9 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         // En índices ya existentes, evitar re-declarar mappings completos:
         // ES no permite cambiar el tipo de un campo (p.ej. offerId text -> keyword),
         // y un PutMapping con todo el POCO puede bloquear el reindex con errores repetidos.
-        // Acá solo aseguramos campos que agregamos “a futuro” (vtCatalogSk y el vector).
+        // Acá solo aseguramos campos que agregamos “a futuro” (vtCatalogSk, vtGeoPoint y el vector).
         await PutVtCatalogSkKeywordMappingAsync(cancellationToken);
-        await PutVtLocationGeoPointMappingAsync(cancellationToken);
+        await PutVtGeoPointMappingAsync(cancellationToken);
         await PutNameSemanticVectorMappingAsync(cancellationToken);
     }
 

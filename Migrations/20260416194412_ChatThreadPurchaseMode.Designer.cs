@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using VibeTrade.Backend.Data;
@@ -11,9 +12,11 @@ using VibeTrade.Backend.Data;
 namespace VibeTrade.Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260416194412_ChatThreadPurchaseMode")]
+    partial class ChatThreadPurchaseMode
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -79,9 +82,6 @@ namespace VibeTrade.Backend.Migrations
                         .HasColumnType("character varying(64)");
 
                     b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("DeletedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("PayloadJson")
@@ -183,9 +183,6 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTimeOffset?>("DeletedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<DateTimeOffset?>("FirstMessageSentAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -221,8 +218,7 @@ namespace VibeTrade.Backend.Migrations
                     b.HasIndex("SellerUserId");
 
                     b.HasIndex("OfferId", "BuyerUserId")
-                        .IsUnique()
-                        .HasFilter("\"DeletedAtUtc\" IS NULL");
+                        .IsUnique();
 
                     b.ToTable("chat_threads", (string)null);
                 });

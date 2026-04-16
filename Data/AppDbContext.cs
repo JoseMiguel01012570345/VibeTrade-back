@@ -15,6 +15,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<AuthPendingOtpRow> AuthPendingOtps => Set<AuthPendingOtpRow>();
     public DbSet<UserContactRow> UserContacts => Set<UserContactRow>();
     public DbSet<UserOfferInteractionRow> UserOfferInteractions => Set<UserOfferInteractionRow>();
+    public DbSet<ChatThreadRow> ChatThreads => Set<ChatThreadRow>();
+    public DbSet<ChatMessageRow> ChatMessages => Set<ChatMessageRow>();
+    public DbSet<ChatNotificationRow> ChatNotifications => Set<ChatNotificationRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -174,6 +177,69 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(x => x.CreatedAt);
             e.HasIndex(x => new { x.UserId, x.CreatedAt });
             e.HasIndex(x => new { x.OfferId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<ChatThreadRow>(e =>
+        {
+            e.ToTable("chat_threads");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.OfferId).HasMaxLength(64);
+            e.Property(x => x.StoreId).HasMaxLength(64);
+            e.Property(x => x.BuyerUserId).HasMaxLength(64);
+            e.Property(x => x.SellerUserId).HasMaxLength(64);
+            e.Property(x => x.InitiatorUserId).HasMaxLength(64);
+            e.Property(x => x.FirstMessageSentAtUtc);
+            e.Property(x => x.PurchaseMode);
+            e.Property(x => x.CreatedAtUtc);
+            e.Property(x => x.DeletedAtUtc);
+            e.HasIndex(x => x.OfferId);
+            e.HasIndex(x => x.BuyerUserId);
+            e.HasIndex(x => x.SellerUserId);
+            e.HasIndex(x => new { x.OfferId, x.BuyerUserId })
+                .IsUnique()
+                .HasFilter("\"DeletedAtUtc\" IS NULL");
+            e.HasMany(x => x.Messages)
+                .WithOne(x => x.Thread)
+                .HasForeignKey(x => x.ThreadId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChatMessageRow>(e =>
+        {
+            e.ToTable("chat_messages");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.SenderUserId).HasMaxLength(64);
+            e.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            e.Property(x => x.Status).HasConversion<int>();
+            e.Property(x => x.CreatedAtUtc);
+            e.Property(x => x.UpdatedAtUtc);
+            e.Property(x => x.DeletedAtUtc);
+            e.HasIndex(x => x.ThreadId);
+            e.HasIndex(x => new { x.ThreadId, x.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<ChatNotificationRow>(e =>
+        {
+            e.ToTable("chat_notifications");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.RecipientUserId).HasMaxLength(64);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.MessageId).HasMaxLength(64);
+            e.Property(x => x.MessagePreview).HasMaxLength(2000);
+            e.Property(x => x.AuthorStoreName).HasMaxLength(512);
+            e.Property(x => x.SenderUserId).HasMaxLength(64);
+            e.Property(x => x.CreatedAtUtc);
+            e.Property(x => x.ReadAtUtc);
+            e.HasIndex(x => x.RecipientUserId);
+            e.HasIndex(x => new { x.RecipientUserId, x.CreatedAtUtc });
+            e.HasOne<ChatMessageRow>()
+                .WithMany()
+                .HasForeignKey(x => x.MessageId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

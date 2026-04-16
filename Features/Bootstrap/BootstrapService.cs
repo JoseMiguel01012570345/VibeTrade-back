@@ -2,7 +2,9 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Market.Utils;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.SavedOffers;
 
@@ -12,7 +14,8 @@ public sealed class BootstrapService(
     IMarketWorkspaceService marketWorkspace,
     AppDbContext db,
     ISavedOffersService savedOffers,
-    IRecommendationService recommendations) : IBootstrapService
+    IRecommendationService recommendations,
+    IChatService chat) : IBootstrapService
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -28,6 +31,9 @@ public sealed class BootstrapService(
         if (string.IsNullOrWhiteSpace(viewerDigits))
             throw new ArgumentException("viewerPhoneDigits must contain digits.", nameof(viewerPhoneDigits));
 
+        var viewerUser = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.PhoneDigits == viewerDigits, cancellationToken);
+
         // Filter stores by invariant phoneDigits (unique), not by ephemeral user.id.
         var storeIds = await db.Stores
             .AsNoTracking()
@@ -40,7 +46,9 @@ public sealed class BootstrapService(
         // storeCatalogs: vacío en bootstrap (se hidrata con POST stores/:id/detail).
         marketObj["storeCatalogs"] = new JsonObject();
 
-        // threads
+        // threads: solo hilos del workspace cuya tienda es del vendedor (demo). Los chats de comprador
+        // usan storeId de la tienda ajena y se filtraban por completo → se pierden al recargar.
+        // Abajo fusionamos hilos persistidos (cth_*) desde PostgreSQL.
         if (marketObj["threads"] is JsonObject threads)
         {
             var nextThreads = new JsonObject();
@@ -68,12 +76,13 @@ public sealed class BootstrapService(
             }
         }
 
+        if (viewerUser is not null && marketObj["threads"] is JsonObject mergedThreads)
+            await MergePersistedChatThreadsAsync(mergedThreads, marketObj, viewerUser.Id, cancellationToken);
+
         const string reels =
             """{"items":[],"initialComments":{},"initialLikeCounts":{}}""";
         const string profileNames = "{}";
 
-        var viewerUser = await db.UserAccounts.AsNoTracking()
-            .FirstOrDefaultAsync(u => u.PhoneDigits == viewerDigits, cancellationToken);
         var savedList = viewerUser is null
             ? Array.Empty<string>()
             : (await savedOffers.GetFilteredForBootstrapAsync(viewerUser.Id, cancellationToken)).ToArray();
@@ -97,5 +106,103 @@ public sealed class BootstrapService(
         };
 
         return JsonDocument.Parse(root.ToJsonString(JsonOptions));
+    }
+
+    private static string ChatStatusToApiString(ChatMessageStatus s) => s switch
+    {
+        ChatMessageStatus.Pending => "pending",
+        ChatMessageStatus.Sent => "sent",
+        ChatMessageStatus.Delivered => "delivered",
+        ChatMessageStatus.Read => "read",
+        ChatMessageStatus.Error => "error",
+        _ => "sent",
+    };
+
+    private static JsonObject ChatMessageDtoToMarketMessage(ChatMessageDto m, string viewerUserId)
+    {
+        var from = m.SenderUserId == viewerUserId ? "me" : "other";
+        var p = m.Payload;
+        var at = m.CreatedAtUtc.ToUnixTimeMilliseconds();
+        var read = from == "me" ? m.Status == ChatMessageStatus.Read : true;
+        var obj = new JsonObject
+        {
+            ["id"] = m.Id,
+            ["from"] = from,
+            ["type"] = "text",
+            ["text"] = p.Text ?? "",
+            ["at"] = at,
+            ["read"] = read,
+            ["chatStatus"] = ChatStatusToApiString(m.Status),
+        };
+        if (!string.IsNullOrEmpty(p.OfferQaId))
+            obj["offerQaId"] = p.OfferQaId!;
+        return obj;
+    }
+
+    /// <summary>
+    /// Añade hilos <c>cth_*</c> del usuario (comprador o vendedor) con tienda/oferta desde tablas relacionales.
+    /// </summary>
+    private async Task MergePersistedChatThreadsAsync(
+        JsonObject threadsOut,
+        JsonObject marketObj,
+        string viewerUserId,
+        CancellationToken cancellationToken)
+    {
+        var summaries = await chat.ListThreadsForUserAsync(viewerUserId, cancellationToken);
+        if (summaries.Count == 0)
+            return;
+
+        var stores = marketObj["stores"] as JsonObject ?? new JsonObject();
+        marketObj["stores"] = stores;
+
+        var offers = marketObj["offers"] as JsonObject ?? new JsonObject();
+        marketObj["offers"] = offers;
+
+        foreach (var summ in summaries)
+        {
+            if (threadsOut.ContainsKey(summ.Id))
+                continue;
+
+            var store = await db.Stores.AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == summ.StoreId, cancellationToken);
+            if (store is null)
+                continue;
+
+            if (!stores.ContainsKey(store.Id))
+                stores[store.Id] = MarketCatalogStoreBadgeJson.FromStoreRow(store);
+
+            if (!offers.ContainsKey(summ.OfferId))
+            {
+                var product = await db.StoreProducts.AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.Id == summ.OfferId, cancellationToken);
+                if (product is not null)
+                    offers[summ.OfferId] = MarketCatalogOfferJsonBuilder.ProductRowToOfferJson(product);
+                else
+                {
+                    var service = await db.StoreServices.AsNoTracking()
+                        .FirstOrDefaultAsync(s => s.Id == summ.OfferId, cancellationToken);
+                    if (service is not null)
+                        offers[summ.OfferId] = MarketCatalogOfferJsonBuilder.ServiceRowToOfferJson(service);
+                }
+            }
+
+            var storeNode = MarketCatalogStoreBadgeJson.FromStoreRow(store);
+            var msgs = await chat.ListMessagesAsync(viewerUserId, summ.Id, cancellationToken);
+            var messagesArr = new JsonArray();
+            foreach (var m in msgs)
+                messagesArr.Add(ChatMessageDtoToMarketMessage(m, viewerUserId));
+
+            threadsOut[summ.Id] = new JsonObject
+            {
+                ["id"] = summ.Id,
+                ["offerId"] = summ.OfferId,
+                ["storeId"] = summ.StoreId,
+                ["store"] = storeNode,
+                ["purchaseMode"] = summ.PurchaseMode,
+                ["messages"] = messagesArr,
+                ["contracts"] = new JsonArray(),
+                ["routeSheets"] = new JsonArray(),
+            };
+        }
     }
 }

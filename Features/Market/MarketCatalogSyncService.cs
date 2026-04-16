@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market.Utils;
 using VibeTrade.Backend.Features.Search;
 
@@ -8,7 +9,8 @@ namespace VibeTrade.Backend.Features.Market;
 
 public sealed partial class MarketCatalogSyncService(
     AppDbContext db,
-    IStoreSearchIndexWriter storeSearchIndex) : IMarketCatalogSyncService
+    IStoreSearchIndexWriter storeSearchIndex,
+    IChatService chat) : IMarketCatalogSyncService
 {
     public Task ApplyStoreProfilesFromWorkspaceAsync(
         JsonElement workspaceRoot,
