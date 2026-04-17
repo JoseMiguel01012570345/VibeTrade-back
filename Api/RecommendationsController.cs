@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Api;
 
@@ -23,7 +24,7 @@ public sealed class RecommendationsController(
         [FromQuery] int? take,
         CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
 
@@ -44,7 +45,7 @@ public sealed class RecommendationsController(
         [FromBody] TrackInteractionBody body,
         CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
         if (string.IsNullOrWhiteSpace(body.OfferId))
@@ -99,16 +100,6 @@ public sealed class RecommendationsController(
 
         guestInteractions.Record(gid, body.OfferId.Trim(), eventType);
         return NoContent();
-    }
-
-    private string? GetBearerUserId()
-    {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
-            return null;
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
-            return null;
-        var id = idEl.GetString();
-        return string.IsNullOrWhiteSpace(id) ? null : id;
     }
 
     private static bool TryParseEventType(string? raw, out RecommendationInteractionType eventType)

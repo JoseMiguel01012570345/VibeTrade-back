@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Api;
 
@@ -21,7 +22,7 @@ public sealed class ChatController(IAuthService auth, IChatService chat) : Contr
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> PostThread([FromBody] CreateThreadBody body, CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
 
@@ -38,7 +39,7 @@ public sealed class ChatController(IAuthService auth, IChatService chat) : Contr
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IReadOnlyList<ChatThreadSummaryDto>>> GetThreads(CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
         var list = await chat.ListThreadsForUserAsync(userId, cancellationToken);
@@ -51,7 +52,7 @@ public sealed class ChatController(IAuthService auth, IChatService chat) : Contr
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetThreadByOffer(string offerId, CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
         var dto = await chat.GetThreadByOfferIfVisibleAsync(userId, offerId, cancellationToken);
@@ -66,7 +67,7 @@ public sealed class ChatController(IAuthService auth, IChatService chat) : Contr
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteThread(string threadId, CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
         var ok = await chat.DeleteThreadAsync(userId, threadId, cancellationToken);
@@ -81,7 +82,7 @@ public sealed class ChatController(IAuthService auth, IChatService chat) : Contr
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetThread(string threadId, CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
         var dto = await chat.GetThreadIfVisibleAsync(userId, threadId, cancellationToken);
@@ -96,7 +97,7 @@ public sealed class ChatController(IAuthService auth, IChatService chat) : Contr
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetMessages(string threadId, CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
         var list = await chat.ListMessagesAsync(userId, threadId, cancellationToken);
@@ -120,7 +121,7 @@ public sealed class ChatController(IAuthService auth, IChatService chat) : Contr
         [FromBody] JsonElement payload,
         CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
         var msg = await chat.PostMessageAsync(userId, threadId, payload, cancellationToken);
@@ -143,7 +144,7 @@ public sealed class ChatController(IAuthService auth, IChatService chat) : Contr
         [FromBody] UpdateMessageStatusBody body,
         CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
         if (!Enum.TryParse<ChatMessageStatus>(body.Status, ignoreCase: true, out var st))
@@ -152,17 +153,5 @@ public sealed class ChatController(IAuthService auth, IChatService chat) : Contr
         if (msg is null)
             return NotFound(new { error = "not_found", message = "Mensaje o hilo no encontrado." });
         return Ok(msg);
-    }
-
-    private string? GetBearerUserId()
-    {
-        if (!Request.Headers.TryGetValue("Authorization", out var authHdr))
-            return null;
-        if (!auth.TryGetUserByToken(authHdr, out var user))
-            return null;
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.String)
-            return null;
-        var id = idEl.GetString();
-        return string.IsNullOrWhiteSpace(id) ? null : id;
     }
 }

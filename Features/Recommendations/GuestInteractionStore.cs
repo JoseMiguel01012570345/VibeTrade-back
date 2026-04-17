@@ -16,7 +16,7 @@ public sealed class GuestInteractionStore(IMemoryCache cache) : IGuestInteractio
 {
     private static readonly MemoryCacheEntryOptions CacheOptions = new()
     {
-        SlidingExpiration = TimeSpan.FromDays(7),
+        SlidingExpiration = TimeSpan.FromHours(8),
     };
 
     private sealed record GuestInteraction(string OfferId, string EventType, DateTimeOffset At);
@@ -30,9 +30,9 @@ public sealed class GuestInteractionStore(IMemoryCache cache) : IGuestInteractio
 
         var ev = eventType switch
         {
-            RecommendationInteractionType.ChatStart => "chat_start",
-            RecommendationInteractionType.Inquiry => "inquiry",
-            _ => "click",
+            RecommendationInteractionType.ChatStart => "chat_start", // might happend in the future
+            RecommendationInteractionType.Inquiry => "inquiry", // might happend in the future
+            _ => "click", // user can only do this right now
         };
 
         var key = BuildKey(gid);
@@ -49,7 +49,8 @@ public sealed class GuestInteractionStore(IMemoryCache cache) : IGuestInteractio
             list.Add(new GuestInteraction(oid, ev, DateTimeOffset.UtcNow));
             // evitar crecimiento sin control
             if (list.Count > 500)
-                list.RemoveRange(0, list.Count - 500);
+                list.RemoveRange(0, Math.Min(20, list.Count - 500));
+           
         }
     }
 

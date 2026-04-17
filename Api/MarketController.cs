@@ -8,6 +8,7 @@ using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Utils;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Api;
 
@@ -207,7 +208,7 @@ public sealed class MarketController(
         [FromBody] JsonDocument body,
         CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         try
@@ -231,7 +232,7 @@ public sealed class MarketController(
         string productId,
         CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         var r = await catalog.DeleteStoreProductAsync(storeId, productId, userId, cancellationToken);
@@ -253,7 +254,7 @@ public sealed class MarketController(
         [FromBody] JsonDocument body,
         CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         try
@@ -277,7 +278,7 @@ public sealed class MarketController(
         string serviceId,
         CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         var r = await catalog.DeleteStoreServiceAsync(storeId, serviceId, userId, cancellationToken);
@@ -331,7 +332,7 @@ public sealed class MarketController(
                     cancellationToken);
             }
 
-            var sessionUserId = GetBearerUserId();
+            var sessionUserId = BearerUserId.FromRequest(auth, Request);
             if (!isAnonymous
                 && sessionUserId is not null
                 && string.Equals(sessionUserId, askedById, StringComparison.Ordinal))
@@ -419,18 +420,6 @@ public sealed class MarketController(
         }
 
         return Content(root.ToJsonString(), "application/json");
-    }
-
-    private string? GetBearerUserId()
-    {
-        if (!Request.Headers.TryGetValue("Authorization", out var authHdr))
-            return null;
-        if (!auth.TryGetUserByToken(authHdr, out var user))
-            return null;
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.String)
-            return null;
-        var id = idEl.GetString();
-        return string.IsNullOrWhiteSpace(id) ? null : id;
     }
 
     private IActionResult MapCatalogUpsert(StoreCatalogUpsertResult r) =>

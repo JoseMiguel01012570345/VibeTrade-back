@@ -1,7 +1,7 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Api;
 
@@ -17,7 +17,7 @@ public sealed class ChatNotificationsController(IAuthService auth, IChatService 
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IReadOnlyList<ChatNotificationDto>>> GetNotifications(CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
         var list = await chat.ListNotificationsAsync(userId, cancellationToken);
@@ -30,22 +30,10 @@ public sealed class ChatNotificationsController(IAuthService auth, IChatService 
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> MarkRead([FromBody] MarkReadBody? body, CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
         await chat.MarkNotificationsReadAsync(userId, body?.Ids, cancellationToken);
         return NoContent();
-    }
-
-    private string? GetBearerUserId()
-    {
-        if (!Request.Headers.TryGetValue("Authorization", out var authHdr))
-            return null;
-        if (!auth.TryGetUserByToken(authHdr, out var user))
-            return null;
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.String)
-            return null;
-        var id = idEl.GetString();
-        return string.IsNullOrWhiteSpace(id) ? null : id;
     }
 }
