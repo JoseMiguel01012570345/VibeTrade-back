@@ -152,9 +152,31 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
             row.AvatarUrl,
             row.Instagram,
             row.Telegram,
-            row.XAccount);
+            row.XAccount,
+            row.TrustScore);
     }
-    
+
+    public async Task<UserProfileSnapshot?> GetProfileSnapshotByUserIdAsync(
+        string userId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+            return null;
+        var row = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
+        if (row is null)
+            return null;
+        return new UserProfileSnapshot(
+            row.Id,
+            row.DisplayName,
+            row.Email,
+            row.AvatarUrl,
+            row.Instagram,
+            row.Telegram,
+            row.XAccount,
+            row.TrustScore);
+    }
+
     public async Task<bool> PhoneHasRegisteredAccountAsync(
         string? phoneRaw,
         CancellationToken cancellationToken = default)

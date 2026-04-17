@@ -20,6 +20,7 @@ public sealed class MarketController(
     IMarketWorkspaceService marketWorkspace,
     IMarketCatalogSyncService catalog,
     IAuthService auth,
+    IUserAccountSyncService userAccountSync,
     IRecommendationService recommendations,
     IMarketCatalogStoreSearchService catalogStoreSearch,
     IChatService chat) : ControllerBase
@@ -417,6 +418,25 @@ public sealed class MarketController(
                 ["userId"] = body.ViewerUserId is null ? null : JsonValue.Create(body.ViewerUserId),
                 ["role"] = body.ViewerRole is null ? null : JsonValue.Create(body.ViewerRole),
             };
+        }
+
+        if (root["store"] is JsonObject storeObj &&
+            storeObj.TryGetPropertyValue("ownerUserId", out var ouNode) &&
+            ouNode is JsonValue ouVal &&
+            ouVal.TryGetValue<string>(out var ownerId) &&
+            !string.IsNullOrWhiteSpace(ownerId))
+        {
+            var snap = await userAccountSync.GetProfileSnapshotByUserIdAsync(ownerId, cancellationToken);
+            if (snap is not null)
+            {
+                root["owner"] = new JsonObject
+                {
+                    ["id"] = snap.Id,
+                    ["name"] = snap.DisplayName,
+                    ["avatarUrl"] = snap.AvatarUrl is { } a ? JsonValue.Create(a) : null,
+                    ["trustScore"] = snap.TrustScore,
+                };
+            }
         }
 
         return Content(root.ToJsonString(), "application/json");
