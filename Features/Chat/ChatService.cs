@@ -11,6 +11,22 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
 {
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// Grupo SignalR por usuario (todos los clientes del participante). Usado para eventos de chat
+    /// aunque el cliente haya salido del grupo del hilo (<c>thread:*</c>).
+    /// </summary>
+    private static string HubUserGroup(string userId) => $"user:{userId}";
+
+    private async Task HubSendToThreadParticipantsAsync(
+        ChatThreadRow thread,
+        string method,
+        object payload,
+        CancellationToken cancellationToken)
+    {
+        await hub.Clients.Group(HubUserGroup(thread.BuyerUserId)).SendAsync(method, payload, cancellationToken);
+        await hub.Clients.Group(HubUserGroup(thread.SellerUserId)).SendAsync(method, payload, cancellationToken);
+    }
+
     public static bool UserCanSeeThread(string userId, ChatThreadRow t) =>
         t.DeletedAtUtc is null
         && (t.InitiatorUserId == userId
@@ -39,7 +55,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         return st2 is null ? (null, null) : (s.StoreId, st2.OwnerUserId);
     }
 
-    private static ChatThreadDto MapThread(ChatThreadRow t) => new(
+    private static ChatThreadDto MapThread(ChatThreadRow t, string? buyerDisplayName = null) => new(
         t.Id,
         t.OfferId,
         t.StoreId,
@@ -48,12 +64,43 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         t.InitiatorUserId,
         t.FirstMessageSentAtUtc,
         t.CreatedAtUtc,
-        t.PurchaseMode);
+        t.PurchaseMode,
+        buyerDisplayName);
 
-    private static ChatMessageDto MapMessage(ChatMessageRow m)
+    private async Task<string?> GetBuyerDisplayNameAsync(string buyerUserId, CancellationToken cancellationToken)
     {
-        var payload = JsonSerializer.Deserialize<ChatTextPayload>(m.PayloadJson, JsonOpts)
-                      ?? new ChatTextPayload { Text = "" };
+        var dn = await db.UserAccounts.AsNoTracking()
+            .Where(u => u.Id == buyerUserId)
+            .Select(u => u.DisplayName)
+            .FirstOrDefaultAsync(cancellationToken);
+        return string.IsNullOrWhiteSpace(dn) ? null : dn.Trim();
+    }
+
+    private async Task<ChatThreadDto> MapThreadWithBuyerLabelAsync(
+        ChatThreadRow t,
+        CancellationToken cancellationToken)
+    {
+        var label = await GetBuyerDisplayNameAsync(t.BuyerUserId, cancellationToken);
+        return MapThread(t, label);
+    }
+
+    private static JsonElement PayloadJsonToElement(string payloadJson)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<JsonElement>(payloadJson, JsonOpts);
+        }
+        catch
+        {
+            return JsonSerializer.SerializeToElement(
+                new ChatTextPayload { Text = "" },
+                JsonOpts);
+        }
+    }
+
+    private static ChatMessageDto MapMessage(ChatMessageRow m, string? senderDisplayLabel = null)
+    {
+        var payload = PayloadJsonToElement(m.PayloadJson);
         return new ChatMessageDto(
             m.Id,
             m.ThreadId,
@@ -61,7 +108,8 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             payload,
             m.Status,
             m.CreatedAtUtc,
-            m.UpdatedAtUtc);
+            m.UpdatedAtUtc,
+            senderDisplayLabel);
     }
 
     public async Task<ChatThreadDto?> CreateOrGetThreadForBuyerAsync(
@@ -93,7 +141,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
                 await db.SaveChangesAsync(cancellationToken);
             }
 
-            return MapThread(existing);
+            return await MapThreadWithBuyerLabelAsync(existing, cancellationToken);
         }
 
         var id = "cth_" + Guid.NewGuid().ToString("N")[..16];
@@ -112,7 +160,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         };
         db.ChatThreads.Add(row);
         await db.SaveChangesAsync(cancellationToken);
-        var created = MapThread(row);
+        var created = await MapThreadWithBuyerLabelAsync(row, cancellationToken);
         await NotifyThreadCreatedAsync(created, cancellationToken);
         return created;
     }
@@ -138,7 +186,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || !UserCanSeeThread(userId, t))
             return null;
-        return MapThread(t);
+        return await MapThreadWithBuyerLabelAsync(t, cancellationToken);
     }
 
     public async Task<ChatThreadDto?> GetThreadByOfferIfVisibleAsync(
@@ -169,7 +217,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
 
         if (t is null || !UserCanSeeThread(userId, t))
             return null;
-        return MapThread(t);
+        return await MapThreadWithBuyerLabelAsync(t, cancellationToken);
     }
 
     public async Task<IReadOnlyList<ChatThreadSummaryDto>> ListThreadsForUserAsync(
@@ -201,10 +249,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             lastPerThread.TryGetValue(t.Id, out var lastMsg);
             string? pv = null;
             if (lastMsg is not null)
-            {
-                var payload = JsonSerializer.Deserialize<ChatTextPayload>(lastMsg.PayloadJson, JsonOpts);
-                pv = payload is not null ? PreviewFromPayload(payload) : null;
-            }
+                pv = PreviewFromStoredPayload(lastMsg.PayloadJson);
             return new ChatThreadSummaryDto(
                 t.Id,
                 t.OfferId,
@@ -216,10 +261,52 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         }).ToList();
     }
 
-    private static string PreviewFromPayload(ChatTextPayload payload)
+    private static string PreviewFromStoredPayload(string payloadJson)
     {
-        var tx = (payload.Text ?? "").Trim();
-        return tx.Length == 0 ? "Mensaje" : tx;
+        try
+        {
+            var el = JsonSerializer.Deserialize<JsonElement>(payloadJson, JsonOpts);
+            return PreviewFromPayloadElement(el);
+        }
+        catch
+        {
+            return "Mensaje";
+        }
+    }
+
+    private static string PreviewFromPayloadElement(JsonElement root)
+    {
+        var type = root.TryGetProperty("type", out var t) ? t.GetString() : "";
+        return type switch
+        {
+            "text" => PreviewText((root.TryGetProperty("text", out var tx) ? tx.GetString() : null) ?? ""),
+            "audio" => "Nota de voz",
+            "image" when root.TryGetProperty("caption", out var c) && c.ValueKind == JsonValueKind.String =>
+                string.IsNullOrWhiteSpace(c.GetString()) ? "Foto" : (c.GetString() ?? "Foto"),
+            "image" => "Foto",
+            "doc" => root.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
+                ? (n.GetString() ?? "Documento")
+                : "Documento",
+            "docs" when root.TryGetProperty("documents", out var docs) && docs.ValueKind == JsonValueKind.Array =>
+                docs.GetArrayLength() > 1 ? $"{docs.GetArrayLength()} documentos" : SingleDocName(docs),
+            "docs" => "Documentos",
+            _ => "Mensaje",
+        };
+
+        static string PreviewText(string tx)
+        {
+            tx = tx.Trim();
+            return tx.Length == 0 ? "Mensaje" : tx;
+        }
+
+        static string SingleDocName(JsonElement docsArr)
+        {
+            if (docsArr.GetArrayLength() == 0) return "Documento";
+            var first = docsArr[0];
+            return first.TryGetProperty("name", out var nn) && nn.ValueKind == JsonValueKind.String
+                ? (nn.GetString() ?? "Documento")
+                : "Documento";
+        }
     }
 
     public async Task<IReadOnlyList<ChatMessageDto>> ListMessagesAsync(
@@ -237,7 +324,136 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             .OrderBy(m => m.CreatedAtUtc)
             .ToListAsync(cancellationToken);
 
-        return msgs.Select(MapMessage).ToList();
+        var labelCache = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var uid in msgs.Select(m => m.SenderUserId).Distinct())
+        {
+            labelCache[uid] = await GetParticipantAuthorLabelAsync(t, uid, cancellationToken);
+        }
+
+        return msgs.Select(m => MapMessage(m, labelCache[m.SenderUserId])).ToList();
+    }
+
+    private static bool IsAllowedPersistedMediaUrl(string url)
+    {
+        url = (url ?? "").Trim();
+        if (url.Length == 0 || !url.StartsWith("/", StringComparison.Ordinal))
+            return false;
+        if (url.Contains("..", StringComparison.Ordinal))
+            return false;
+        return url.StartsWith("/api/v1/media/", StringComparison.Ordinal);
+    }
+
+    private static IReadOnlyList<string>? ReadReplyToIds(JsonElement payload)
+    {
+        if (!payload.TryGetProperty("replyToIds", out var arr) || arr.ValueKind != JsonValueKind.Array)
+            return null;
+        var list = new List<string>();
+        foreach (var el in arr.EnumerateArray())
+        {
+            if (el.ValueKind != JsonValueKind.String)
+                continue;
+            var s = el.GetString();
+            if (!string.IsNullOrWhiteSpace(s))
+                list.Add(s.Trim());
+        }
+        return list.Count == 0 ? null : list;
+    }
+
+    private async Task<IReadOnlyList<ReplyQuoteDto>?> BuildReplyQuotesAsync(
+        ChatThreadRow thread,
+        JsonElement requestPayload,
+        CancellationToken cancellationToken)
+    {
+        var ids = ReadReplyToIds(requestPayload);
+        if (ids is null || ids.Count == 0)
+            return null;
+
+        var list = new List<ReplyQuoteDto>();
+        foreach (var id in ids.Distinct(StringComparer.Ordinal))
+        {
+            var row = await db.ChatMessages.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    m => m.Id == id && m.ThreadId == thread.Id && m.DeletedAtUtc == null,
+                    cancellationToken);
+            if (row is null)
+                continue;
+            var author = await GetParticipantAuthorLabelAsync(thread, row.SenderUserId, cancellationToken);
+            var preview = PreviewFromStoredPayload(row.PayloadJson);
+            list.Add(new ReplyQuoteDto
+            {
+                MessageId = row.Id,
+                Author = author,
+                Preview = preview,
+                AtUtc = row.CreatedAtUtc,
+            });
+        }
+
+        return list.Count == 0 ? null : list;
+    }
+
+    private async Task<string> GetParticipantAuthorLabelAsync(
+        ChatThreadRow thread,
+        string senderUserId,
+        CancellationToken cancellationToken)
+    {
+        if (senderUserId == thread.BuyerUserId)
+        {
+            var acc = await db.UserAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == senderUserId, cancellationToken);
+            return string.IsNullOrWhiteSpace(acc?.DisplayName)
+                ? "Comprador"
+                : acc!.DisplayName.Trim();
+        }
+
+        if (senderUserId == thread.SellerUserId)
+        {
+            var store = await db.Stores.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == thread.StoreId, cancellationToken);
+            return string.IsNullOrWhiteSpace(store?.Name)
+                ? "Tienda"
+                : store!.Name.Trim();
+        }
+
+        return "Participante";
+    }
+
+    private async Task<ChatMessageDto> InsertChatMessageAsync(
+        ChatThreadRow thread,
+        string senderUserId,
+        object payloadObj,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (thread.FirstMessageSentAtUtc is null)
+            thread.FirstMessageSentAtUtc = now;
+
+        var msgId = "cmg_" + Guid.NewGuid().ToString("N")[..16];
+        var json = JsonSerializer.Serialize(payloadObj, JsonOpts);
+        var row = new ChatMessageRow
+        {
+            Id = msgId,
+            ThreadId = thread.Id,
+            SenderUserId = senderUserId,
+            PayloadJson = json,
+            Status = ChatMessageStatus.Sent,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+        };
+        db.ChatMessages.Add(row);
+
+        var recipientId = senderUserId == thread.BuyerUserId ? thread.SellerUserId : thread.BuyerUserId;
+        var preview = PreviewFromStoredPayload(json);
+        await NotifyRecipientAsync(recipientId, thread, row, preview, senderUserId, cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
+        var senderLabel = await GetParticipantAuthorLabelAsync(thread, senderUserId, cancellationToken);
+        var dto = MapMessage(row, senderLabel);
+        await HubSendToThreadParticipantsAsync(
+            thread,
+            "messageCreated",
+            new { message = dto },
+            cancellationToken);
+        return dto;
     }
 
     public async Task<ChatMessageDto?> PostMessageAsync(
@@ -252,16 +468,37 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
 
         if (payload.ValueKind != JsonValueKind.Object
             || !payload.TryGetProperty("type", out var typeEl)
-            || typeEl.GetString() != "text")
+            || typeEl.ValueKind != JsonValueKind.String)
             return null;
 
+        var type = typeEl.GetString();
+        if (string.IsNullOrEmpty(type))
+            return null;
+
+        if (senderUserId != t.BuyerUserId && senderUserId != t.SellerUserId)
+            return null;
+
+        return type switch
+        {
+            "text" => await PostTextChatMessageAsync(senderUserId, t, payload, cancellationToken),
+            "audio" => await PostAudioChatMessageAsync(senderUserId, t, payload, cancellationToken),
+            "image" => await PostImageChatMessageAsync(senderUserId, t, payload, cancellationToken),
+            "doc" => await PostSingleDocChatMessageAsync(senderUserId, t, payload, cancellationToken),
+            "docs" => await PostDocsBundleChatMessageAsync(senderUserId, t, payload, cancellationToken),
+            _ => null,
+        };
+    }
+
+    private async Task<ChatMessageDto?> PostTextChatMessageAsync(
+        string senderUserId,
+        ChatThreadRow t,
+        JsonElement payload,
+        CancellationToken cancellationToken)
+    {
         if (!payload.TryGetProperty("text", out var textEl))
             return null;
         var text = (textEl.GetString() ?? "").Trim();
         if (text.Length == 0 || text.Length > 12_000)
-            return null;
-
-        if (senderUserId != t.BuyerUserId && senderUserId != t.SellerUserId)
             return null;
 
         string? offerQaId = null;
@@ -269,50 +506,185 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         {
             var oqs = oqEl.GetString();
             if (!string.IsNullOrWhiteSpace(oqs))
-                offerQaId = oqs.Trim();
+                offerQaId = oqs!.Trim();
         }
 
-        var now = DateTimeOffset.UtcNow;
-        var wasFirst = t.FirstMessageSentAtUtc is null;
-        if (wasFirst)
-            t.FirstMessageSentAtUtc = now;
-
-        var msgId = "cmg_" + Guid.NewGuid().ToString("N")[..16];
+        var quotes = await BuildReplyQuotesAsync(t, payload, cancellationToken);
         var payloadObj = new ChatTextPayload
         {
             Text = text,
             OfferQaId = offerQaId,
-            ReplyQuotes = null,
+            ReplyQuotes = quotes,
         };
+        return await InsertChatMessageAsync(t, senderUserId, payloadObj, cancellationToken);
+    }
 
-        var row = new ChatMessageRow
+    private async Task<ChatMessageDto?> PostAudioChatMessageAsync(
+        string senderUserId,
+        ChatThreadRow t,
+        JsonElement payload,
+        CancellationToken cancellationToken)
+    {
+        if (!payload.TryGetProperty("url", out var urlEl) || urlEl.ValueKind != JsonValueKind.String)
+            return null;
+        var url = urlEl.GetString() ?? "";
+        if (!IsAllowedPersistedMediaUrl(url))
+            return null;
+
+        if (!payload.TryGetProperty("seconds", out var secEl))
+            return null;
+        var seconds = secEl.TryGetInt32(out var s) ? s : 0;
+        if (seconds is < 1 or > 3600)
+            return null;
+
+        var quotes = await BuildReplyQuotesAsync(t, payload, cancellationToken);
+        var payloadObj = new ChatAudioPayload
         {
-            Id = msgId,
-            ThreadId = threadId,
-            SenderUserId = senderUserId,
-            PayloadJson = JsonSerializer.Serialize(payloadObj, JsonOpts),
-            Status = ChatMessageStatus.Sent,
-            CreatedAtUtc = now,
-            UpdatedAtUtc = now,
+            Url = url,
+            Seconds = seconds,
+            ReplyQuotes = quotes,
         };
-        db.ChatMessages.Add(row);
+        return await InsertChatMessageAsync(t, senderUserId, payloadObj, cancellationToken);
+    }
 
-        var recipientId = senderUserId == t.BuyerUserId ? t.SellerUserId : t.BuyerUserId;
-        await NotifyRecipientAsync(
-            recipientId,
-            t,
-            row,
-            text,
-            senderUserId,
-            cancellationToken);
+    private async Task<ChatMessageDto?> PostImageChatMessageAsync(
+        string senderUserId,
+        ChatThreadRow t,
+        JsonElement payload,
+        CancellationToken cancellationToken)
+    {
+        ChatImagePayload parsed;
+        try
+        {
+            parsed = JsonSerializer.Deserialize<ChatImagePayload>(payload.GetRawText(), JsonOpts)
+                     ?? throw new JsonException();
+        }
+        catch
+        {
+            return null;
+        }
 
-        await db.SaveChangesAsync(cancellationToken);
-        var dto = MapMessage(row);
-        await hub.Clients.Group($"thread:{threadId}").SendAsync(
-            "messageCreated",
-            new { message = dto },
-            cancellationToken);
-        return dto;
+        if (parsed.Images.Count == 0)
+            return null;
+
+        foreach (var img in parsed.Images)
+        {
+            if (!IsAllowedPersistedMediaUrl(img.Url))
+                return null;
+        }
+
+        if (parsed.EmbeddedAudio is not null)
+        {
+            if (!IsAllowedPersistedMediaUrl(parsed.EmbeddedAudio.Url))
+                return null;
+            if (parsed.EmbeddedAudio.Seconds is < 1 or > 3600)
+                return null;
+        }
+
+        if (parsed.Caption is { Length: > 4000 })
+            return null;
+
+        var quotes = await BuildReplyQuotesAsync(t, payload, cancellationToken);
+        var payloadObj = new ChatImagePayload
+        {
+            Images = parsed.Images,
+            Caption = parsed.Caption,
+            EmbeddedAudio = parsed.EmbeddedAudio,
+            ReplyQuotes = quotes,
+        };
+        return await InsertChatMessageAsync(t, senderUserId, payloadObj, cancellationToken);
+    }
+
+    private async Task<ChatMessageDto?> PostSingleDocChatMessageAsync(
+        string senderUserId,
+        ChatThreadRow t,
+        JsonElement payload,
+        CancellationToken cancellationToken)
+    {
+        ChatDocPayload parsed;
+        try
+        {
+            parsed = JsonSerializer.Deserialize<ChatDocPayload>(payload.GetRawText(), JsonOpts)
+                     ?? throw new JsonException();
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(parsed.Name) || parsed.Name.Length > 500)
+            return null;
+
+        if (parsed.Url is not null && !IsAllowedPersistedMediaUrl(parsed.Url))
+            return null;
+
+        if (parsed.Kind is not ("pdf" or "doc" or "other"))
+            return null;
+
+        if (parsed.Caption is { Length: > 4000 })
+            return null;
+
+        var quotes = await BuildReplyQuotesAsync(t, payload, cancellationToken);
+        var payloadObj = new ChatDocPayload
+        {
+            Name = parsed.Name.Trim(),
+            Size = parsed.Size.Trim(),
+            Kind = parsed.Kind,
+            Url = parsed.Url,
+            Caption = parsed.Caption,
+            ReplyQuotes = quotes,
+        };
+        return await InsertChatMessageAsync(t, senderUserId, payloadObj, cancellationToken);
+    }
+
+    private async Task<ChatMessageDto?> PostDocsBundleChatMessageAsync(
+        string senderUserId,
+        ChatThreadRow t,
+        JsonElement payload,
+        CancellationToken cancellationToken)
+    {
+        ChatDocsBundlePayload parsed;
+        try
+        {
+            parsed = JsonSerializer.Deserialize<ChatDocsBundlePayload>(payload.GetRawText(), JsonOpts)
+                     ?? throw new JsonException();
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (parsed.Documents.Count == 0)
+            return null;
+
+        foreach (var d in parsed.Documents)
+        {
+            if (string.IsNullOrWhiteSpace(d.Name))
+                return null;
+            if (d.Url is not null && !IsAllowedPersistedMediaUrl(d.Url))
+                return null;
+        }
+
+        if (parsed.EmbeddedAudio is not null)
+        {
+            if (!IsAllowedPersistedMediaUrl(parsed.EmbeddedAudio.Url))
+                return null;
+            if (parsed.EmbeddedAudio.Seconds is < 1 or > 3600)
+                return null;
+        }
+
+        if (parsed.Caption is { Length: > 4000 })
+            return null;
+
+        var quotes = await BuildReplyQuotesAsync(t, payload, cancellationToken);
+        var payloadObj = new ChatDocsBundlePayload
+        {
+            Documents = parsed.Documents,
+            Caption = parsed.Caption,
+            EmbeddedAudio = parsed.EmbeddedAudio,
+            ReplyQuotes = quotes,
+        };
+        return await InsertChatMessageAsync(t, senderUserId, payloadObj, cancellationToken);
     }
 
     public async Task<ChatMessageDto?> UpdateMessageStatusAsync(
@@ -362,7 +734,8 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
 
         await db.SaveChangesAsync(cancellationToken);
         var dto = MapMessage(m);
-        await hub.Clients.Group($"thread:{threadId}").SendAsync(
+        await HubSendToThreadParticipantsAsync(
+            t,
             "messageStatusChanged",
             new
             {
@@ -498,16 +871,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         if (oid.Length < 4)
             return;
 
-        var product = await db.StoreProducts.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
-        var qaJson = product?.OfferQaJson;
-        if (qaJson is null)
-        {
-            var service = await db.StoreServices.AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
-            qaJson = service?.OfferQaJson;
-        }
-
+        var qaJson = await GetOfferQaJsonForOfferAsync(oid, cancellationToken);
         if (string.IsNullOrWhiteSpace(qaJson))
             return;
 
@@ -515,50 +879,17 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         if (root is not JsonArray arr)
             return;
 
-        var threads = await db.ChatThreads
-            .Where(x => x.OfferId == oid && x.DeletedAtUtc == null)
-            .ToListAsync(cancellationToken);
+        var threads = await GetActiveThreadsForOfferAsync(oid, cancellationToken);
         if (threads.Count == 0)
             return;
 
-        var sellerMsgsCache = new Dictionary<string, List<ChatMessageRow>>(StringComparer.Ordinal);
-        foreach (var th in threads)
-        {
-            var list = await db.ChatMessages.AsNoTracking()
-                .Where(m =>
-                    m.ThreadId == th.Id
-                    && m.SenderUserId == th.SellerUserId
-                    && m.DeletedAtUtc == null)
-                .ToListAsync(cancellationToken);
-            sellerMsgsCache[th.Id] = list;
-        }
-
+        var sellerMsgsCache = await BuildSellerOfferQaMessagesCacheAsync(threads, cancellationToken);
         var now = DateTimeOffset.UtcNow;
         var hubRows = new List<ChatMessageRow>();
 
         foreach (var node in arr)
         {
-            if (node is not JsonObject o)
-                continue;
-            if (!o.TryGetPropertyValue("id", out var idNode) || idNode is not JsonValue idVal)
-                continue;
-            var qaId = idVal.GetValue<string>()?.Trim();
-            if (string.IsNullOrEmpty(qaId))
-                continue;
-
-            if (!o.TryGetPropertyValue("answer", out var ansNode) || ansNode is not JsonValue ansVal)
-                continue;
-            var answer = (ansVal.GetValue<string>() ?? "").Trim();
-            if (answer.Length == 0)
-                continue;
-
-            if (!o.TryGetPropertyValue("askedBy", out var abNode) || abNode is not JsonObject askedByObj)
-                continue;
-            if (!askedByObj.TryGetPropertyValue("id", out var bidNode) || bidNode is not JsonValue bidVal)
-                continue;
-            var buyerId = bidVal.GetValue<string>()?.Trim();
-            if (string.IsNullOrEmpty(buyerId)
-                || buyerId.Equals("guest", StringComparison.OrdinalIgnoreCase))
+            if (node is not JsonObject o || !TryParseOfferQaSyncEntry(o, out var qaId, out var answer, out var buyerId))
                 continue;
 
             var thread = threads.FirstOrDefault(t => t.BuyerUserId == buyerId);
@@ -568,38 +899,10 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             if (!sellerMsgsCache.TryGetValue(thread.Id, out var sellerMsgs))
                 continue;
 
-            var already = sellerMsgs.Any(m =>
-            {
-                var pl = JsonSerializer.Deserialize<ChatTextPayload>(m.PayloadJson, JsonOpts);
-                return pl?.OfferQaId == qaId;
-            });
-            if (already)
+            if (SellerThreadAlreadyHasOfferQaAnswer(sellerMsgs, qaId))
                 continue;
 
-            var msgId = "cmg_" + Guid.NewGuid().ToString("N")[..16];
-            var payloadObj = new ChatTextPayload
-            {
-                Text = answer,
-                OfferQaId = qaId,
-                ReplyQuotes = null,
-            };
-
-            if (thread.FirstMessageSentAtUtc is null)
-                thread.FirstMessageSentAtUtc = now;
-
-            var row = new ChatMessageRow
-            {
-                Id = msgId,
-                ThreadId = thread.Id,
-                SenderUserId = thread.SellerUserId,
-                PayloadJson = JsonSerializer.Serialize(payloadObj, JsonOpts),
-                Status = ChatMessageStatus.Sent,
-                CreatedAtUtc = now,
-                UpdatedAtUtc = now,
-            };
-            db.ChatMessages.Add(row);
-            sellerMsgs.Add(row);
-            hubRows.Add(row);
+            var row = CreateAndStageOfferQaAnswerMessageRow(thread, qaId, answer, now, sellerMsgs, hubRows);
 
             await NotifyRecipientAsync(
                 thread.BuyerUserId,
@@ -614,11 +917,136 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             return;
 
         await db.SaveChangesAsync(cancellationToken);
+        await BroadcastNewOfferQaMessagesToHubAsync(hubRows, threads, cancellationToken);
+    }
 
+    private async Task<string?> GetOfferQaJsonForOfferAsync(string offerId, CancellationToken cancellationToken)
+    {
+        var product = await db.StoreProducts.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(product?.OfferQaJson))
+            return product!.OfferQaJson;
+
+        var service = await db.StoreServices.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
+        return string.IsNullOrWhiteSpace(service?.OfferQaJson) ? null : service!.OfferQaJson;
+    }
+
+    private async Task<List<ChatThreadRow>> GetActiveThreadsForOfferAsync(
+        string offerId,
+        CancellationToken cancellationToken) =>
+        await db.ChatThreads
+            .Where(x => x.OfferId == offerId && x.DeletedAtUtc == null)
+            .ToListAsync(cancellationToken);
+
+    private async Task<Dictionary<string, List<ChatMessageRow>>> BuildSellerOfferQaMessagesCacheAsync(
+        List<ChatThreadRow> threads,
+        CancellationToken cancellationToken)
+    {
+        var sellerMsgsCache = new Dictionary<string, List<ChatMessageRow>>(StringComparer.Ordinal);
+        foreach (var th in threads)
+        {
+            var list = await db.ChatMessages.AsNoTracking()
+                .Where(m =>
+                    m.ThreadId == th.Id
+                    && m.SenderUserId == th.SellerUserId
+                    && m.DeletedAtUtc == null)
+                .ToListAsync(cancellationToken);
+            sellerMsgsCache[th.Id] = list;
+        }
+
+        return sellerMsgsCache;
+    }
+
+    private static bool TryParseOfferQaSyncEntry(
+        JsonObject o,
+        out string qaId,
+        out string answer,
+        out string buyerId)
+    {
+        qaId = "";
+        answer = "";
+        buyerId = "";
+
+        if (!o.TryGetPropertyValue("id", out var idNode) || idNode is not JsonValue idVal)
+            return false;
+        qaId = idVal.GetValue<string>()?.Trim() ?? "";
+        if (string.IsNullOrEmpty(qaId))
+            return false;
+
+        if (!o.TryGetPropertyValue("answer", out var ansNode) || ansNode is not JsonValue ansVal)
+            return false;
+        answer = (ansVal.GetValue<string>() ?? "").Trim();
+        if (answer.Length == 0)
+            return false;
+
+        if (!o.TryGetPropertyValue("askedBy", out var abNode) || abNode is not JsonObject askedByObj)
+            return false;
+        if (!askedByObj.TryGetPropertyValue("id", out var bidNode) || bidNode is not JsonValue bidVal)
+            return false;
+        buyerId = bidVal.GetValue<string>()?.Trim() ?? "";
+        if (string.IsNullOrEmpty(buyerId) || buyerId.Equals("guest", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return true;
+    }
+
+    private bool SellerThreadAlreadyHasOfferQaAnswer(IReadOnlyList<ChatMessageRow> sellerMsgs, string qaId) =>
+        sellerMsgs.Any(m =>
+        {
+            var pl = JsonSerializer.Deserialize<ChatTextPayload>(m.PayloadJson, JsonOpts);
+            return pl?.OfferQaId == qaId;
+        });
+
+    private ChatMessageRow CreateAndStageOfferQaAnswerMessageRow(
+        ChatThreadRow thread,
+        string qaId,
+        string answer,
+        DateTimeOffset now,
+        List<ChatMessageRow> sellerMsgs,
+        List<ChatMessageRow> hubRows)
+    {
+        var msgId = "cmg_" + Guid.NewGuid().ToString("N")[..16];
+        var payloadObj = new ChatTextPayload
+        {
+            Text = answer,
+            OfferQaId = qaId,
+            ReplyQuotes = null,
+        };
+
+        if (thread.FirstMessageSentAtUtc is null)
+            thread.FirstMessageSentAtUtc = now;
+
+        var row = new ChatMessageRow
+        {
+            Id = msgId,
+            ThreadId = thread.Id,
+            SenderUserId = thread.SellerUserId,
+            PayloadJson = JsonSerializer.Serialize(payloadObj, JsonOpts),
+            Status = ChatMessageStatus.Sent,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+        };
+        db.ChatMessages.Add(row);
+        sellerMsgs.Add(row);
+        hubRows.Add(row);
+        return row;
+    }
+
+    private async Task BroadcastNewOfferQaMessagesToHubAsync(
+        IReadOnlyList<ChatMessageRow> hubRows,
+        IReadOnlyList<ChatThreadRow> threads,
+        CancellationToken cancellationToken)
+    {
+        var byId = threads.ToDictionary(x => x.Id, StringComparer.Ordinal);
         foreach (var row in hubRows)
         {
-            var dto = MapMessage(row);
-            await hub.Clients.Group($"thread:{row.ThreadId}").SendAsync(
+            if (!byId.TryGetValue(row.ThreadId, out var thread))
+                continue;
+            var senderLabel = await GetParticipantAuthorLabelAsync(thread, row.SenderUserId, cancellationToken);
+            var dto = MapMessage(row, senderLabel);
+            await HubSendToThreadParticipantsAsync(
+                thread,
                 "messageCreated",
                 new { message = dto },
                 cancellationToken);

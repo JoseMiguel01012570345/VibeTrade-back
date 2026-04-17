@@ -10,6 +10,11 @@ using VibeTrade.Backend.Data;
 
 namespace VibeTrade.Backend.Features.Search;
 
+/// <summary>
+/// Escritura al índice de catálogo en Elasticsearch.
+/// Si un índice previo tiene campos con tipo distinto (p.ej. <c>vtCatalogSk</c> como <c>text</c>),
+/// ES no permite <c>PUT _mapping</c> para corregirlo: hay que borrar el índice o usar otro <see cref="ElasticsearchStoreSearchOptions.IndexName"/>.
+/// </summary>
 public sealed class ElasticsearchStoreSearchIndexWriter(
     AppDbContext db,
     IOptions<ElasticsearchStoreSearchOptions> options,
@@ -96,6 +101,46 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         }
     }
 
+    /// <summary>
+    /// ES rechaza cambiar el tipo de un campo existente (p.ej. text → keyword).
+    /// </summary>
+    private static bool IsImmutableElasticsearchMappingConflict(string? debugInformation)
+    {
+        if (string.IsNullOrEmpty(debugInformation))
+            return false;
+        return debugInformation.Contains("cannot be changed from type", StringComparison.OrdinalIgnoreCase)
+            || (debugInformation.Contains("illegal_argument_exception", StringComparison.OrdinalIgnoreCase)
+                && debugInformation.Contains("mapper", StringComparison.OrdinalIgnoreCase)
+                && debugInformation.Contains("cannot be changed", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void LogPutMappingOutcome(
+        string fieldForLog,
+        bool isValidResponse,
+        string? debugInformation,
+        CancellationToken cancellationToken)
+    {
+        _ = cancellationToken;
+        if (isValidResponse)
+            return;
+
+        if (IsImmutableElasticsearchMappingConflict(debugInformation))
+        {
+            logger.LogInformation(
+                "Elasticsearch: el índice {Index} ya tiene el campo {Field} con un tipo distinto al esperado; no se puede corregir con PUT mapping. " +
+                "Eliminá ese índice en el cluster (DELETE con el mismo nombre) y reiniciá la app, o usá otro valor en la opción de configuración IndexName y reindexá el catálogo.",
+                _opt.IndexName,
+                fieldForLog);
+            return;
+        }
+
+        logger.LogWarning(
+            "Elasticsearch: no se pudo registrar el mapping de «{Field}» en «{Index}»: {Debug}",
+            fieldForLog,
+            _opt.IndexName,
+            debugInformation ?? "(sin detalle)");
+    }
+
     private async Task PutVtCatalogSkKeywordMappingAsync(CancellationToken cancellationToken)
     {
         if (_client is null)
@@ -109,14 +154,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
             },
         }, cancellationToken);
 
-        if (!put.IsValidResponse)
-        {
-            logger.LogWarning(
-                "Elasticsearch: no se pudo registrar {Field} como keyword en {Index}: {Debug}",
-                CatalogSearchDocument.ElasticsearchVtCatalogSkField,
-                _opt.IndexName,
-                put.DebugInformation);
-        }
+        LogPutMappingOutcome(CatalogSearchDocument.ElasticsearchVtCatalogSkField, put.IsValidResponse, put.DebugInformation, cancellationToken);
     }
 
     private async Task PutNameSemanticVectorMappingAsync(CancellationToken cancellationToken)
@@ -142,13 +180,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
             },
         }, cancellationToken);
 
-        if (!put.IsValidResponse)
-        {
-            logger.LogWarning(
-                "Elasticsearch: no se pudo registrar mapping del vector en {Index}: {Debug}",
-                _opt.IndexName,
-                put.DebugInformation);
-        }
+        LogPutMappingOutcome("nameSemanticVector", put.IsValidResponse, put.DebugInformation, cancellationToken);
     }
 
     private async Task PutVtGeoPointMappingAsync(CancellationToken cancellationToken)
@@ -164,14 +196,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
             },
         }, cancellationToken);
 
-        if (!put.IsValidResponse)
-        {
-            logger.LogWarning(
-                "Elasticsearch: no se pudo registrar {Field} como geo_point en {Index}: {Debug}",
-                CatalogSearchDocument.ElasticsearchVtGeoPointField,
-                _opt.IndexName,
-                put.DebugInformation);
-        }
+        LogPutMappingOutcome(CatalogSearchDocument.ElasticsearchVtGeoPointField, put.IsValidResponse, put.DebugInformation, cancellationToken);
     }
 
     private async Task TryEnsureCatalogMappingAsync(CancellationToken cancellationToken)

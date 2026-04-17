@@ -1,4 +1,5 @@
 using System.Text.Json;
+using JsonElement = System.Text.Json.JsonElement;
 using VibeTrade.Backend.Data;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -12,16 +13,18 @@ public sealed record ChatThreadDto(
     string InitiatorUserId,
     DateTimeOffset? FirstMessageSentAtUtc,
     DateTimeOffset CreatedAtUtc,
-    bool PurchaseMode);
+    bool PurchaseMode,
+    string? BuyerDisplayName = null);
 
 public sealed record ChatMessageDto(
     string Id,
     string ThreadId,
     string SenderUserId,
-    ChatTextPayload Payload,
+    JsonElement Payload,
     ChatMessageStatus Status,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset? UpdatedAtUtc);
+    DateTimeOffset? UpdatedAtUtc,
+    string? SenderDisplayLabel = null);
 
 public sealed record ChatThreadSummaryDto(
     string Id,

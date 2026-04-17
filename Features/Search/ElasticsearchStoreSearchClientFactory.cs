@@ -11,7 +11,8 @@ internal static class ElasticsearchStoreSearchClientFactory
         var uri = new Uri(opt.Uri.TrimEnd('/'));
         var settings = new ElasticsearchClientSettings(uri)
             .DefaultIndex(opt.IndexName)
-            // Captura request/response en DebugInformation (útil para bulk errores)
+            // Evita colgarse indefinidamente si el nodo no responde (SYN/HTTP sin límite).
+            .RequestTimeout(TimeSpan.FromSeconds(30))
             .DisableDirectStreaming()
             .PrettyJson();
         return new ElasticsearchClient(settings);

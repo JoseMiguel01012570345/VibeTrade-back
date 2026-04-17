@@ -108,37 +108,6 @@ public sealed class BootstrapService(
         return JsonDocument.Parse(root.ToJsonString(JsonOptions));
     }
 
-    private static string ChatStatusToApiString(ChatMessageStatus s) => s switch
-    {
-        ChatMessageStatus.Pending => "pending",
-        ChatMessageStatus.Sent => "sent",
-        ChatMessageStatus.Delivered => "delivered",
-        ChatMessageStatus.Read => "read",
-        ChatMessageStatus.Error => "error",
-        _ => "sent",
-    };
-
-    private static JsonObject ChatMessageDtoToMarketMessage(ChatMessageDto m, string viewerUserId)
-    {
-        var from = m.SenderUserId == viewerUserId ? "me" : "other";
-        var p = m.Payload;
-        var at = m.CreatedAtUtc.ToUnixTimeMilliseconds();
-        var read = from == "me" ? m.Status == ChatMessageStatus.Read : true;
-        var obj = new JsonObject
-        {
-            ["id"] = m.Id,
-            ["from"] = from,
-            ["type"] = "text",
-            ["text"] = p.Text ?? "",
-            ["at"] = at,
-            ["read"] = read,
-            ["chatStatus"] = ChatStatusToApiString(m.Status),
-        };
-        if (!string.IsNullOrEmpty(p.OfferQaId))
-            obj["offerQaId"] = p.OfferQaId!;
-        return obj;
-    }
-
     /// <summary>
     /// Añade hilos <c>cth_*</c> del usuario (comprador o vendedor) con tienda/oferta desde tablas relacionales.
     /// </summary>
@@ -190,7 +159,7 @@ public sealed class BootstrapService(
             var msgs = await chat.ListMessagesAsync(viewerUserId, summ.Id, cancellationToken);
             var messagesArr = new JsonArray();
             foreach (var m in msgs)
-                messagesArr.Add(ChatMessageDtoToMarketMessage(m, viewerUserId));
+                messagesArr.Add(ChatMarketMessageJsonMapper.ToMarketMessage(m, viewerUserId));
 
             threadsOut[summ.Id] = new JsonObject
             {

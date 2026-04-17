@@ -20,14 +20,20 @@ public sealed record ReplyQuoteDto
 {
     public required string MessageId { get; init; }
 
-    /// <summary>"me" | "other" | "system".</summary>
-    public required string From { get; init; }
+    /// <summary>Etiqueta mostrada junto a la cita (nombre tienda / comprador).</summary>
+    public required string Author { get; init; }
 
-    /// <summary>Plain-text preview of the quoted message.</summary>
-    public required string Text { get; init; }
+    /// <summary>Vista previa en texto del mensaje citado.</summary>
+    public required string Preview { get; init; }
 
     /// <summary>UTC timestamp of the original message.</summary>
     public required DateTimeOffset AtUtc { get; init; }
+}
+
+public sealed record ChatEmbeddedAudioDto
+{
+    public required string Url { get; init; }
+    public required int Seconds { get; init; }
 }
 
 public sealed record ChatImageDto
@@ -64,7 +70,7 @@ public sealed record ChatImagePayload : ChatMessagePayload
     public string? Caption { get; init; }
 
     /// <summary>Optional short audio comment embedded in the image message.</summary>
-    public (string Url, int Seconds)? EmbeddedAudio { get; init; }
+    public ChatEmbeddedAudioDto? EmbeddedAudio { get; init; }
 
     public IReadOnlyList<ReplyQuoteDto>? ReplyQuotes { get; init; }
 }
@@ -103,7 +109,7 @@ public sealed record ChatDocsBundlePayload : ChatMessagePayload
     public string? Caption { get; init; }
 
     /// <summary>Optional short audio comment embedded in the bundle message.</summary>
-    public (string Url, int Seconds)? EmbeddedAudio { get; init; }
+    public ChatEmbeddedAudioDto? EmbeddedAudio { get; init; }
 
     public IReadOnlyList<ReplyQuoteDto>? ReplyQuotes { get; init; }
 }
