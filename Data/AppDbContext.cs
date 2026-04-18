@@ -235,6 +235,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.MessagePreview).HasMaxLength(2000);
             e.Property(x => x.AuthorStoreName).HasMaxLength(512);
             e.Property(x => x.SenderUserId).HasMaxLength(64);
+            e.Property(x => x.Kind).HasMaxLength(32);
             e.Property(x => x.CreatedAtUtc);
             e.Property(x => x.ReadAtUtc);
             e.HasIndex(x => x.RecipientUserId);

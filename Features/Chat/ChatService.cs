@@ -78,12 +78,87 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             SenderUserId = senderUserId,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             ReadAtUtc = null,
+            Kind = "offer_comment",
         });
         await db.SaveChangesAsync(cancellationToken);
 
         await hub.Clients.Group(HubUserGroup(rid)).SendAsync(
             "notificationCreated",
             new { kind = "offer_comment", offerId },
+            cancellationToken);
+    }
+
+    public async Task NotifyOfferLikeAsync(
+        string sellerUserId,
+        string offerId,
+        string likerLabel,
+        int likerTrust,
+        string likerSenderUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sellerUserId))
+            return;
+
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        var rid = sellerUserId.Trim();
+        var oid = (offerId ?? "").Trim();
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = rid,
+            ThreadId = null,
+            MessageId = null,
+            OfferId = oid,
+            MessagePreview = "Le dio me gusta a tu oferta.",
+            AuthorStoreName = likerLabel,
+            AuthorTrustScore = likerTrust,
+            SenderUserId = likerSenderUserId,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            ReadAtUtc = null,
+            Kind = "offer_like",
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        await hub.Clients.Group(HubUserGroup(rid)).SendAsync(
+            "notificationCreated",
+            new { kind = "offer_like", offerId = oid },
+            cancellationToken);
+    }
+
+    public async Task NotifyQaCommentLikeAsync(
+        string commentAuthorUserId,
+        string offerId,
+        string likerLabel,
+        int likerTrust,
+        string likerSenderUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(commentAuthorUserId))
+            return;
+
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        var rid = commentAuthorUserId.Trim();
+        var oid = (offerId ?? "").Trim();
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = rid,
+            ThreadId = null,
+            MessageId = null,
+            OfferId = oid,
+            MessagePreview = "Le dio me gusta a tu comentario.",
+            AuthorStoreName = likerLabel,
+            AuthorTrustScore = likerTrust,
+            SenderUserId = likerSenderUserId,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            ReadAtUtc = null,
+            Kind = "qa_comment_like",
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        await hub.Clients.Group(HubUserGroup(rid)).SendAsync(
+            "notificationCreated",
+            new { kind = "qa_comment_like", offerId = oid },
             cancellationToken);
     }
 
@@ -890,7 +965,8 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             n.AuthorTrustScore,
             n.SenderUserId,
             n.CreatedAtUtc,
-            n.ReadAtUtc)).ToList();
+            n.ReadAtUtc,
+            n.Kind)).ToList();
     }
 
     public async Task MarkNotificationsReadAsync(

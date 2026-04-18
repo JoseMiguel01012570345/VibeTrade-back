@@ -31,4 +31,9 @@ public sealed class ChatNotificationRow
 
     /// <summary>UTC: lectura.</summary>
     public DateTimeOffset? ReadAtUtc { get; set; }
+
+    /// <summary>
+    /// <c>offer_comment</c>, <c>offer_like</c>, <c>qa_comment_like</c>; nulo en avisos de chat por hilo.
+    /// </summary>
+    public string? Kind { get; set; }
 }

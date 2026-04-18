@@ -45,7 +45,8 @@ public sealed record ChatNotificationDto(
     int AuthorTrustScore,
     string SenderUserId,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset? ReadAtUtc);
+    DateTimeOffset? ReadAtUtc,
+    string? Kind = null);
 
 public interface IChatService
 {
@@ -63,6 +64,24 @@ public interface IChatService
         string authorLabel,
         int authorTrust,
         string senderUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Me gusta nuevo en la oferta del vendedor (no al quitar like).</summary>
+    Task NotifyOfferLikeAsync(
+        string sellerUserId,
+        string offerId,
+        string likerLabel,
+        int likerTrust,
+        string likerSenderUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Me gusta nuevo en un comentario QA cuyo autor tiene cuenta.</summary>
+    Task NotifyQaCommentLikeAsync(
+        string commentAuthorUserId,
+        string offerId,
+        string likerLabel,
+        int likerTrust,
+        string likerSenderUserId,
         CancellationToken cancellationToken = default);
 
     /// <summary>SignalR a clientes suscritos al grupo <c>offer:{offerId}</c> (ficha abierta).</summary>

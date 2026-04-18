@@ -426,6 +426,18 @@ public sealed class MarketController(
         if (!await offerEngagement.OfferExistsAsync(offerId, cancellationToken))
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
         var (liked, likeCount) = await offerEngagement.ToggleOfferLikeAsync(offerId, likerKey, cancellationToken);
+        if (liked)
+        {
+            var sellerId = await chat.GetSellerUserIdForOfferAsync(offerId, cancellationToken);
+            if (sellerId is not null)
+            {
+                var (likerSenderId, likerLabel, likerTrust) =
+                    await ResolveEngagementLikerDisplayAsync(likerKey, cancellationToken);
+                if (!string.Equals(sellerId, likerSenderId, StringComparison.Ordinal))
+                    await chat.NotifyOfferLikeAsync(sellerId, offerId, likerLabel, likerTrust, likerSenderId, cancellationToken);
+            }
+        }
+
         return Ok(new { liked, likeCount });
     }
 
@@ -451,7 +463,40 @@ public sealed class MarketController(
             qaCommentId,
             likerKey,
             cancellationToken);
+        if (liked)
+        {
+            var authorId = await catalog.TryGetOfferCommentAuthorIdAsync(offerId, qaCommentId, cancellationToken);
+            var aid = (authorId ?? "").Trim();
+            if (aid.Length > 0 && !string.Equals(aid, "guest", StringComparison.OrdinalIgnoreCase))
+            {
+                var authorProfile = await userAccountSync.GetProfileSnapshotByUserIdAsync(aid, cancellationToken);
+                if (authorProfile is not null)
+                {
+                    var (likerSenderId, likerLabel, likerTrust) =
+                        await ResolveEngagementLikerDisplayAsync(likerKey, cancellationToken);
+                    if (!string.Equals(aid, likerSenderId, StringComparison.Ordinal))
+                        await chat.NotifyQaCommentLikeAsync(aid, offerId, likerLabel, likerTrust, likerSenderId, cancellationToken);
+                }
+            }
+        }
+
         return Ok(new { liked, likeCount });
+    }
+
+    private async Task<(string SenderId, string Label, int Trust)> ResolveEngagementLikerDisplayAsync(
+        string likerKey,
+        CancellationToken cancellationToken)
+    {
+        if (likerKey.StartsWith("u:", StringComparison.Ordinal))
+        {
+            var uid = likerKey[2..].Trim();
+            var snap = await userAccountSync.GetProfileSnapshotByUserIdAsync(uid, cancellationToken);
+            var name = string.IsNullOrWhiteSpace(snap?.DisplayName) ? "Usuario" : snap!.DisplayName.Trim();
+            var trust = snap?.TrustScore ?? 0;
+            return (uid, name, trust);
+        }
+
+        return ("guest", "Visitante", 0);
     }
 
     private string? ResolveEngagementLikerKey(string? guestId)
