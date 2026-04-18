@@ -14,7 +14,8 @@ public sealed record ChatThreadDto(
     DateTimeOffset? FirstMessageSentAtUtc,
     DateTimeOffset CreatedAtUtc,
     bool PurchaseMode,
-    string? BuyerDisplayName = null);
+    string? BuyerDisplayName = null,
+    string? BuyerAvatarUrl = null);
 
 public sealed record ChatMessageDto(
     string Id,
@@ -33,7 +34,11 @@ public sealed record ChatThreadSummaryDto(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? LastMessageAtUtc,
     string? LastPreview,
-    bool PurchaseMode);
+    bool PurchaseMode,
+    string BuyerUserId,
+    string SellerUserId,
+    string? BuyerDisplayName = null,
+    string? BuyerAvatarUrl = null);
 
 public sealed record ChatNotificationDto(
     string Id,

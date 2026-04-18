@@ -203,7 +203,10 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         return (s.StoreId, owner2);
     }
 
-    private static ChatThreadDto MapThread(ChatThreadRow t, string? buyerDisplayName = null) => new(
+    private static ChatThreadDto MapThread(
+        ChatThreadRow t,
+        string? buyerDisplayName = null,
+        string? buyerAvatarUrl = null) => new(
         t.Id,
         t.OfferId,
         t.StoreId,
@@ -213,23 +216,32 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         t.FirstMessageSentAtUtc,
         t.CreatedAtUtc,
         t.PurchaseMode,
-        buyerDisplayName);
+        buyerDisplayName,
+        buyerAvatarUrl);
 
-    private async Task<string?> GetBuyerDisplayNameAsync(string buyerUserId, CancellationToken cancellationToken)
+    private sealed record BuyerPublicFields(string? DisplayName, string? AvatarUrl);
+
+    private async Task<BuyerPublicFields> GetBuyerPublicFieldsAsync(
+        string buyerUserId,
+        CancellationToken cancellationToken)
     {
-        var dn = await db.UserAccounts.AsNoTracking()
+        var row = await db.UserAccounts.AsNoTracking()
             .Where(u => u.Id == buyerUserId)
-            .Select(u => u.DisplayName)
+            .Select(u => new { u.DisplayName, u.AvatarUrl })
             .FirstOrDefaultAsync(cancellationToken);
-        return string.IsNullOrWhiteSpace(dn) ? null : dn.Trim();
+        if (row is null)
+            return new BuyerPublicFields(null, null);
+        var dn = string.IsNullOrWhiteSpace(row.DisplayName) ? null : row.DisplayName.Trim();
+        var av = string.IsNullOrWhiteSpace(row.AvatarUrl) ? null : row.AvatarUrl.Trim();
+        return new BuyerPublicFields(dn, av);
     }
 
     private async Task<ChatThreadDto> MapThreadWithBuyerLabelAsync(
         ChatThreadRow t,
         CancellationToken cancellationToken)
     {
-        var label = await GetBuyerDisplayNameAsync(t.BuyerUserId, cancellationToken);
-        return MapThread(t, label);
+        var f = await GetBuyerPublicFieldsAsync(t.BuyerUserId, cancellationToken);
+        return MapThread(t, f.DisplayName, f.AvatarUrl);
     }
 
     private static JsonElement PayloadJsonToElement(string payloadJson)
@@ -392,12 +404,31 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             .GroupBy(m => m.ThreadId)
             .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.CreatedAtUtc).First());
 
+        var buyerIds = threads
+            .Select(x => x.BuyerUserId)
+            .Where(static s => !string.IsNullOrWhiteSpace(s))
+            .Distinct()
+            .ToList();
+        var buyerRows = await db.UserAccounts.AsNoTracking()
+            .Where(u => buyerIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.DisplayName, u.AvatarUrl })
+            .ToListAsync(cancellationToken);
+        var buyerById = buyerRows.ToDictionary(x => x.Id);
+
         return threads.Select(t =>
         {
             lastPerThread.TryGetValue(t.Id, out var lastMsg);
             string? pv = null;
             if (lastMsg is not null)
                 pv = PreviewFromStoredPayload(lastMsg.PayloadJson);
+            string? bdn = null;
+            string? bav = null;
+            if (buyerById.TryGetValue(t.BuyerUserId, out var bu))
+            {
+                bdn = string.IsNullOrWhiteSpace(bu.DisplayName) ? null : bu.DisplayName.Trim();
+                bav = string.IsNullOrWhiteSpace(bu.AvatarUrl) ? null : bu.AvatarUrl.Trim();
+            }
+
             return new ChatThreadSummaryDto(
                 t.Id,
                 t.OfferId,
@@ -405,7 +436,11 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
                 t.CreatedAtUtc,
                 lastMsg?.CreatedAtUtc,
                 pv,
-                t.PurchaseMode);
+                t.PurchaseMode,
+                t.BuyerUserId,
+                t.SellerUserId,
+                bdn,
+                bav);
         }).ToList();
     }
 

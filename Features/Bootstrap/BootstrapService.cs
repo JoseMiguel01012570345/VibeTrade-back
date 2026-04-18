@@ -161,17 +161,24 @@ public sealed class BootstrapService(
             foreach (var m in msgs)
                 messagesArr.Add(ChatMarketMessageJsonMapper.ToMarketMessage(m, viewerUserId));
 
-            threadsOut[summ.Id] = new JsonObject
+            var thJson = new JsonObject
             {
                 ["id"] = summ.Id,
                 ["offerId"] = summ.OfferId,
                 ["storeId"] = summ.StoreId,
+                ["buyerUserId"] = summ.BuyerUserId,
+                ["sellerUserId"] = summ.SellerUserId,
                 ["store"] = storeNode,
                 ["purchaseMode"] = summ.PurchaseMode,
                 ["messages"] = messagesArr,
                 ["contracts"] = new JsonArray(),
                 ["routeSheets"] = new JsonArray(),
             };
+            if (!string.IsNullOrWhiteSpace(summ.BuyerDisplayName))
+                thJson["buyerDisplayName"] = summ.BuyerDisplayName.Trim();
+            if (!string.IsNullOrWhiteSpace(summ.BuyerAvatarUrl))
+                thJson["buyerAvatarUrl"] = summ.BuyerAvatarUrl.Trim();
+            threadsOut[summ.Id] = thJson;
         }
     }
 }
