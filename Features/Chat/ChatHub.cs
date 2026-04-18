@@ -39,6 +39,27 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     public Task DisconnectFromThread(string threadId) =>
         Groups.RemoveFromGroupAsync(Context.ConnectionId, ThreadGroup(threadId));
 
+    /// <summary>Recibe <c>offerCommentsUpdated</c> cuando alguien publica en la ficha (mismo grupo que <see cref="ChatService.BroadcastOfferCommentsUpdatedAsync"/>).</summary>
+    public async Task JoinOffer(string offerId)
+    {
+        if (!TryGetUserId(out _))
+            throw new HubException("Unauthorized");
+        var oid = (offerId ?? "").Trim();
+        if (oid.Length < 2)
+            return;
+        await Groups.AddToGroupAsync(Context.ConnectionId, OfferGroup(oid));
+    }
+
+    public Task LeaveOffer(string offerId)
+    {
+        if (!TryGetUserId(out _))
+            return Task.CompletedTask;
+        var oid = (offerId ?? "").Trim();
+        if (oid.Length < 2)
+            return Task.CompletedTask;
+        return Groups.RemoveFromGroupAsync(Context.ConnectionId, OfferGroup(oid));
+    }
+
     /// <summary>Aviso explícito «salir»: notifica al resto y luego desconecta del grupo.</summary>
     public async Task NotifyOthersUserLeftChat(string threadId)
     {
@@ -70,6 +91,8 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     }
 
     private static string ThreadGroup(string threadId) => $"thread:{threadId}";
+
+    private static string OfferGroup(string offerId) => $"offer:{offerId}";
 
     private static string UserGroup(string userId) => $"user:{userId}";
 

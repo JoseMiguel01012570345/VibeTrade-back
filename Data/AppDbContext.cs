@@ -229,6 +229,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.RecipientUserId).HasMaxLength(64);
             e.Property(x => x.ThreadId).HasMaxLength(64);
             e.Property(x => x.MessageId).HasMaxLength(64);
+            e.Property(x => x.OfferId).HasMaxLength(64);
             e.Property(x => x.MessagePreview).HasMaxLength(2000);
             e.Property(x => x.AuthorStoreName).HasMaxLength(512);
             e.Property(x => x.SenderUserId).HasMaxLength(64);
@@ -236,10 +237,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.ReadAtUtc);
             e.HasIndex(x => x.RecipientUserId);
             e.HasIndex(x => new { x.RecipientUserId, x.CreatedAtUtc });
-            e.HasOne<ChatMessageRow>()
-                .WithMany()
-                .HasForeignKey(x => x.MessageId)
-                .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.OfferId);
         });
     }
 }

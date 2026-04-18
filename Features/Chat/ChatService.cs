@@ -33,6 +33,73 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             || (t.FirstMessageSentAtUtc is not null
                 && (t.BuyerUserId == userId || t.SellerUserId == userId)));
 
+    public async Task<bool> IsUserSellerForOfferAsync(
+        string userId,
+        string offerId,
+        CancellationToken cancellationToken = default)
+    {
+        var (_, sellerUserId) = await ResolveOfferStoreAsync((offerId ?? "").Trim(), cancellationToken);
+        return sellerUserId is not null && sellerUserId == userId;
+    }
+
+    public async Task<string?> GetSellerUserIdForOfferAsync(
+        string offerId,
+        CancellationToken cancellationToken = default)
+    {
+        var (_, sellerUserId) = await ResolveOfferStoreAsync((offerId ?? "").Trim(), cancellationToken);
+        return string.IsNullOrWhiteSpace(sellerUserId) ? null : sellerUserId.Trim();
+    }
+
+    public async Task NotifyOfferCommentAsync(
+        string recipientUserId,
+        string offerId,
+        string textPreview,
+        string authorLabel,
+        int authorTrust,
+        string senderUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(recipientUserId))
+            return;
+
+        var preview = textPreview.Length > 500 ? textPreview[..500] + "…" : textPreview;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        var rid = recipientUserId.Trim();
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = rid,
+            ThreadId = null,
+            MessageId = null,
+            OfferId = offerId,
+            MessagePreview = preview,
+            AuthorStoreName = authorLabel,
+            AuthorTrustScore = authorTrust,
+            SenderUserId = senderUserId,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            ReadAtUtc = null,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        await hub.Clients.Group(HubUserGroup(rid)).SendAsync(
+            "notificationCreated",
+            new { kind = "offer_comment", offerId },
+            cancellationToken);
+    }
+
+    public Task BroadcastOfferCommentsUpdatedAsync(string offerId, CancellationToken cancellationToken = default)
+    {
+        var oid = (offerId ?? "").Trim();
+        if (oid.Length < 2)
+            return Task.CompletedTask;
+        return hub.Clients.Group(HubOfferGroup(oid)).SendAsync(
+            "offerCommentsUpdated",
+            new { offerId = oid },
+            cancellationToken);
+    }
+
+    private static string HubOfferGroup(string offerId) => $"offer:{offerId}";
+
     private async Task<(string? storeId, string? sellerUserId)> ResolveOfferStoreAsync(
         string offerId,
         CancellationToken cancellationToken)
@@ -43,7 +110,10 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         {
             var st = await db.Stores.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == p.StoreId, cancellationToken);
-            return st is null ? (null, null) : (p.StoreId, st.OwnerUserId);
+            if (st is null)
+                return (null, null);
+            var owner = string.IsNullOrWhiteSpace(st.OwnerUserId) ? null : st.OwnerUserId.Trim();
+            return (p.StoreId, owner);
         }
 
         var s = await db.StoreServices.AsNoTracking()
@@ -52,7 +122,10 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             return (null, null);
         var st2 = await db.Stores.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == s.StoreId, cancellationToken);
-        return st2 is null ? (null, null) : (s.StoreId, st2.OwnerUserId);
+        if (st2 is null)
+            return (null, null);
+        var owner2 = string.IsNullOrWhiteSpace(st2.OwnerUserId) ? null : st2.OwnerUserId.Trim();
+        return (s.StoreId, owner2);
     }
 
     private static ChatThreadDto MapThread(ChatThreadRow t, string? buyerDisplayName = null) => new(
@@ -797,17 +870,21 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         string userId,
         CancellationToken cancellationToken = default)
     {
-        var list = await (
-            from n in db.ChatNotifications.AsNoTracking()
-            join t in db.ChatThreads.AsNoTracking() on n.ThreadId equals t.Id
-            where n.RecipientUserId == userId && t.DeletedAtUtc == null
-            orderby n.CreatedAtUtc descending
-            select n).Take(200).ToListAsync(cancellationToken);
+        var list = await db.ChatNotifications.AsNoTracking()
+            .Where(n => n.RecipientUserId == userId)
+            .Where(n =>
+                n.OfferId != null && n.ThreadId == null
+                || (n.ThreadId != null
+                    && db.ChatThreads.Any(t => t.Id == n.ThreadId && t.DeletedAtUtc == null)))
+            .OrderByDescending(n => n.CreatedAtUtc)
+            .Take(200)
+            .ToListAsync(cancellationToken);
 
         return list.Select(n => new ChatNotificationDto(
             n.Id,
             n.ThreadId,
             n.MessageId,
+            n.OfferId,
             n.MessagePreview,
             n.AuthorStoreName,
             n.AuthorTrustScore,

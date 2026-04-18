@@ -1,15 +1,20 @@
 namespace VibeTrade.Backend.Data.Entities;
 
-/// <summary>Notificación in-app por mensaje nuevo en chat (destinatario).</summary>
+/// <summary>Notificación in-app por mensaje en chat o comentario en oferta (destinatario).</summary>
 public sealed class ChatNotificationRow
 {
     public string Id { get; set; } = "";
 
     public string RecipientUserId { get; set; } = "";
 
-    public string ThreadId { get; set; } = "";
+    /// <summary>Nulo si la notificación es solo por comentario en oferta (<see cref="OfferId"/>).</summary>
+    public string? ThreadId { get; set; }
 
-    public string MessageId { get; set; } = "";
+    /// <summary>Nulo si la notificación no está ligada a un mensaje de chat (p. ej. comentario en ficha).</summary>
+    public string? MessageId { get; set; }
+
+    /// <summary>Oferta asociada cuando el aviso es por comentario público (enlace a <c>/offer/:id</c>).</summary>
+    public string? OfferId { get; set; }
 
     /// <summary>Vista previa del texto (para listado).</summary>
     public string MessagePreview { get; set; } = "";

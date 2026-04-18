@@ -37,8 +37,9 @@ public sealed record ChatThreadSummaryDto(
 
 public sealed record ChatNotificationDto(
     string Id,
-    string ThreadId,
-    string MessageId,
+    string? ThreadId,
+    string? MessageId,
+    string? OfferId,
     string MessagePreview,
     string AuthorLabel,
     int AuthorTrustScore,
@@ -48,6 +49,25 @@ public sealed record ChatNotificationDto(
 
 public interface IChatService
 {
+    /// <summary>True si <paramref name="userId"/> es el dueño de la tienda del producto/servicio <paramref name="offerId"/>.</summary>
+    Task<bool> IsUserSellerForOfferAsync(string userId, string offerId, CancellationToken cancellationToken = default);
+
+    /// <summary>Dueño de la tienda del producto/servicio, o null si no existe.</summary>
+    Task<string?> GetSellerUserIdForOfferAsync(string offerId, CancellationToken cancellationToken = default);
+
+    /// <summary>Notificación por comentario público en la ficha de oferta (sin hilo de chat).</summary>
+    Task NotifyOfferCommentAsync(
+        string recipientUserId,
+        string offerId,
+        string textPreview,
+        string authorLabel,
+        int authorTrust,
+        string senderUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>SignalR a clientes suscritos al grupo <c>offer:{offerId}</c> (ficha abierta).</summary>
+    Task BroadcastOfferCommentsUpdatedAsync(string offerId, CancellationToken cancellationToken = default);
+
     Task<ChatThreadDto?> CreateOrGetThreadForBuyerAsync(
         string buyerUserId,
         string offerId,

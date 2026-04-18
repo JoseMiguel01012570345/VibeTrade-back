@@ -15,16 +15,23 @@ public interface IMarketCatalogSyncService
     /// <summary>Solo <c>offers[*].qa</c> persistido en filas de producto/servicio.</summary>
     Task ApplyOfferInquiriesFromWorkspaceAsync(JsonElement workspaceRoot, CancellationToken cancellationToken = default);
 
-    /// <summary>Añade una pregunta al array <c>OfferQaJson</c> del producto o servicio (<paramref name="offerId"/>).</summary>
+    /// <summary>Añade un comentario (estilo reels: <c>parentId</c> opcional) al array <c>OfferQaJson</c>.</summary>
     /// <returns>El ítem creado, o <c>null</c> si no existe producto/servicio con ese id.</returns>
     Task<JsonObject?> AppendOfferInquiryAsync(
         string offerId,
-        string question,
+        string text,
+        string? parentId,
         string askedById,
         string askedByName,
         int trustScore,
         long? createdAtMs,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Autor del comentario con <paramref name="commentId"/> en la oferta (producto/servicio).</summary>
+    Task<string?> TryGetOfferCommentAuthorIdAsync(string offerId, string commentId, CancellationToken cancellationToken = default);
+
+    /// <summary>JSON array <c>OfferQaJson</c> tal cual en BD, o null si no existe el producto/servicio.</summary>
+    Task<string?> GetOfferQaJsonForOfferAsync(string offerId, CancellationToken cancellationToken = default);
 
     Task<JsonObject> BuildStoresJsonObjectAsync(CancellationToken cancellationToken = default);
 

@@ -27,7 +27,17 @@ public sealed class ChatController(IAuthService auth, IChatService chat) : Contr
             return Unauthorized();
 
         var purchaseIntent = body.PurchaseIntent ?? true;
-        var dto = await chat.CreateOrGetThreadForBuyerAsync(userId, body.OfferId ?? "", purchaseIntent, cancellationToken);
+        var oid = body.OfferId ?? "";
+        if (await chat.IsUserSellerForOfferAsync(userId, oid, cancellationToken))
+        {
+            return BadRequest(new
+            {
+                error = "cannot_message_self",
+                message = "No podés chatear con vos mismo.",
+            });
+        }
+
+        var dto = await chat.CreateOrGetThreadForBuyerAsync(userId, oid, purchaseIntent, cancellationToken);
         if (dto is null)
             return NotFound(new { error = "offer_not_found", message = "No se encontró la oferta o no podés abrir este chat." });
 

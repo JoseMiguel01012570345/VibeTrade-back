@@ -33,7 +33,14 @@ public sealed class MarketController(
 
     public sealed record PostInquiryAskedBy(string Id, string Name, int TrustScore);
 
-    public sealed record PostInquiryBody(string OfferId, string Question, PostInquiryAskedBy AskedBy, long? CreatedAt);
+    /// <param name="Question">Legado; preferí <paramref name="Text"/>.</param>
+    public sealed record PostInquiryBody(
+        string OfferId,
+        string? Question,
+        string? Text,
+        string? ParentId,
+        PostInquiryAskedBy AskedBy,
+        long? CreatedAt);
 
     /// <summary>Categorías permitidas para productos, servicios y sugerencias en acuerdos (misma lista).</summary>
     [HttpGet("catalog-categories")]
@@ -286,7 +293,7 @@ public sealed class MarketController(
         return MapCatalogUpsert(r);
     }
 
-    /// <summary>Añade una pregunta pública a la oferta (producto/servicio) identificada por <paramref name="body"/>.OfferId.</summary>
+    /// <summary>Comentario público en la ficha (estilo reels: <c>parentId</c> opcional). No abre hilo de chat.</summary>
     [HttpPost("inquiries")]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -294,8 +301,9 @@ public sealed class MarketController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> PostInquiry([FromBody] PostInquiryBody body, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(body.OfferId) || string.IsNullOrWhiteSpace(body.Question))
-            return BadRequest(new { error = "invalid_inquiry", message = "Indicá la oferta y el texto de la pregunta." });
+        var q = ((body.Question ?? body.Text) ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(body.OfferId) || string.IsNullOrWhiteSpace(q))
+            return BadRequest(new { error = "invalid_inquiry", message = "Indicá la oferta y el texto." });
         var askedById = (body.AskedBy?.Id ?? "").Trim();
         var askedByName = (body.AskedBy?.Name ?? "").Trim();
         var askedByTrust = body.AskedBy?.TrustScore ?? 0;
@@ -307,15 +315,18 @@ public sealed class MarketController(
             askedByTrust = 0;
         }
 
-        var q = body.Question.Trim();
         if (q.Length > 12_000)
-            return BadRequest(new { error = "invalid_inquiry", message = "La pregunta es demasiado larga." });
+            return BadRequest(new { error = "invalid_inquiry", message = "El texto es demasiado largo." });
+
+        var parentId = string.IsNullOrWhiteSpace(body.ParentId) ? null : body.ParentId.Trim();
+        var offerOid = body.OfferId.Trim();
 
         try
         {
             var item = await catalog.AppendOfferInquiryAsync(
-                body.OfferId.Trim(),
+                offerOid,
                 q,
+                parentId,
                 askedById,
                 askedByName,
                 askedByTrust,
@@ -328,43 +339,46 @@ public sealed class MarketController(
             {
                 await recommendations.RecordInteractionAsync(
                     askedById,
-                    body.OfferId.Trim(),
+                    offerOid,
                     RecommendationInteractionType.Inquiry,
                     cancellationToken);
             }
 
-            var sessionUserId = BearerUserId.FromRequest(auth, Request);
-            if (!isAnonymous
-                && sessionUserId is not null
-                && string.Equals(sessionUserId, askedById, StringComparison.Ordinal))
+            var preview = q.Length > 500 ? q[..500] + "…" : q;
+            var sellerId = await chat.GetSellerUserIdForOfferAsync(offerOid, cancellationToken);
+            if (parentId is null)
             {
-                var th = await chat.CreateOrGetThreadForBuyerAsync(
-                    sessionUserId,
-                    body.OfferId.Trim(),
-                    purchaseIntent: false,
-                    cancellationToken);
-                if (th is not null)
+                if (sellerId is not null
+                    && !string.Equals(askedById, sellerId, StringComparison.Ordinal))
                 {
-                    var qaId = item["id"]?.GetValue<string>();
-                    if (!string.IsNullOrEmpty(qaId))
-                    {
-                        var json = JsonSerializer.Serialize(new
-                        {
-                            type = "text",
-                            text = q,
-                            offerQaId = qaId,
-                        });
-                        using var payloadDoc = JsonDocument.Parse(json);
-                        var posted = await chat.PostMessageAsync(
-                            sessionUserId,
-                            th.Id,
-                            payloadDoc.RootElement.Clone(),
-                            cancellationToken);
-                        if (posted is not null)
-                            item["threadId"] = th.Id;
-                    }
+                    await chat.NotifyOfferCommentAsync(
+                        sellerId,
+                        offerOid,
+                        preview,
+                        askedByName,
+                        askedByTrust,
+                        askedById,
+                        cancellationToken);
                 }
             }
+            else
+            {
+                var parentAuthor = await catalog.TryGetOfferCommentAuthorIdAsync(offerOid, parentId, cancellationToken);
+                if (parentAuthor is not null
+                    && !string.Equals(parentAuthor, askedById, StringComparison.Ordinal))
+                {
+                    await chat.NotifyOfferCommentAsync(
+                        parentAuthor,
+                        offerOid,
+                        preview,
+                        askedByName,
+                        askedByTrust,
+                        askedById,
+                        cancellationToken);
+                }
+            }
+
+            await chat.BroadcastOfferCommentsUpdatedAsync(offerOid, cancellationToken);
 
             return Content(item.ToJsonString(), "application/json");
         }
@@ -372,6 +386,19 @@ public sealed class MarketController(
         {
             return BadRequest(new { error = "invalid_inquiry", message = ex.Message });
         }
+    }
+
+    /// <summary>Array JSON de comentarios públicos (<c>OfferQaJson</c>) para refrescar la ficha.</summary>
+    [HttpGet("offers/{offerId}/qa")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetOfferQa(string offerId, CancellationToken cancellationToken)
+    {
+        var json = await catalog.GetOfferQaJsonForOfferAsync(offerId, cancellationToken);
+        if (json is null)
+            return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
+        return Content(json, "application/json");
     }
 
     /// <summary>Sincronización masiva de <c>offers[*].qa</c> (legado / herramientas).</summary>
