@@ -19,7 +19,8 @@ public sealed class AuthService(
     {
         var digits = DigitsOnly(phoneRaw);
         var code = Random.Shared.Next(1_000_000, 9_999_999).ToString();
-        Console.WriteLine("RequestCode: " + digits + " " + code);
+        Console.WriteLine("\u001b[31mRequestCode: " + digits + " " + code + "\u001b[0m");
+   
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.Add(PendingTtl);
 
