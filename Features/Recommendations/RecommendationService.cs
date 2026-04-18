@@ -3,11 +3,12 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Utils;
 
 namespace VibeTrade.Backend.Features.Recommendations;
 
-public sealed class RecommendationService(AppDbContext db) : IRecommendationService
+public sealed class RecommendationService(AppDbContext db, IOfferEngagementService offerEngagement) : IRecommendationService
 {
     public const int DefaultBatchSize = 20;
     public const int MaxBatchSize = 20;
@@ -33,6 +34,7 @@ public sealed class RecommendationService(AppDbContext db) : IRecommendationServ
         var (orderedIds, candidates) = await BuildOrderedFeedAsync(viewer, cancellationToken);
         var page = BuildPage(orderedIds, candidates, batchSize, cursor);
         var offers = await BuildOffersJsonForIdsAsync(page.OfferIds, cancellationToken);
+        await offerEngagement.EnrichOffersJsonAsync(offers, "u:" + userId, cancellationToken);
         return page with { Offers = offers };
     }
 

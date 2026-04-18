@@ -23,7 +23,8 @@ public sealed class MarketController(
     IUserAccountSyncService userAccountSync,
     IRecommendationService recommendations,
     IMarketCatalogStoreSearchService catalogStoreSearch,
-    IChatService chat) : ControllerBase
+    IChatService chat,
+    IOfferEngagementService offerEngagement) : ControllerBase
 {
     public sealed record CatalogCategoriesResponse(IReadOnlyList<string> Categories);
 
@@ -32,6 +33,8 @@ public sealed class MarketController(
     public sealed record StoreDetailBody(string? ViewerUserId, string? ViewerRole);
 
     public sealed record PostInquiryAskedBy(string Id, string Name, int TrustScore);
+
+    public sealed record ToggleEngagementBody(string? GuestId);
 
     /// <param name="Question">Legado; preferí <paramref name="Text"/>.</param>
     public sealed record PostInquiryBody(
@@ -393,12 +396,71 @@ public sealed class MarketController(
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetOfferQa(string offerId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetOfferQa(
+        string offerId,
+        [FromQuery] string? guestId,
+        CancellationToken cancellationToken)
     {
         var json = await catalog.GetOfferQaJsonForOfferAsync(offerId, cancellationToken);
         if (json is null)
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
-        return Content(json, "application/json");
+        var likerKey = ResolveEngagementLikerKey(guestId);
+        var enriched = await offerEngagement.EnrichOfferQaJsonAsync(offerId, json, likerKey, cancellationToken);
+        return Content(enriched ?? "[]", "application/json");
+    }
+
+    /// <summary>Alternar like en la oferta (sesión o <c>guestId</c> en el cuerpo).</summary>
+    [HttpPost("offers/{offerId}/like")]
+    [AllowAnonymous]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostOfferLike(
+        string offerId,
+        [FromBody] ToggleEngagementBody? body,
+        CancellationToken cancellationToken)
+    {
+        var likerKey = ResolveEngagementLikerKey(body?.GuestId);
+        if (likerKey is null)
+            return Unauthorized(new { error = "auth_required", message = "Iniciá sesión o enviá guestId (8+ caracteres)." });
+        if (!await offerEngagement.OfferExistsAsync(offerId, cancellationToken))
+            return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
+        var (liked, likeCount) = await offerEngagement.ToggleOfferLikeAsync(offerId, likerKey, cancellationToken);
+        return Ok(new { liked, likeCount });
+    }
+
+    /// <summary>Alternar like en un comentario QA (<c>id</c> del ítem en <c>OfferQaJson</c>).</summary>
+    [HttpPost("offers/{offerId}/qa/{qaCommentId}/like")]
+    [AllowAnonymous]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostOfferQaCommentLike(
+        string offerId,
+        string qaCommentId,
+        [FromBody] ToggleEngagementBody? body,
+        CancellationToken cancellationToken)
+    {
+        var likerKey = ResolveEngagementLikerKey(body?.GuestId);
+        if (likerKey is null)
+            return Unauthorized(new { error = "auth_required", message = "Iniciá sesión o enviá guestId (8+ caracteres)." });
+        if (!await offerEngagement.OfferExistsAsync(offerId, cancellationToken))
+            return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
+        var (liked, likeCount) = await offerEngagement.ToggleQaCommentLikeAsync(
+            offerId,
+            qaCommentId,
+            likerKey,
+            cancellationToken);
+        return Ok(new { liked, likeCount });
+    }
+
+    private string? ResolveEngagementLikerKey(string? guestId)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (!string.IsNullOrWhiteSpace(userId))
+            return "u:" + userId.Trim();
+        var g = (guestId ?? "").Trim();
+        return g.Length >= 8 ? "g:" + g : null;
     }
 
     /// <summary>Sincronización masiva de <c>offers[*].qa</c> (legado / herramientas).</summary>

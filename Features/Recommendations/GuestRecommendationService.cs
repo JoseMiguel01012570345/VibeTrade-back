@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Utils;
 
 namespace VibeTrade.Backend.Features.Recommendations;
@@ -18,7 +19,10 @@ public interface IGuestRecommendationService
 /// Recomendaciones para invitado (sin UserAccount): usa señales locales (visitas/clicks)
 /// guardadas en <see cref="IGuestInteractionStore"/> + popularidad global.
 /// </summary>
-public sealed class GuestRecommendationService(AppDbContext db, IGuestInteractionStore guestStore)
+public sealed class GuestRecommendationService(
+    AppDbContext db,
+    IGuestInteractionStore guestStore,
+    IOfferEngagementService offerEngagement)
     : IGuestRecommendationService
 {
     public async Task<RecommendationBatchResponse> GetBatchAsync(
@@ -88,6 +92,7 @@ public sealed class GuestRecommendationService(AppDbContext db, IGuestInteractio
 
         var page = BuildPage(scored, candidates, batchSize, cursor);
         var offers = await BuildOffersJsonForIdsAsync(page.OfferIds, cancellationToken);
+        await offerEngagement.EnrichOffersJsonAsync(offers, "g:" + gid, cancellationToken);
         return page with { Offers = offers };
     }
 

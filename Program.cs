@@ -43,6 +43,7 @@ builder.Services.AddScoped<RequestTimeZoneContext>();
 builder.Services.AddSingleton<IMarketWorkspaceIntegrity, MarketWorkspaceIntegrity>();
 builder.Services.AddScoped<IMarketWorkspaceRepository, MarketWorkspaceRepository>();
 builder.Services.AddScoped<IMarketCatalogSyncService, MarketCatalogSyncService>();
+builder.Services.AddScoped<IOfferEngagementService, OfferEngagementService>();
 builder.Services.AddScoped<IMarketWorkspaceService, MarketWorkspaceService>();
 builder.Services.AddScoped<IMarketCatalogStoreSearchService, MarketCatalogStoreSearchService>();
 builder.Services.AddScoped<IBootstrapService, BootstrapService>();

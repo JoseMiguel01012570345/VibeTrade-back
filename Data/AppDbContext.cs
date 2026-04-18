@@ -18,6 +18,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ChatThreadRow> ChatThreads => Set<ChatThreadRow>();
     public DbSet<ChatMessageRow> ChatMessages => Set<ChatMessageRow>();
     public DbSet<ChatNotificationRow> ChatNotifications => Set<ChatNotificationRow>();
+    public DbSet<OfferLikeRow> OfferLikes => Set<OfferLikeRow>();
+    public DbSet<OfferQaCommentLikeRow> OfferQaCommentLikes => Set<OfferQaCommentLikeRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -238,6 +240,32 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(x => x.RecipientUserId);
             e.HasIndex(x => new { x.RecipientUserId, x.CreatedAtUtc });
             e.HasIndex(x => x.OfferId);
+        });
+
+        modelBuilder.Entity<OfferLikeRow>(e =>
+        {
+            e.ToTable("offer_likes");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.OfferId).HasMaxLength(64);
+            e.Property(x => x.LikerKey).HasMaxLength(96);
+            e.Property(x => x.CreatedAtUtc);
+            e.HasIndex(x => x.OfferId);
+            e.HasIndex(x => new { x.OfferId, x.LikerKey }).IsUnique();
+            e.HasIndex(x => x.LikerKey);
+        });
+
+        modelBuilder.Entity<OfferQaCommentLikeRow>(e =>
+        {
+            e.ToTable("offer_qa_comment_likes");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.OfferId).HasMaxLength(64);
+            e.Property(x => x.QaCommentId).HasMaxLength(64);
+            e.Property(x => x.LikerKey).HasMaxLength(96);
+            e.Property(x => x.CreatedAtUtc);
+            e.HasIndex(x => new { x.OfferId, x.QaCommentId });
+            e.HasIndex(x => new { x.OfferId, x.QaCommentId, x.LikerKey }).IsUnique();
         });
     }
 }
