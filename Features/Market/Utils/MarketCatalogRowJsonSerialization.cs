@@ -33,6 +33,7 @@ internal static class MarketCatalogRowJsonSerialization
             o["taxesShippingInstall"] = p.TaxesShippingInstall;
         o["photoUrls"] = TryParseArray(p.PhotoUrlsJson);
         o["customFields"] = TryParseArray(p.CustomFieldsJson);
+        o["qa"] = TryParseArray(p.OfferQaJson);
         return o;
     }
 
@@ -61,6 +62,7 @@ internal static class MarketCatalogRowJsonSerialization
         o["photoUrls"] = urls.Count > 0
             ? new JsonArray(urls.Select(u => (JsonNode?)JsonValue.Create(u)).ToArray())
             : new JsonArray();
+        o["qa"] = TryParseArray(s.OfferQaJson);
         return o;
     }
 

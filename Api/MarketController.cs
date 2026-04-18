@@ -301,22 +301,22 @@ public sealed class MarketController(
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> PostInquiry([FromBody] PostInquiryBody body, CancellationToken cancellationToken)
     {
+        var bearerUserId = BearerUserId.FromRequest(auth, Request);
+        if (bearerUserId is null)
+            return Unauthorized(new { error = "auth_required", message = "Iniciá sesión para comentar." });
+
         var q = ((body.Question ?? body.Text) ?? "").Trim();
         if (string.IsNullOrWhiteSpace(body.OfferId) || string.IsNullOrWhiteSpace(q))
             return BadRequest(new { error = "invalid_inquiry", message = "Indicá la oferta y el texto." });
-        var askedById = (body.AskedBy?.Id ?? "").Trim();
-        var askedByName = (body.AskedBy?.Name ?? "").Trim();
-        var askedByTrust = body.AskedBy?.TrustScore ?? 0;
-        var isAnonymous = askedById.Length == 0 || string.Equals(askedById, "guest", StringComparison.OrdinalIgnoreCase);
-        if (isAnonymous)
-        {
-            askedById = "guest";
-            if (askedByName.Length == 0) askedByName = "Anónimo";
-            askedByTrust = 0;
-        }
+
+        var askedById = bearerUserId.Trim();
+        var snap = await userAccountSync.GetProfileSnapshotByUserIdAsync(askedById, cancellationToken);
+        var askedByName = string.IsNullOrWhiteSpace(snap?.DisplayName) ? "Usuario" : snap!.DisplayName.Trim();
+        var askedByTrust = snap?.TrustScore ?? 0;
 
         if (q.Length > 12_000)
             return BadRequest(new { error = "invalid_inquiry", message = "El texto es demasiado largo." });
@@ -338,14 +338,11 @@ public sealed class MarketController(
             if (item is null)
                 return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
 
-            if (!isAnonymous)
-            {
-                await recommendations.RecordInteractionAsync(
-                    askedById,
-                    offerOid,
-                    RecommendationInteractionType.Inquiry,
-                    cancellationToken);
-            }
+            await recommendations.RecordInteractionAsync(
+                askedById,
+                offerOid,
+                RecommendationInteractionType.Inquiry,
+                cancellationToken);
 
             var preview = q.Length > 500 ? q[..500] + "…" : q;
             var sellerId = await chat.GetSellerUserIdForOfferAsync(offerOid, cancellationToken);
@@ -398,31 +395,31 @@ public sealed class MarketController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetOfferQa(
         string offerId,
-        [FromQuery] string? guestId,
         CancellationToken cancellationToken)
     {
         var json = await catalog.GetOfferQaJsonForOfferAsync(offerId, cancellationToken);
         if (json is null)
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
-        var likerKey = ResolveEngagementLikerKey(guestId);
+        var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
         var enriched = await offerEngagement.EnrichOfferQaJsonAsync(offerId, json, likerKey, cancellationToken);
         return Content(enriched ?? "[]", "application/json");
     }
 
-    /// <summary>Alternar like en la oferta (sesión o <c>guestId</c> en el cuerpo).</summary>
+    /// <summary>Alternar like en la oferta (solo usuario autenticado).</summary>
     [HttpPost("offers/{offerId}/like")]
     [AllowAnonymous]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> PostOfferLike(
         string offerId,
         [FromBody] ToggleEngagementBody? body,
         CancellationToken cancellationToken)
     {
-        var likerKey = ResolveEngagementLikerKey(body?.GuestId);
+        var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
         if (likerKey is null)
-            return Unauthorized(new { error = "auth_required", message = "Iniciá sesión o enviá guestId (8+ caracteres)." });
+            return Unauthorized(new { error = "auth_required", message = "Iniciá sesión para dar me gusta." });
         if (!await offerEngagement.OfferExistsAsync(offerId, cancellationToken))
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
         var (liked, likeCount) = await offerEngagement.ToggleOfferLikeAsync(offerId, likerKey, cancellationToken);
@@ -441,11 +438,12 @@ public sealed class MarketController(
         return Ok(new { liked, likeCount });
     }
 
-    /// <summary>Alternar like en un comentario QA (<c>id</c> del ítem en <c>OfferQaJson</c>).</summary>
+    /// <summary>Alternar like en un comentario QA (<c>id</c> del ítem en <c>OfferQaJson</c>); solo sesión.</summary>
     [HttpPost("offers/{offerId}/qa/{qaCommentId}/like")]
     [AllowAnonymous]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> PostOfferQaCommentLike(
         string offerId,
@@ -453,9 +451,9 @@ public sealed class MarketController(
         [FromBody] ToggleEngagementBody? body,
         CancellationToken cancellationToken)
     {
-        var likerKey = ResolveEngagementLikerKey(body?.GuestId);
+        var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
         if (likerKey is null)
-            return Unauthorized(new { error = "auth_required", message = "Iniciá sesión o enviá guestId (8+ caracteres)." });
+            return Unauthorized(new { error = "auth_required", message = "Iniciá sesión para dar me gusta." });
         if (!await offerEngagement.OfferExistsAsync(offerId, cancellationToken))
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
         var (liked, likeCount) = await offerEngagement.ToggleQaCommentLikeAsync(
@@ -499,13 +497,11 @@ public sealed class MarketController(
         return ("guest", "Visitante", 0);
     }
 
-    private string? ResolveEngagementLikerKey(string? guestId)
+    /// <summary>Clave de engagement <c>u:…</c> solo con Bearer; sin invitado anónimo.</summary>
+    private string? ResolveEngagementLikerKeyForAuthenticatedViewer()
     {
         var userId = BearerUserId.FromRequest(auth, Request);
-        if (!string.IsNullOrWhiteSpace(userId))
-            return "u:" + userId.Trim();
-        var g = (guestId ?? "").Trim();
-        return g.Length >= 8 ? "g:" + g : null;
+        return string.IsNullOrWhiteSpace(userId) ? null : "u:" + userId.Trim();
     }
 
     /// <summary>Sincronización masiva de <c>offers[*].qa</c> (legado / herramientas).</summary>
@@ -570,6 +566,56 @@ public sealed class MarketController(
                     ["avatarUrl"] = snap.AvatarUrl is { } a ? JsonValue.Create(a) : null,
                     ["trustScore"] = snap.TrustScore,
                 };
+            }
+        }
+
+        if (root["catalog"] is JsonObject catalogObj)
+        {
+            // Los ítems del catálogo ya tienen padre en el árbol JSON; hay que clonar para EnrichOffersJsonAsync
+            // y volcar las propiedades enriquecidas sobre los nodos originales.
+            var offersMap = new JsonObject();
+            var originalsByOfferId = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
+            void AddOffersFromCatalogArray(string arrayKey)
+            {
+                if (!catalogObj.TryGetPropertyValue(arrayKey, out var arrNode) || arrNode is not JsonArray arr)
+                    return;
+                foreach (var node in arr)
+                {
+                    if (node is not JsonObject itemObj)
+                        continue;
+                    if (!itemObj.TryGetPropertyValue("id", out var idNode) || idNode is not JsonValue idVal)
+                        continue;
+                    var pid = idVal.GetValue<string>()?.Trim() ?? "";
+                    if (pid.Length < 2)
+                        continue;
+                    originalsByOfferId[pid] = itemObj;
+                    offersMap[pid] = JsonNode.Parse(itemObj.ToJsonString())!.AsObject();
+                }
+            }
+
+            AddOffersFromCatalogArray("products");
+            AddOffersFromCatalogArray("services");
+            var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
+            await offerEngagement.EnrichOffersJsonAsync(offersMap, likerKey, cancellationToken);
+            foreach (var kv in offersMap)
+            {
+                if (kv.Value is not JsonObject enriched)
+                    continue;
+                if (!originalsByOfferId.TryGetValue(kv.Key, out var original))
+                    continue;
+                // Copiar escalares: no reasignar JsonNode entre árboles (evita "node already has a parent").
+                if (enriched.TryGetPropertyValue("publicCommentCount", out var pcNode)
+                    && pcNode is JsonValue pcVal
+                    && pcVal.TryGetValue<int>(out var nComments))
+                    original["publicCommentCount"] = nComments;
+                if (enriched.TryGetPropertyValue("offerLikeCount", out var olNode)
+                    && olNode is JsonValue olVal
+                    && olVal.TryGetValue<int>(out var nLikes))
+                    original["offerLikeCount"] = nLikes;
+                if (enriched.TryGetPropertyValue("viewerLikedOffer", out var vlNode)
+                    && vlNode is JsonValue vlVal
+                    && vlVal.TryGetValue<bool>(out var liked))
+                    original["viewerLikedOffer"] = liked;
             }
         }
 
