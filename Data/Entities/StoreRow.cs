@@ -37,6 +37,9 @@ public sealed class StoreRow
     /// <summary>Longitud WGS84 del pin de ubicación (opcional).</summary>
     public double? LocationLongitude { get; set; }
 
+    /// <summary>URL pública del sitio (https), opcional.</summary>
+    public string? WebsiteUrl { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }

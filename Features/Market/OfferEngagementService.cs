@@ -3,10 +3,13 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Recommendations;
 
 namespace VibeTrade.Backend.Features.Market;
 
-public sealed class OfferEngagementService(AppDbContext db) : IOfferEngagementService
+public sealed class OfferEngagementService(
+    AppDbContext db,
+    IOfferPopularityWeightService popularityWeight) : IOfferEngagementService
 {
     private static string NewId(string prefix) => prefix + Guid.NewGuid().ToString("N")[..16];
 
@@ -141,6 +144,7 @@ public sealed class OfferEngagementService(AppDbContext db) : IOfferEngagementSe
         {
             db.OfferLikes.Remove(existing);
             await db.SaveChangesAsync(cancellationToken);
+            await popularityWeight.RecomputeAsync(oid, cancellationToken);
             var c = await db.OfferLikes.CountAsync(x => x.OfferId == oid, cancellationToken);
             return (false, c);
         }
@@ -153,6 +157,7 @@ public sealed class OfferEngagementService(AppDbContext db) : IOfferEngagementSe
             CreatedAtUtc = DateTimeOffset.UtcNow,
         });
         await db.SaveChangesAsync(cancellationToken);
+        await popularityWeight.RecomputeAsync(oid, cancellationToken);
         var c2 = await db.OfferLikes.CountAsync(x => x.OfferId == oid, cancellationToken);
         return (true, c2);
     }
@@ -180,6 +185,7 @@ public sealed class OfferEngagementService(AppDbContext db) : IOfferEngagementSe
         {
             db.OfferQaCommentLikes.Remove(existing);
             await db.SaveChangesAsync(cancellationToken);
+            await popularityWeight.RecomputeAsync(oid, cancellationToken);
             var c = await db.OfferQaCommentLikes.CountAsync(
                 x => x.OfferId == oid && x.QaCommentId == cid,
                 cancellationToken);
@@ -195,6 +201,7 @@ public sealed class OfferEngagementService(AppDbContext db) : IOfferEngagementSe
             CreatedAtUtc = DateTimeOffset.UtcNow,
         });
         await db.SaveChangesAsync(cancellationToken);
+        await popularityWeight.RecomputeAsync(oid, cancellationToken);
         var c2 = await db.OfferQaCommentLikes.CountAsync(
             x => x.OfferId == oid && x.QaCommentId == cid,
             cancellationToken);

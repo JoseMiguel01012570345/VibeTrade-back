@@ -19,6 +19,7 @@ internal static class CatalogSearchEmbeddingText
         AppendLine(sb, "Name", s.Name);
         AppendLine(sb, "NormalizedName", s.NormalizedName);
         AppendLine(sb, "Pitch", s.Pitch);
+        AppendLine(sb, "Website", s.WebsiteUrl);
         AppendLine(sb, "Categories", CategoriesJsonToPlain(s.CategoriesJson));
         AppendFoldedLine(sb, s.Name, s.NormalizedName, s.Pitch, CategoriesJsonToPlain(s.CategoriesJson));
         if (s.TransportIncluded)

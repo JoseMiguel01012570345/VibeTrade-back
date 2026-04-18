@@ -8,12 +8,19 @@ using VibeTrade.Backend.Features.Market.Utils;
 
 namespace VibeTrade.Backend.Features.Recommendations;
 
-public sealed class RecommendationService(AppDbContext db, IOfferEngagementService offerEngagement) : IRecommendationService
+public sealed class RecommendationService(
+    AppDbContext db,
+    IOfferEngagementService offerEngagement,
+    IOfferPopularityWeightService popularityWeight) : IRecommendationService
 {
     public const int DefaultBatchSize = 20;
     public const int MaxBatchSize = 20;
     public const double ScoreThreshold = 0.35d;
     private const int TrustPenaltyThreshold = 40;
+
+    private const double LikeOfferWeight = 1.0d;
+    private const double LikeCommentMultiplier = 0.25d;
+    private const double PopularityTrustGamma = 1.6d;
 
     public async Task<RecommendationBatchResponse> GetBatchAsync(
         string viewerUserId,
@@ -35,7 +42,8 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
         var page = BuildPage(orderedIds, candidates, batchSize, cursor);
         var offers = await BuildOffersJsonForIdsAsync(page.OfferIds, cancellationToken);
         await offerEngagement.EnrichOffersJsonAsync(offers, "u:" + userId, cancellationToken);
-        return page with { Offers = offers };
+        var storeBadges = await BuildStoreBadgesJsonAsync(page.OfferIds, page.RecommendedStoreIds, candidates, cancellationToken);
+        return page with { Offers = offers, StoreBadges = storeBadges };
     }
 
     public async Task RecordInteractionAsync(
@@ -61,6 +69,7 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
             CreatedAt = DateTimeOffset.UtcNow,
         });
         await db.SaveChangesAsync(cancellationToken);
+        await popularityWeight.RecomputeAsync(pid, cancellationToken);
     }
 
     private async Task<(IReadOnlyList<string> OrderedIds, Dictionary<string, OfferCandidate> Candidates)>
@@ -74,25 +83,50 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
 
         var now = DateTimeOffset.UtcNow;
         var contacts = await LoadViewerContactsAsync(viewer.Id, cancellationToken);
-        var (relevantEvents, popularityWeights) =
+        var (relevantEvents, interactionSince) =
             await LoadInteractionSignalsAsync(contacts.RelevantUserIds, now, cancellationToken);
 
-        var (userEvents, contactEvents) = SplitEventsForViewer(viewer.Id, contacts.ContactSet, now, relevantEvents);
+        var popularityWeights = candidates.Values.ToDictionary(
+            c => c.OfferId,
+            c => c.PopularityWeight,
+            StringComparer.Ordinal);
+
+        var (userEvents, contactEvents) = SplitEventsForViewer(viewer.Id, contacts.ContactSet, relevantEvents);
         var userWeights = BuildUserAndSavedWeights(viewer, candidates, userEvents);
-        var contactSignals = BuildContactSignalWeights(contactEvents, candidates);
+
+        var userOfferLikes = await LoadOfferLikeCountsByOfferAsync(
+            "u:" + viewer.Id,
+            interactionSince,
+            cancellationToken);
+        var userCommentLikes = await LoadCommentLikeCountsByOfferAsync(
+            "u:" + viewer.Id,
+            interactionSince,
+            cancellationToken);
+        AddUserLikesToInterest(userWeights, userOfferLikes, userCommentLikes, candidates);
+
+        if (contacts.ContactIds.Count > 0)
+        {
+            var contactKeys = contacts.ContactIds.Select(c => "u:" + c).ToList();
+            var contactOfferLikes = await LoadOfferLikeCountsByLikerKeysAsync(
+                contactKeys,
+                interactionSince,
+                cancellationToken);
+            var contactCommentLikes = await LoadCommentLikeCountsByLikerKeysAsync(
+                contactKeys,
+                interactionSince,
+                cancellationToken);
+            AddContactInterestWithTrust(
+                userWeights,
+                contactEvents,
+                contactOfferLikes,
+                contactCommentLikes,
+                candidates);
+        }
 
         ApplyInquiryFallbacksToPopularity(candidates, popularityWeights);
 
-        var scored = ScoreCandidates(
-            viewer.Id,
-            now,
-            candidates,
-            contacts.ContactIds,
-            userWeights,
-            contactSignals,
-            popularityWeights);
-
-        scored = OrderScoredList(scored, contactSignals.SeedIds);
+        var scored = ScoreCandidates(viewer.Id, now, candidates, userWeights, popularityWeights);
+        scored = OrderScoredList(scored);
         var orderedIds = DedupeOrderedIdsByThreshold(scored);
         return (orderedIds, candidates);
     }
@@ -114,50 +148,82 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
         return new ViewerContacts(contactIds, contactSet, relevantUserIds);
     }
 
-    private async Task<(List<InteractionPoint> RelevantEvents, Dictionary<string, double> PopularityWeights)>
+    private async Task<(List<InteractionPoint> RelevantEvents, DateTimeOffset InteractionSince)>
         LoadInteractionSignalsAsync(
             IReadOnlyList<string> relevantUserIds,
             DateTimeOffset now,
             CancellationToken cancellationToken)
     {
-        var interactionSince = now.AddDays(-45);
-        var popularitySince = now.AddDays(-30);
+        var interactionSince = now.AddDays(-30);
 
-        // No usar Task.WhenAll: una sola instancia de DbContext no admite dos consultas a la vez.
         var relevantEvents = await db.UserOfferInteractions.AsNoTracking()
             .Where(x => relevantUserIds.Contains(x.UserId) && x.CreatedAt >= interactionSince)
             .Select(x => new InteractionPoint(x.UserId, x.OfferId, x.EventType, x.CreatedAt))
             .ToListAsync(cancellationToken);
 
-        var popularityWeights = await db.UserOfferInteractions.AsNoTracking()
-            .Where(x => x.CreatedAt >= popularitySince)
-            .GroupBy(x => x.OfferId)
-            .Select(g => new
-            {
-                OfferId = g.Key,
-                Weight = g.Sum(x => x.EventType == "chat_start"
-                    ? 3
-                    : x.EventType == "inquiry"
-                        ? 2
-                        : 1),
-            })
-            .ToDictionaryAsync(x => x.OfferId, x => (double)x.Weight, cancellationToken);
+        return (relevantEvents, interactionSince);
+    }
 
-        return (relevantEvents, popularityWeights);
+    private async Task<Dictionary<string, int>> LoadOfferLikeCountsByOfferAsync(
+        string likerKey,
+        DateTimeOffset since,
+        CancellationToken cancellationToken) =>
+        await db.OfferLikes.AsNoTracking()
+            .Where(x => x.LikerKey == likerKey && x.CreatedAtUtc >= since)
+            .GroupBy(x => x.OfferId)
+            .Select(g => new { OfferId = g.Key, C = g.Count() })
+            .ToDictionaryAsync(x => x.OfferId, x => x.C, StringComparer.Ordinal, cancellationToken);
+
+    private async Task<Dictionary<string, int>> LoadCommentLikeCountsByOfferAsync(
+        string likerKey,
+        DateTimeOffset since,
+        CancellationToken cancellationToken) =>
+        await db.OfferQaCommentLikes.AsNoTracking()
+            .Where(x => x.LikerKey == likerKey && x.CreatedAtUtc >= since)
+            .GroupBy(x => x.OfferId)
+            .Select(g => new { OfferId = g.Key, C = g.Count() })
+            .ToDictionaryAsync(x => x.OfferId, x => x.C, StringComparer.Ordinal, cancellationToken);
+
+    private async Task<Dictionary<string, int>> LoadOfferLikeCountsByLikerKeysAsync(
+        IReadOnlyList<string> likerKeys,
+        DateTimeOffset since,
+        CancellationToken cancellationToken)
+    {
+        if (likerKeys.Count == 0)
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+
+        return await db.OfferLikes.AsNoTracking()
+            .Where(x => likerKeys.Contains(x.LikerKey) && x.CreatedAtUtc >= since)
+            .GroupBy(x => x.OfferId)
+            .Select(g => new { OfferId = g.Key, C = g.Count() })
+            .ToDictionaryAsync(x => x.OfferId, x => x.C, StringComparer.Ordinal, cancellationToken);
+    }
+
+    private async Task<Dictionary<string, int>> LoadCommentLikeCountsByLikerKeysAsync(
+        IReadOnlyList<string> likerKeys,
+        DateTimeOffset since,
+        CancellationToken cancellationToken)
+    {
+        if (likerKeys.Count == 0)
+            return new Dictionary<string, int>(StringComparer.Ordinal);
+
+        return await db.OfferQaCommentLikes.AsNoTracking()
+            .Where(x => likerKeys.Contains(x.LikerKey) && x.CreatedAtUtc >= since)
+            .GroupBy(x => x.OfferId)
+            .Select(g => new { OfferId = g.Key, C = g.Count() })
+            .ToDictionaryAsync(x => x.OfferId, x => x.C, StringComparer.Ordinal, cancellationToken);
     }
 
     private static (List<InteractionPoint> UserEvents, List<InteractionPoint> ContactEvents) SplitEventsForViewer(
         string viewerId,
         HashSet<string> contactSet,
-        DateTimeOffset now,
         IReadOnlyList<InteractionPoint> relevantEvents)
     {
-        var contactSince = now.AddDays(-15);
         var userEvents = relevantEvents
             .Where(x => string.Equals(x.UserId, viewerId, StringComparison.Ordinal))
             .ToList();
         var contactEvents = relevantEvents
-            .Where(x => contactSet.Contains(x.UserId) && x.CreatedAt >= contactSince)
+            .Where(x => contactSet.Contains(x.UserId))
             .ToList();
         return (userEvents, contactEvents);
     }
@@ -188,30 +254,72 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
         return new UserInterestWeights(direct, category);
     }
 
-    private static ContactGraphSignals BuildContactSignalWeights(
-        IReadOnlyList<InteractionPoint> contactEvents,
+    private static void AddUserLikesToInterest(
+        UserInterestWeights userWeights,
+        IReadOnlyDictionary<string, int> offerLikeCounts,
+        IReadOnlyDictionary<string, int> commentLikeCounts,
         IReadOnlyDictionary<string, OfferCandidate> candidates)
     {
-        var contactSignalWeights = new Dictionary<string, double>(StringComparer.Ordinal);
-        foreach (var ev in contactEvents)
-            AddWeight(contactSignalWeights, ev.OfferId, EventWeight(ev.EventType));
+        foreach (var kv in offerLikeCounts)
+        {
+            var w = LikeOfferWeight * kv.Value;
+            AddWeight(userWeights.DirectByOfferId, kv.Key, w);
+            if (candidates.TryGetValue(kv.Key, out var c))
+                AddWeight(userWeights.CategoryByName, c.Category, w);
+        }
 
-        var seedIds = contactEvents
-            .GroupBy(x => x.OfferId, StringComparer.Ordinal)
-            .Select(g => new
-            {
-                OfferId = g.Key,
-                Weight = g.Sum(x => EventWeight(x.EventType)),
-                LatestAt = g.Max(x => x.CreatedAt),
-            })
-            .OrderByDescending(x => x.Weight)
-            .ThenByDescending(x => x.LatestAt)
-            .Select(x => x.OfferId)
-            .Where(candidates.ContainsKey)
-            .ToHashSet(StringComparer.Ordinal);
-
-        return new ContactGraphSignals(contactSignalWeights, seedIds);
+        foreach (var kv in commentLikeCounts)
+        {
+            var w = LikeOfferWeight * LikeCommentMultiplier * kv.Value;
+            AddWeight(userWeights.DirectByOfferId, kv.Key, w);
+            if (candidates.TryGetValue(kv.Key, out var c))
+                AddWeight(userWeights.CategoryByName, c.Category, w);
+        }
     }
+
+    private static void AddContactInterestWithTrust(
+        UserInterestWeights userWeights,
+        IReadOnlyList<InteractionPoint> contactEvents,
+        IReadOnlyDictionary<string, int> contactOfferLikeCounts,
+        IReadOnlyDictionary<string, int> contactCommentLikeCounts,
+        IReadOnlyDictionary<string, OfferCandidate> candidates)
+    {
+        foreach (var ev in contactEvents)
+        {
+            if (!candidates.TryGetValue(ev.OfferId, out var c))
+                continue;
+            var tn = TrustNorm(c.TrustScore);
+            var w = EventWeight(ev.EventType) * tn;
+            AddWeight(userWeights.DirectByOfferId, ev.OfferId, w);
+            AddWeight(userWeights.CategoryByName, c.Category, w);
+        }
+
+        foreach (var kv in contactOfferLikeCounts)
+        {
+            if (!candidates.TryGetValue(kv.Key, out var c))
+                continue;
+            var tn = TrustNorm(c.TrustScore);
+            var w = LikeOfferWeight * kv.Value * tn;
+            AddWeight(userWeights.DirectByOfferId, kv.Key, w);
+            AddWeight(userWeights.CategoryByName, c.Category, w);
+        }
+
+        foreach (var kv in contactCommentLikeCounts)
+        {
+            if (!candidates.TryGetValue(kv.Key, out var c))
+                continue;
+            var tn = TrustNorm(c.TrustScore);
+            var w = LikeOfferWeight * LikeCommentMultiplier * kv.Value * tn;
+            AddWeight(userWeights.DirectByOfferId, kv.Key, w);
+            AddWeight(userWeights.CategoryByName, c.Category, w);
+        }
+    }
+
+    private static double TrustNorm(int trustScore) =>
+        Clamp01(trustScore / 100d);
+
+    private static double PopularityTrustMultiplier(int trustScore) =>
+        Math.Pow(Clamp01(trustScore / 100d), PopularityTrustGamma);
 
     private static void ApplyInquiryFallbacksToPopularity(
         IReadOnlyDictionary<string, OfferCandidate> candidates,
@@ -230,15 +338,13 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
         string viewerId,
         DateTimeOffset now,
         IReadOnlyDictionary<string, OfferCandidate> candidates,
-        IReadOnlyList<string> contactIds,
         UserInterestWeights userWeights,
-        ContactGraphSignals contactSignals,
-        IReadOnlyDictionary<string, double> popularityWeights)
+        IReadOnlyDictionary<string, double> popularityWeightsRaw)
     {
         var maxDirect = MaxOrZero(userWeights.DirectByOfferId.Values);
         var maxCategory = MaxOrZero(userWeights.CategoryByName.Values);
-        var maxPopularity = MaxOrZero(popularityWeights.Values);
-        var contactDenominator = Math.Max(1, contactIds.Count) * 3d;
+        var maxPopularity = MaxOrZero(candidates.Values.Select(c =>
+            GetWeight(popularityWeightsRaw, c.OfferId) * PopularityTrustMultiplier(c.TrustScore)));
         var random = new Random(HashCode.Combine(viewerId, DateOnly.FromDateTime(now.UtcDateTime).GetHashCode()));
 
         return candidates.Values
@@ -248,47 +354,34 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
                 var directInterest = Normalize(GetWeight(userWeights.DirectByOfferId, candidate.OfferId), maxDirect);
                 var categoryInterest = Normalize(GetWeight(userWeights.CategoryByName, candidate.Category), maxCategory);
                 var userInterest = Math.Max(directInterest, categoryInterest);
-                var popularity = Normalize(GetWeight(popularityWeights, candidate.OfferId), maxPopularity);
+                var rawPop = GetWeight(popularityWeightsRaw, candidate.OfferId);
+                var popularity = Normalize(
+                    rawPop * PopularityTrustMultiplier(candidate.TrustScore),
+                    maxPopularity);
                 var recency = ComputeRecency(candidate.UpdatedAt, now);
                 var trustScore = Normalize(candidate.TrustScore, 100d);
-                var contactGraphScore = contactIds.Count == 0
-                    ? 0d
-                    : Clamp01(GetWeight(contactSignals.SignalByOfferId, candidate.OfferId) / contactDenominator);
 
                 var score =
                     (0.30d * categoryMatch)
                     + (0.25d * userInterest)
                     + (0.20d * popularity)
                     + (0.10d * recency)
-                    + (0.10d * trustScore)
-                    + (0.05d * contactGraphScore);
+                    + (0.15d * trustScore);
 
                 if (candidate.TrustScore < TrustPenaltyThreshold)
                     score *= 0.2d;
-                if (contactSignals.SeedIds.Contains(candidate.OfferId))
-                    score += 0.08d;
 
                 return new ScoredCandidate(
                     candidate.OfferId,
                     Clamp01(score),
-                    contactSignals.SeedIds.Contains(candidate.OfferId),
+                    false,
                     random.NextDouble());
             })
-            .OrderByDescending(x => x.IsContactSeed)
-            .ThenByDescending(x => x.Score)
-            .ThenBy(x => x.RandomTie)
             .ToList();
     }
 
-    private static List<ScoredCandidate> OrderScoredList(List<ScoredCandidate> scored, HashSet<string> contactSeedIds)
-    {
-        if (contactSeedIds.Count != 0)
-            return scored;
-        return scored
-            .OrderByDescending(x => x.Score)
-            .ThenBy(x => x.RandomTie)
-            .ToList();
-    }
+    private static List<ScoredCandidate> OrderScoredList(List<ScoredCandidate> scored) =>
+        scored.OrderByDescending(x => x.Score).ThenBy(x => x.RandomTie).ToList();
 
     private static List<string> DedupeOrderedIdsByThreshold(IReadOnlyList<ScoredCandidate> scored)
     {
@@ -317,6 +410,7 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
                 p.Category,
                 p.UpdatedAt,
                 p.OfferQaJson,
+                p.PopularityWeight,
                 OwnerUserId = p.Store.OwnerUserId,
                 TrustScore = p.Store.TrustScore,
             })
@@ -331,6 +425,7 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
                 s.Category,
                 s.UpdatedAt,
                 s.OfferQaJson,
+                s.PopularityWeight,
                 OwnerUserId = s.Store.OwnerUserId,
                 TrustScore = s.Store.TrustScore,
             })
@@ -346,7 +441,8 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
                 item.OwnerUserId,
                 item.TrustScore,
                 item.UpdatedAt,
-                CountQaItems(item.OfferQaJson));
+                CountQaItems(item.OfferQaJson),
+                item.PopularityWeight);
         }
 
         foreach (var item in services)
@@ -358,7 +454,8 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
                 item.OwnerUserId,
                 item.TrustScore,
                 item.UpdatedAt,
-                CountQaItems(item.OfferQaJson));
+                CountQaItems(item.OfferQaJson),
+                item.PopularityWeight);
         }
 
         return map;
@@ -408,7 +505,34 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
             take,
             ScoreThreshold,
             wrapped,
-            recommendedStores);
+            recommendedStores,
+            new JsonObject());
+    }
+
+    private async Task<JsonObject> BuildStoreBadgesJsonAsync(
+        IReadOnlyList<string> pageOfferIds,
+        IReadOnlyList<string> recommendedStoreIds,
+        IReadOnlyDictionary<string, OfferCandidate> candidates,
+        CancellationToken cancellationToken)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var oid in pageOfferIds)
+        {
+            if (candidates.TryGetValue(oid, out var c))
+                ids.Add(c.StoreId);
+        }
+        foreach (var sid in recommendedStoreIds)
+            ids.Add(sid);
+        if (ids.Count == 0)
+            return new JsonObject();
+
+        var rows = await db.Stores.AsNoTracking()
+            .Where(s => ids.Contains(s.Id))
+            .ToListAsync(cancellationToken);
+        var o = new JsonObject();
+        foreach (var row in rows)
+            o[row.Id] = MarketCatalogStoreBadgeJson.FromStoreRow(row);
+        return o;
     }
 
     /// <summary>
@@ -576,10 +700,6 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
         Dictionary<string, double> DirectByOfferId,
         Dictionary<string, double> CategoryByName);
 
-    private sealed record ContactGraphSignals(
-        Dictionary<string, double> SignalByOfferId,
-        HashSet<string> SeedIds);
-
     private sealed record OfferCandidate(
         string OfferId,
         string StoreId,
@@ -587,7 +707,8 @@ public sealed class RecommendationService(AppDbContext db, IOfferEngagementServi
         string OwnerUserId,
         int TrustScore,
         DateTimeOffset UpdatedAt,
-        int InquiryCount);
+        int InquiryCount,
+        double PopularityWeight);
 
     private sealed record InteractionPoint(
         string UserId,

@@ -54,4 +54,10 @@ public sealed class StoreProductRow
     public string OfferQaJson { get; set; } = "[]";
 
     public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>
+    /// Peso de popularidad (últimos 30 días): interacciones ponderadas + likes a oferta + likes a comentarios × 0,25.
+    /// Denormalizado para lectura rápida en recomendaciones.
+    /// </summary>
+    public double PopularityWeight { get; set; }
 }

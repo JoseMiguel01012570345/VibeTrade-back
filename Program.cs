@@ -43,6 +43,9 @@ builder.Services.AddScoped<RequestTimeZoneContext>();
 builder.Services.AddSingleton<IMarketWorkspaceIntegrity, MarketWorkspaceIntegrity>();
 builder.Services.AddScoped<IMarketWorkspaceRepository, MarketWorkspaceRepository>();
 builder.Services.AddScoped<IMarketCatalogSyncService, MarketCatalogSyncService>();
+builder.Services.Configure<OfferPopularityWeightOptions>(
+    builder.Configuration.GetSection(OfferPopularityWeightOptions.SectionName));
+builder.Services.AddScoped<IOfferPopularityWeightService, OfferPopularityWeightService>();
 builder.Services.AddScoped<IOfferEngagementService, OfferEngagementService>();
 builder.Services.AddScoped<IMarketWorkspaceService, MarketWorkspaceService>();
 builder.Services.AddScoped<IMarketCatalogStoreSearchService, MarketCatalogStoreSearchService>();
@@ -52,6 +55,7 @@ builder.Services.AddScoped<ISavedOffersService, SavedOffersService>();
 builder.Services.AddScoped<IRecommendationService, RecommendationService>();
 builder.Services.AddSingleton<IGuestInteractionStore, GuestInteractionStore>();
 builder.Services.AddScoped<IGuestRecommendationService, GuestRecommendationService>();
+builder.Services.AddHostedService<OfferPopularityWeightBackfillHostedService>();
 builder.Services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
 builder.Services.AddScoped<IUserContactsService, UserContactsService>();
 builder.Services.AddScoped<IAuthService, AuthService>();

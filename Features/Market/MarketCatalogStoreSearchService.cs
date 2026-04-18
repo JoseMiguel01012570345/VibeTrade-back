@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -407,9 +408,9 @@ public sealed class MarketCatalogStoreSearchService(
             foreach (var it in batchItems)
             {
                 var key = it.Kind == CatalogSearchKinds.Store
-                    ? $"store:{it.Store["id"]}"
+                    ? $"store:{it.Store.Id}"
                     : it.Offer is null
-                        ? $"x:{it.Store["id"]}"
+                        ? $"x:{it.Store.Id}"
                         : $"{it.Kind}:{it.Offer["id"]}";
 
                 if (!seenKeys.Add(key))
@@ -463,7 +464,7 @@ public sealed class MarketCatalogStoreSearchService(
                 continue;
             publishedProductCountByStore.TryGetValue(row.Id, out var pp);
             publishedServiceCountByStore.TryGetValue(row.Id, out var ps);
-            var storeJson = BuildStoreBadgeJson(row);
+            var storeBadge = BuildStoreBadge(row);
 
             if (ctx.TrustMin is not null && row.TrustScore < ctx.TrustMin.Value)
                 continue;
@@ -472,7 +473,7 @@ public sealed class MarketCatalogStoreSearchService(
             {
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Store,
-                    storeJson,
+                    storeBadge,
                     null,
                     pp,
                     ps,
@@ -485,7 +486,7 @@ public sealed class MarketCatalogStoreSearchService(
             {
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Product,
-                    storeJson,
+                    storeBadge,
                     BuildProductOfferJson(pr),
                     pp,
                     ps,
@@ -498,7 +499,7 @@ public sealed class MarketCatalogStoreSearchService(
             {
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Service,
-                    storeJson,
+                    storeBadge,
                     BuildServiceOfferJson(sv),
                     pp,
                     ps,
@@ -557,27 +558,49 @@ public sealed class MarketCatalogStoreSearchService(
         return (publishedProductCountByStore, publishedServiceCountByStore, productsById, servicesById);
     }
 
-    private static JsonObject BuildStoreBadgeJson(StoreRow row)
+    private static CatalogSearchStoreBadge BuildStoreBadge(StoreRow row)
     {
-        var node = new JsonObject
-        {
-            ["id"] = row.Id,
-            ["name"] = row.Name,
-            ["verified"] = row.Verified,
-            ["transportIncluded"] = row.TransportIncluded,
-            ["trustScore"] = row.TrustScore,
-            ["ownerUserId"] = row.OwnerUserId,
-        };
-        if (!string.IsNullOrEmpty(row.AvatarUrl))
-            node["avatarUrl"] = row.AvatarUrl;
-
-        try { node["categories"] = JsonNode.Parse(row.CategoriesJson) ?? new JsonArray(); }
-        catch { node["categories"] = new JsonArray(); }
-
+        CatalogSearchStoreLocation? loc = null;
         if (row.LocationLatitude is { } la && row.LocationLongitude is { } lo)
-            node["location"] = new JsonObject { ["lat"] = la, ["lng"] = lo };
+            loc = new CatalogSearchStoreLocation(la, lo);
+        return new CatalogSearchStoreBadge(
+            row.Id,
+            row.Name,
+            row.Verified,
+            row.TransportIncluded,
+            row.TrustScore,
+            row.OwnerUserId,
+            string.IsNullOrEmpty(row.AvatarUrl) ? null : row.AvatarUrl,
+            ParseStoreCategories(row.CategoriesJson),
+            loc,
+            string.IsNullOrWhiteSpace(row.Pitch) ? null : row.Pitch.Trim(),
+            string.IsNullOrWhiteSpace(row.WebsiteUrl) ? null : row.WebsiteUrl.Trim());
+    }
 
-        return node;
+    private static IReadOnlyList<string> ParseStoreCategories(string? categoriesJson)
+    {
+        if (string.IsNullOrWhiteSpace(categoriesJson))
+            return Array.Empty<string>();
+        try
+        {
+            using var doc = JsonDocument.Parse(categoriesJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                return Array.Empty<string>();
+            var list = new List<string>();
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                if (el.ValueKind != JsonValueKind.String)
+                    continue;
+                var s = el.GetString();
+                if (!string.IsNullOrEmpty(s))
+                    list.Add(s);
+            }
+            return list;
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
     }
 
     private static JsonObject BuildProductOfferJson(StoreProductRow p)

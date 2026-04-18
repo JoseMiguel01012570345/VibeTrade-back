@@ -55,11 +55,9 @@ public sealed class GuestRecommendationService(
                 AddWeight(category, c.Category, w);
         }
 
-        var popularityWeights = await LoadPopularityWeightsAsync(now, cancellationToken);
-
         var maxDirect = MaxOrZero(direct.Values);
         var maxCategory = MaxOrZero(category.Values);
-        var maxPopularity = MaxOrZero(popularityWeights.Values);
+        var maxPopularity = MaxOrZero(candidates.Values.Select(c => c.PopularityWeight));
         var random = new Random(HashCode.Combine(gid, DateOnly.FromDateTime(now.UtcDateTime).GetHashCode()));
 
         var scored = candidates.Values
@@ -69,7 +67,7 @@ public sealed class GuestRecommendationService(
                 var directInterest = Normalize(GetWeight(direct, c.OfferId), maxDirect);
                 var categoryInterest = Normalize(GetWeight(category, c.Category), maxCategory);
                 var userInterest = Math.Max(directInterest, categoryInterest);
-                var popularity = Normalize(GetWeight(popularityWeights, c.OfferId), maxPopularity);
+                var popularity = Normalize(c.PopularityWeight, maxPopularity);
                 var recency = ComputeRecency(c.UpdatedAt, now);
                 var trustScore = Normalize(c.TrustScore, 100d);
 
@@ -93,7 +91,34 @@ public sealed class GuestRecommendationService(
         var page = BuildPage(scored, candidates, batchSize, cursor);
         var offers = await BuildOffersJsonForIdsAsync(page.OfferIds, cancellationToken);
         await offerEngagement.EnrichOffersJsonAsync(offers, "g:" + gid, cancellationToken);
-        return page with { Offers = offers };
+        var storeBadges = await BuildStoreBadgesJsonAsync(page.OfferIds, page.RecommendedStoreIds, candidates, cancellationToken);
+        return page with { Offers = offers, StoreBadges = storeBadges };
+    }
+
+    private async Task<JsonObject> BuildStoreBadgesJsonAsync(
+        IReadOnlyList<string> pageOfferIds,
+        IReadOnlyList<string> recommendedStoreIds,
+        IReadOnlyDictionary<string, OfferCandidate> candidates,
+        CancellationToken cancellationToken)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var oid in pageOfferIds)
+        {
+            if (candidates.TryGetValue(oid, out var c))
+                ids.Add(c.StoreId);
+        }
+        foreach (var sid in recommendedStoreIds)
+            ids.Add(sid);
+        if (ids.Count == 0)
+            return new JsonObject();
+
+        var rows = await db.Stores.AsNoTracking()
+            .Where(s => ids.Contains(s.Id))
+            .ToListAsync(cancellationToken);
+        var o = new JsonObject();
+        foreach (var row in rows)
+            o[row.Id] = MarketCatalogStoreBadgeJson.FromStoreRow(row);
+        return o;
     }
 
     private sealed record OfferCandidate(
@@ -101,7 +126,8 @@ public sealed class GuestRecommendationService(
         string StoreId,
         string Category,
         int TrustScore,
-        DateTimeOffset UpdatedAt);
+        DateTimeOffset UpdatedAt,
+        double PopularityWeight);
 
     private sealed record ScoredCandidate(string OfferId, double Score, double RandomTie);
 
@@ -109,34 +135,20 @@ public sealed class GuestRecommendationService(
     {
         var products = await db.StoreProducts.AsNoTracking()
             .Where(p => p.Published)
-            .Select(p => new { p.Id, p.StoreId, p.Category, p.UpdatedAt, TrustScore = p.Store.TrustScore })
+            .Select(p => new { p.Id, p.StoreId, p.Category, p.UpdatedAt, p.PopularityWeight, TrustScore = p.Store.TrustScore })
             .ToListAsync(cancellationToken);
 
         var services = await db.StoreServices.AsNoTracking()
             .Where(s => s.Published == null || s.Published == true)
-            .Select(s => new { s.Id, s.StoreId, s.Category, s.UpdatedAt, TrustScore = s.Store.TrustScore })
+            .Select(s => new { s.Id, s.StoreId, s.Category, s.UpdatedAt, s.PopularityWeight, TrustScore = s.Store.TrustScore })
             .ToListAsync(cancellationToken);
 
         var map = new Dictionary<string, OfferCandidate>(StringComparer.Ordinal);
         foreach (var p in products)
-            map[p.Id] = new OfferCandidate(p.Id, p.StoreId, p.Category ?? "", p.TrustScore, p.UpdatedAt);
+            map[p.Id] = new OfferCandidate(p.Id, p.StoreId, p.Category ?? "", p.TrustScore, p.UpdatedAt, p.PopularityWeight);
         foreach (var s in services)
-            map[s.Id] = new OfferCandidate(s.Id, s.StoreId, s.Category ?? "", s.TrustScore, s.UpdatedAt);
+            map[s.Id] = new OfferCandidate(s.Id, s.StoreId, s.Category ?? "", s.TrustScore, s.UpdatedAt, s.PopularityWeight);
         return map;
-    }
-
-    private async Task<Dictionary<string, double>> LoadPopularityWeightsAsync(DateTimeOffset now, CancellationToken cancellationToken)
-    {
-        var popularitySince = now.AddDays(-30);
-        return await db.UserOfferInteractions.AsNoTracking()
-            .Where(x => x.CreatedAt >= popularitySince)
-            .GroupBy(x => x.OfferId)
-            .Select(g => new
-            {
-                OfferId = g.Key,
-                Weight = g.Sum(x => x.EventType == "chat_start" ? 3 : x.EventType == "inquiry" ? 2 : 1),
-            })
-            .ToDictionaryAsync(x => x.OfferId, x => (double)x.Weight, cancellationToken);
     }
 
     private static RecommendationBatchResponse BuildPage(
@@ -191,7 +203,8 @@ public sealed class GuestRecommendationService(
             take,
             RecommendationService.ScoreThreshold,
             wrapped,
-            stores);
+            stores,
+            new JsonObject());
     }
 
     private async Task<JsonObject> BuildOffersJsonForIdsAsync(

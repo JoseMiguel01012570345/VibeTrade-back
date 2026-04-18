@@ -20,6 +20,10 @@ internal static class MarketStoreRowWorkspaceMapper
         row.AvatarUrl = MarketCatalogJsonHelpers.GetString(el, "avatarUrl");
         row.CategoriesJson = MarketCatalogJsonHelpers.SerializeStringArray(el, "categories");
         row.UpdatedAt = now;
+        var pitch = MarketCatalogJsonHelpers.GetString(el, "pitch");
+        if (pitch != null)
+            row.Pitch = pitch.Trim();
+        row.WebsiteUrl = MarketWebsiteUrlNormalizer.TryNormalize(MarketCatalogJsonHelpers.GetString(el, "websiteUrl"));
         ApplyLocation(el, row);
     }
 

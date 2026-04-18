@@ -31,6 +31,8 @@ internal static class MarketCatalogStoreBadgeJson
             node["location"] = new JsonObject { ["lat"] = la, ["lng"] = lo };
         if (!string.IsNullOrWhiteSpace(s.Pitch))
             node["pitch"] = s.Pitch.Trim();
+        if (!string.IsNullOrWhiteSpace(s.WebsiteUrl))
+            node["websiteUrl"] = s.WebsiteUrl.Trim();
         return node;
     }
 }

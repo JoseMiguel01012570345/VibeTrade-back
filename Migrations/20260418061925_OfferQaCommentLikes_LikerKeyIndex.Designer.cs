@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using VibeTrade.Backend.Data;
@@ -11,9 +12,11 @@ using VibeTrade.Backend.Data;
 namespace VibeTrade.Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260418061925_OfferQaCommentLikes_LikerKeyIndex")]
+    partial class OfferQaCommentLikes_LikerKeyIndex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -373,11 +376,6 @@ namespace VibeTrade.Backend.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb");
 
-                    b.Property<double>("PopularityWeight")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("double precision")
-                        .HasDefaultValue(0.0);
-
                     b.Property<string>("Price")
                         .IsRequired()
                         .HasColumnType("text");
@@ -474,10 +472,6 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<bool>("Verified")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("WebsiteUrl")
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("NormalizedName")
@@ -538,11 +532,6 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<string>("PhotoUrlsJson")
                         .IsRequired()
                         .HasColumnType("jsonb");
-
-                    b.Property<double>("PopularityWeight")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("double precision")
-                        .HasDefaultValue(0.0);
 
                     b.Property<string>("PropIntelectual")
                         .IsRequired()

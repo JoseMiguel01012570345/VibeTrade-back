@@ -70,6 +70,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.AvatarUrl).HasColumnType("text");
             e.Property(x => x.CategoriesJson).HasColumnType("jsonb");
             e.Property(x => x.Pitch);
+            e.Property(x => x.WebsiteUrl).HasMaxLength(2048);
             e.HasIndex(x => x.OwnerUserId);
             e.HasMany(x => x.Products)
                 .WithOne(x => x.Store)
@@ -92,6 +93,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.PhotoUrlsJson).HasColumnType("jsonb");
             e.Property(x => x.CustomFieldsJson).HasColumnType("jsonb");
             e.Property(x => x.OfferQaJson).HasColumnType("jsonb");
+            e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
             e.HasIndex(x => x.StoreId);
         });
 
@@ -108,6 +110,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.CustomFieldsJson).HasColumnType("jsonb");
             e.Property(x => x.PhotoUrlsJson).HasColumnType("jsonb");
             e.Property(x => x.OfferQaJson).HasColumnType("jsonb");
+            e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
             e.HasIndex(x => x.StoreId);
         });
 
@@ -267,6 +270,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.CreatedAtUtc);
             e.HasIndex(x => new { x.OfferId, x.QaCommentId });
             e.HasIndex(x => new { x.OfferId, x.QaCommentId, x.LikerKey }).IsUnique();
+            e.HasIndex(x => x.LikerKey);
         });
     }
 }
