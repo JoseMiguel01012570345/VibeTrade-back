@@ -15,7 +15,35 @@ public sealed class RecommendationService(
 {
     public const int DefaultBatchSize = 20;
     public const int MaxBatchSize = 20;
+    /// <summary>
+    /// Máximo de índices en la lista rankeada para cursores de recomendación; <c>nextCursor</c> no supera este valor.
+    /// </summary>
+    public const int MaxRecommendationFeedLength = 100;
     public const double ScoreThreshold = 0.35d;
+
+    /// <summary>
+    /// Copia como mucho los primeros <see cref="MaxRecommendationFeedLength"/> ids (nunca devuelve la lista completa por referencia).
+    /// </summary>
+    public static string[] CapOrderedIdsForPaging(IReadOnlyList<string> orderedIds)
+    {
+        if (orderedIds is null || orderedIds.Count == 0)
+            return [];
+        var n = Math.Min(orderedIds.Count, MaxRecommendationFeedLength);
+        var arr = new string[n];
+        for (var i = 0; i < n; i++)
+            arr[i] = orderedIds[i]!;
+        return arr;
+    }
+
+    /// <summary>Garantiza <c>nextCursor</c> y <c>totalAvailable</c> acotados al feed máximo.</summary>
+    public static (int NextCursor, int TotalAvailable) ClampBatchCursorMeta(
+        int nextCursor,
+        int feedCount)
+    {
+        var total = Math.Min(Math.Max(0, feedCount), MaxRecommendationFeedLength);
+        var next = Math.Min(Math.Max(0, nextCursor), MaxRecommendationFeedLength);
+        return (next, total);
+    }
     private const int TrustPenaltyThreshold = 40;
 
     private const double LikeOfferWeight = 1.0d;
@@ -478,30 +506,33 @@ public sealed class RecommendationService(
         int take,
         int cursor)
     {
-        if (orderedIds.Count == 0)
+        var feed = CapOrderedIdsForPaging(orderedIds);
+        if (feed.Length == 0)
             return RecommendationBatchResponse.Empty(take, ScoreThreshold);
 
         var start = cursor < 0 ? 0 : cursor;
-        if (start >= orderedIds.Count)
-            start %= orderedIds.Count;
+        if (start >= feed.Length)
+            start %= feed.Length;
 
-        var count = Math.Min(take, orderedIds.Count - start);
-        var page = orderedIds.Skip(start).Take(count).ToArray();
+        var count = Math.Min(take, feed.Length - start);
+        var page = feed.Skip(start).Take(count).ToArray();
         var nextCursor = start + count;
         var wrapped = false;
-        if (nextCursor >= orderedIds.Count)
+        if (nextCursor >= feed.Length)
         {
             nextCursor = 0;
             wrapped = true;
         }
 
-        var recommendedStores = RankRecommendedStoreIds(orderedIds, page, start, candidates, take);
+        var (cursorOut, totalOut) = ClampBatchCursorMeta(nextCursor, feed.Length);
+
+        var recommendedStores = RankRecommendedStoreIds(feed, page, start, candidates, take);
 
         return new RecommendationBatchResponse(
             page,
             new JsonObject(),
-            nextCursor,
-            orderedIds.Count,
+            cursorOut,
+            totalOut,
             take,
             ScoreThreshold,
             wrapped,

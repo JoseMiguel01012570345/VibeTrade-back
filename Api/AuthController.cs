@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Auth;
 
@@ -37,6 +38,13 @@ public sealed class AuthController(
         string? Telegram,
         string? XAccount,
         string? AvatarUrl);
+
+    /// <summary>Datos públicos para mostrar perfil de otro usuario (sin email/teléfono).</summary>
+    public sealed record PublicUserProfileResponse(
+        string Id,
+        string Name,
+        string? AvatarUrl,
+        int TrustScore);
 
     public sealed record AddContactBody(string? Phone);
 
@@ -112,6 +120,28 @@ public sealed class AuthController(
     [ProducesResponseType(typeof(IReadOnlyList<SignInCountryDto>), StatusCodes.Status200OK)]
     public ActionResult<IReadOnlyList<SignInCountryDto>> GetSignInCountries() =>
         Ok(SignInCountryCatalog.All);
+
+    /// <summary>Perfil mínimo para vitrina y enlaces (nombre, foto, confianza).</summary>
+    [HttpGet("public-profile/{userId}")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(PublicUserProfileResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PublicUserProfileResponse>> GetPublicProfile(
+        string userId,
+        CancellationToken cancellationToken = default)
+    {
+        var id = (userId ?? "").Trim();
+        if (id.Length < 2)
+            return NotFound();
+        var snap = await userAccountSync.GetProfileSnapshotByUserIdAsync(id, cancellationToken);
+        if (snap is null)
+            return NotFound();
+        return Ok(new PublicUserProfileResponse(
+            snap.Id,
+            string.IsNullOrWhiteSpace(snap.DisplayName) ? "Usuario" : snap.DisplayName.Trim(),
+            snap.AvatarUrl,
+            snap.TrustScore));
+    }
 
     /// <summary>Actualiza campos del perfil persistidos (avatar referenciando <c>/api/v1/media/…</c>).</summary>
     [HttpPatch("profile")]

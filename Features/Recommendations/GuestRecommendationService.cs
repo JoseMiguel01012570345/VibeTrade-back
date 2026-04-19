@@ -157,27 +157,30 @@ public sealed class GuestRecommendationService(
         int take,
         int cursor)
     {
-        if (orderedIds.Count == 0)
+        var feed = RecommendationService.CapOrderedIdsForPaging(orderedIds);
+        if (feed.Length == 0)
             return RecommendationBatchResponse.Empty(take, RecommendationService.ScoreThreshold);
 
         var start = cursor < 0 ? 0 : cursor;
-        if (start >= orderedIds.Count)
-            start %= orderedIds.Count;
+        if (start >= feed.Length)
+            start %= feed.Length;
 
-        var count = Math.Min(take, orderedIds.Count - start);
-        var page = orderedIds.Skip(start).Take(count).ToArray();
+        var count = Math.Min(take, feed.Length - start);
+        var page = feed.Skip(start).Take(count).ToArray();
         var nextCursor = start + count;
         var wrapped = false;
-        if (nextCursor >= orderedIds.Count)
+        if (nextCursor >= feed.Length)
         {
             nextCursor = 0;
             wrapped = true;
         }
 
+        var (cursorOut, totalOut) = RecommendationService.ClampBatchCursorMeta(nextCursor, feed.Length);
+
         // guest: recomendación simple de tiendas según ventana actual.
         var storeRaw = new Dictionary<string, double>(StringComparer.Ordinal);
         var denom = 0d;
-        var lengthFeed = orderedIds.Count;
+        var lengthFeed = feed.Length;
         for (var i = 0; i < page.Length; i++)
         {
             var pos = start + i;
@@ -198,8 +201,8 @@ public sealed class GuestRecommendationService(
         return new RecommendationBatchResponse(
             page,
             new JsonObject(),
-            nextCursor,
-            orderedIds.Count,
+            cursorOut,
+            totalOut,
             take,
             RecommendationService.ScoreThreshold,
             wrapped,
