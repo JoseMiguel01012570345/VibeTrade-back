@@ -325,13 +325,13 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         return created;
     }
 
+    /// <summary>
+    /// Solo el comprador recibe el hilo al crearlo; el vendedor lo recibe tras el primer mensaje
+    /// (<see cref="InsertChatMessageAsync"/>).
+    /// </summary>
     private async Task NotifyThreadCreatedAsync(ChatThreadDto dto, CancellationToken cancellationToken)
     {
         await hub.Clients.Group($"user:{dto.BuyerUserId}").SendAsync(
-            "threadCreated",
-            new { thread = dto },
-            cancellationToken);
-        await hub.Clients.Group($"user:{dto.SellerUserId}").SendAsync(
             "threadCreated",
             new { thread = dto },
             cancellationToken);
@@ -607,6 +607,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
+        var sellerHadNotSeenThreadYet = thread.FirstMessageSentAtUtc is null;
         if (thread.FirstMessageSentAtUtc is null)
             thread.FirstMessageSentAtUtc = now;
 
@@ -629,6 +630,17 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         await NotifyRecipientAsync(recipientId, thread, row, preview, senderUserId, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
+
+        // El vendedor no recibe threadCreated al pulsar «Comprar»; solo cuando hay al menos un mensaje.
+        if (sellerHadNotSeenThreadYet)
+        {
+            var threadDto = await MapThreadWithBuyerLabelAsync(thread, cancellationToken);
+            await hub.Clients.Group(HubUserGroup(thread.SellerUserId)).SendAsync(
+                "threadCreated",
+                new { thread = threadDto },
+                cancellationToken);
+        }
+
         var senderLabel = await GetParticipantAuthorLabelAsync(thread, senderUserId, cancellationToken);
         var dto = MapMessage(row, senderLabel);
         await HubSendToThreadParticipantsAsync(
@@ -1105,6 +1117,25 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             return;
 
         await db.SaveChangesAsync(cancellationToken);
+
+        // Si el primer mensaje del hilo viene de esta sincronización (no de InsertChatMessageAsync), el vendedor aún no recibió threadCreated.
+        foreach (var g in hubRows.GroupBy(r => r.ThreadId))
+        {
+            var tid = g.Key;
+            var thread = threads.FirstOrDefault(t => t.Id == tid);
+            if (thread is null)
+                continue;
+            var totalMsgs = await db.ChatMessages.AsNoTracking()
+                .CountAsync(m => m.ThreadId == tid && m.DeletedAtUtc == null, cancellationToken);
+            if (totalMsgs != g.Count())
+                continue;
+            var threadDto = await MapThreadWithBuyerLabelAsync(thread, cancellationToken);
+            await hub.Clients.Group(HubUserGroup(thread.SellerUserId)).SendAsync(
+                "threadCreated",
+                new { thread = threadDto },
+                cancellationToken);
+        }
+
         await BroadcastNewOfferQaMessagesToHubAsync(hubRows, threads, cancellationToken);
     }
 

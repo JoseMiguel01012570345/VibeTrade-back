@@ -81,7 +81,7 @@ builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o =>
 {
-    o.SwaggerDoc("v1", new OpenApiInfo
+    o.SwaggerDoc("v1", new OpenApiInfo  
     {
         Title = "VibeTrade API",
         Version = "v1",

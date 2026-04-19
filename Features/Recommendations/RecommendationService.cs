@@ -481,9 +481,9 @@ public sealed class RecommendationService(
         if (orderedIds.Count == 0)
             return RecommendationBatchResponse.Empty(take, ScoreThreshold);
 
-        var start = cursor;
-        if (start < 0 || start >= orderedIds.Count)
-            start = 0;
+        var start = cursor < 0 ? 0 : cursor;
+        if (start >= orderedIds.Count)
+            start %= orderedIds.Count;
 
         var count = Math.Min(take, orderedIds.Count - start);
         var page = orderedIds.Skip(start).Take(count).ToArray();
