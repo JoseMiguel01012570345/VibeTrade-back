@@ -12,10 +12,11 @@ using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Api;
 
-/// <summary>Mercado: workspace (GET), tiendas/catálogo/consultas (PUT por recurso), búsqueda y detalle.</summary>
+/// <summary>Mercado: workspace JSON, CRUD de fichas, búsqueda, QA público, engagement y detalle de tienda.</summary>
 [ApiController]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
+[Tags("Market")]
 public sealed class MarketController(
     IMarketWorkspaceService marketWorkspace,
     IMarketCatalogSyncService catalog,
@@ -36,7 +37,13 @@ public sealed class MarketController(
 
     public sealed record ToggleEngagementBody(string? GuestId);
 
+    /// <summary>Cuerpo para <c>POST /inquiries</c> (la API usa la sesión para <c>askedBy</c>).</summary>
+    /// <param name="OfferId">Id del producto o servicio (oferta).</param>
     /// <param name="Question">Legado; preferí <paramref name="Text"/>.</param>
+    /// <param name="Text">Texto de la pregunta o comentario público.</param>
+    /// <param name="ParentId">Opcional: id del comentario padre (hilo tipo reels).</param>
+    /// <param name="AskedBy">En el DTO de cliente; el servidor puede sobreescribir con la sesión.</param>
+    /// <param name="CreatedAt">Epoch ms opcional (cliente).</param>
     public sealed record PostInquiryBody(
         string OfferId,
         string? Question,
@@ -65,6 +72,16 @@ public sealed class MarketController(
     /// Busca en Elasticsearch (índice de catálogo): tiendas, productos y servicios (nombre, categoría, distancia km).
     /// Sin Elasticsearch o si la búsqueda falla: respuesta vacía. Tolerancia a typos: fuzzy de Lucene en la query (<c>ElasticsearchStoreSearchQuery</c>).
     /// </summary>
+    /// <param name="name">Texto libre (nombre de tienda u oferta).</param>
+    /// <param name="category">Filtro por categoría de catálogo.</param>
+    /// <param name="kinds">Tipos de resultado (convención del servicio de búsqueda).</param>
+    /// <param name="trustMin">Puntuación mínima de confianza.</param>
+    /// <param name="lat">Latitud WGS84 para radio.</param>
+    /// <param name="lng">Longitud WGS84 para radio.</param>
+    /// <param name="km">Radio en kilómetros alrededor de <paramref name="lat"/>/<paramref name="lng"/>.</param>
+    /// <param name="limit">Tamaño de página.</param>
+    /// <param name="offset">Desplazamiento.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
     [AllowAnonymous]
     [HttpGet("stores/search")]
     [ProducesResponseType(typeof(StoreSearchResponse), StatusCodes.Status200OK)]
@@ -98,6 +115,11 @@ public sealed class MarketController(
     /// Autocomplete público para el input "Buscar" del catálogo (tiendas + ofertas publicadas).
     /// Devuelve sugerencias de texto para <c>name</c> (no ejecuta búsqueda completa).
     /// </summary>
+    /// <param name="q">Prefijo o fragmento de búsqueda.</param>
+    /// <param name="category">Filtro opcional.</param>
+    /// <param name="kinds">Tipos de sugerencia.</param>
+    /// <param name="limit">Máximo de ítems.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
     [AllowAnonymous]
     [HttpGet("stores/autocomplete")]
     [ProducesResponseType(typeof(StoreAutocompleteResponse), StatusCodes.Status200OK)]
@@ -117,7 +139,7 @@ public sealed class MarketController(
         return Ok(response);
     }
 
-    /// <summary>Obtiene el snapshot actual del mercado; si la base está vacía, aplica seed embebido.</summary>
+    /// <summary>Obtiene el snapshot actual del mercado (tiendas, ofertas, ids) materializado desde PostgreSQL.</summary>
     [HttpGet("workspace")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
@@ -204,7 +226,11 @@ public sealed class MarketController(
         return Ok();
     }
 
-    /// <summary>Persiste una sola ficha de producto (cuerpo = JSON del producto, sin envolver en catálogo).</summary>
+    /// <summary>Alta/edición de una ficha de producto (dueño de la tienda); cuerpo = JSON de producto.</summary>
+    /// <param name="storeId">Id de la tienda.</param>
+    /// <param name="productId">Id estable del producto.</param>
+    /// <param name="body">Documento JSON de la ficha de producto.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpPut("stores/{storeId}/products/{productId}")]
     [RequestSizeLimit(524_288_000L)]
     [Consumes("application/json")]
@@ -233,6 +259,7 @@ public sealed class MarketController(
         }
     }
 
+    /// <summary>Elimina un producto del catálogo (dueño de la tienda).</summary>
     [HttpDelete("stores/{storeId}/products/{productId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -250,7 +277,11 @@ public sealed class MarketController(
         return MapCatalogUpsert(r);
     }
 
-    /// <summary>Persiste una sola ficha de servicio (cuerpo = JSON del servicio).</summary>
+    /// <summary>Alta/edición de una ficha de servicio (dueño de la tienda).</summary>
+    /// <param name="storeId">Id de la tienda.</param>
+    /// <param name="serviceId">Id estable del servicio.</param>
+    /// <param name="body">Documento JSON de la ficha de servicio.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpPut("stores/{storeId}/services/{serviceId}")]
     [RequestSizeLimit(524_288_000L)]
     [Consumes("application/json")]
@@ -279,6 +310,7 @@ public sealed class MarketController(
         }
     }
 
+    /// <summary>Elimina un servicio del catálogo (dueño de la tienda).</summary>
     [HttpDelete("stores/{storeId}/services/{serviceId}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -405,7 +437,7 @@ public sealed class MarketController(
         return Content(enriched ?? "[]", "application/json");
     }
 
-    /// <summary>Alternar like en la oferta (solo usuario autenticado).</summary>
+    /// <summary>Alterna el like en la oferta (requiere Bearer; no invitado anónimo).</summary>
     [HttpPost("offers/{offerId}/like")]
     [AllowAnonymous]
     [Consumes("application/json")]
@@ -438,7 +470,7 @@ public sealed class MarketController(
         return Ok(new { liked, likeCount });
     }
 
-    /// <summary>Alternar like en un comentario QA (<c>id</c> del ítem en <c>OfferQaJson</c>); solo sesión.</summary>
+    /// <summary>Alterna like en un ítem QA (id del comentario en el array persistido).</summary>
     [HttpPost("offers/{offerId}/qa/{qaCommentId}/like")]
     [AllowAnonymous]
     [Consumes("application/json")]
@@ -504,7 +536,7 @@ public sealed class MarketController(
         return string.IsNullOrWhiteSpace(userId) ? null : "u:" + userId.Trim();
     }
 
-    /// <summary>Sincronización masiva de <c>offers[*].qa</c> (legado / herramientas).</summary>
+    /// <summary>Sincronización masiva de bloques <c>qa</c> del workspace (legado / importación).</summary>
     [HttpPut("inquiries")]
     [HttpPut("workspace/inquiries")]
     [RequestSizeLimit(524_288_000L)]
@@ -526,8 +558,11 @@ public sealed class MarketController(
     }
 
     /// <summary>
-    /// Detalle de tienda + catálogo (carga bajo demanda). El cuerpo identifica al visitante para futura personalización.
+    /// Detalle de tienda + catálogo completo; enriquece ofertas con likes/comentarios según sesión opcional.
     /// </summary>
+    /// <param name="storeId">Id de la tienda.</param>
+    /// <param name="body">Opcional: <c>viewerUserId</c> / <c>viewerRole</c> para metadatos en la respuesta.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpPost("stores/{storeId}/detail")]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]

@@ -6,20 +6,27 @@ using VibeTrade.Backend.Features.Auth;
 
 namespace VibeTrade.Backend.Api;
 
-/// <summary>Subida y descarga de archivos binarios (imágenes, PDFs, docs). GET es público; POST requiere sesión.</summary>
+/// <summary>Almacenamiento de medios binarios (bytea en PostgreSQL); GET público por id.</summary>
 [ApiController]
 [Route("api/v1/[controller]")]
+[Tags("Media")]
 public sealed class MediaController(AppDbContext db, IAuthService auth) : ControllerBase
 {
     public sealed record MediaUploadResponse(string Id, string MimeType, string FileName, long SizeBytes);
     private const long MaxBytes = 5L * 1024 * 1024;
 
+    /// <summary>
+    /// Sube un archivo multipart (máx. 5 MB); devuelve id para referenciar en perfil u ofertas.
+    /// Sin <c>[FromForm]</c>: Swashbuckle falla al generar OpenAPI con <c>[FromForm] IFormFile</c>; el binding sigue usando el campo de formulario <c>file</c>.
+    /// </summary>
     [HttpPost]
     [RequestSizeLimit(524_288_000L)]
     [Consumes("multipart/form-data")]
     [ProducesResponseType(typeof(MediaUploadResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<MediaUploadResponse>> Upload([FromForm] IFormFile file, CancellationToken cancellationToken)
+    [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
+    public async Task<ActionResult<MediaUploadResponse>> Upload(IFormFile file, CancellationToken cancellationToken)
     {
         if (!auth.TryGetUserByToken(Request.Headers.Authorization, out _))
             return Unauthorized();
@@ -50,9 +57,9 @@ public sealed class MediaController(AppDbContext db, IAuthService auth) : Contro
         return Ok(new MediaUploadResponse(row.Id, row.MimeType, row.FileName, row.SizeBytes));
     }
 
+    /// <summary>Descarga el binario con <c>Content-Disposition: inline</c> (adecuado para imágenes en &lt;img&gt;).</summary>
     [HttpGet("{id}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Get(string id, CancellationToken cancellationToken)
     {

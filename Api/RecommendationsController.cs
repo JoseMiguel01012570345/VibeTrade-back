@@ -5,9 +5,11 @@ using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Api;
 
+/// <summary>Feed de recomendaciones personalizado e interacciones para afinar el ranking.</summary>
 [ApiController]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
+[Tags("Recommendations")]
 public sealed class RecommendationsController(
     IRecommendationService recommendations,
     IAuthService auth,
@@ -16,6 +18,10 @@ public sealed class RecommendationsController(
 {
     public sealed record TrackInteractionBody(string? OfferId, string? EventType);
 
+    /// <summary>Lote de ofertas recomendadas para el usuario autenticado (cursor + take).</summary>
+    /// <param name="cursor">Índice de inicio en el feed ordenado.</param>
+    /// <param name="take">Cantidad de ítems (acotado por el servidor).</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpGet]
     [ProducesResponseType(typeof(RecommendationBatchResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -36,6 +42,7 @@ public sealed class RecommendationsController(
         return Ok(batch);
     }
 
+    /// <summary>Registra una interacción (<c>click</c>, <c>inquiry</c>, <c>chat_start</c>) para el ranking.</summary>
     [HttpPost("interactions")]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -63,6 +70,11 @@ public sealed class RecommendationsController(
 
     public sealed record TrackGuestInteractionBody(string? GuestId, string? OfferId, string? EventType);
 
+    /// <summary>Feed de recomendaciones para un invitado (sin sesión).</summary>
+    /// <param name="guestId">Identificador estable del invitado (mín. 8 caracteres).</param>
+    /// <param name="cursor">Índice de inicio en el feed ordenado.</param>
+    /// <param name="take">Cantidad de ítems (acotado por el servidor).</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpGet("guest")]
     [ProducesResponseType(typeof(RecommendationBatchResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -84,6 +96,7 @@ public sealed class RecommendationsController(
         return Ok(batch);
     }
 
+    /// <summary>Registra interacción de invitado en memoria para el ranking de <c>guest</c>.</summary>
     [HttpPost("guest/interactions")]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

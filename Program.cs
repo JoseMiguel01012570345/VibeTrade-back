@@ -5,6 +5,7 @@ using DotNetEnv;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.OpenApi.Models;
+using VibeTrade.Backend.Api.Swagger;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Auth;
@@ -14,8 +15,9 @@ using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Search;
 using VibeTrade.Backend.Features.SavedOffers;
-using VibeTrade.Backend.Api.Swagger;
+using Microsoft.Extensions.Hosting;
 using VibeTrade.Backend.Infrastructure;
+using VibeTrade.Backend.Infrastructure.DemoData;
 using VibeTrade.Backend.Utils.TimeZone;
 void TryLoadEnv(string path)
 {
@@ -84,20 +86,46 @@ builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o =>
 {
-    o.SwaggerDoc("v1", new OpenApiInfo  
+    o.SwaggerDoc("v1", new OpenApiInfo
     {
         Title = "VibeTrade API",
         Version = "v1",
         Description =
-            "REST API for the VibeTrade web client. "
-            + "Send the **X-Timezone** header (IANA id, e.g. `America/Argentina/Buenos_Aires`) on requests so the server can interpret dates in UTC (flow-ui). "
-            + "Health: `GET /health` (JSON; 503 si la base u otra dependencia falla). "
-            + "Swagger UI: **http://localhost:5110/swagger** o **http://127.0.0.1:5110/swagger** (puerto 5110 = solo HTTP).",
+            "### Visión general\n"
+            + "API REST usada por el cliente web VibeTrade: mercado, autenticación por OTP, chat, recomendaciones y medios.\n\n"
+            + "### Cabeceras\n"
+            + "- **`X-Timezone`**: zona horaria IANA del cliente (p. ej. `America/Havana`, `America/Argentina/Buenos_Aires`). "
+            + "Recomendada en las peticiones para interpretar fechas correctamente.\n"
+            + "- **`Authorization`**: `Bearer {token}` tras `POST /api/v1/auth/verify` (sesión opaca almacenada en servidor).\n\n"
+            + "### Salud y entorno\n"
+            + "- `GET /health` — JSON; **503** si PostgreSQL u otra dependencia falla.\n"
+            + "- Swagger UI local: `http://localhost:5110/swagger` (puerto HTTP por defecto del backend).\n\n"
+            + "### Convenciones\n"
+            + "- Rutas bajo prefijo `api/v1/` salvo `GET /health`.\n"
+            + "- Cuerpos JSON en **camelCase** (configuración ASP.NET Core).",
+        Contact = new OpenApiContact
+        {
+            Name = "VibeTrade",
+        },
     });
+
+    o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description =
+            "Token de sesión devuelto por `POST /api/v1/auth/verify` en el campo `sessionToken`. "
+            + "Usar el botón **Authorize** y el esquema `Bearer` para probar rutas que requieren sesión.",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "opaque",
+    });
+
     var xml = Path.Combine(AppContext.BaseDirectory, $"{Assembly.GetExecutingAssembly().GetName().Name}.xml");
     if (File.Exists(xml))
         o.IncludeXmlComments(xml, includeControllerXmlComments: true);
     o.OperationFilter<XTimezoneHeaderOperationFilter>();
+    o.DocumentFilter<TagDescriptionsDocumentFilter>();
 });
 
 builder.Services.AddCors(o =>
@@ -152,8 +180,9 @@ await using (var seedScope = app.Services.CreateAsyncScope())
     var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
     var seedCfg = seedScope.ServiceProvider.GetRequiredService<IConfiguration>();
     var seedLog = seedScope.ServiceProvider.GetRequiredService<ILoggerFactory>()
-        .CreateLogger("VibeTrade.Backend.Infrastructure.DemoDataSeed");
-    await DemoDataSeed.RunIfNeededAsync(seedDb, seedCfg, seedLog);
+        .CreateLogger("VibeTrade.Backend.Infrastructure.DemoData.DemoDataSeed");
+    var hostEnv = seedScope.ServiceProvider.GetRequiredService<IHostEnvironment>();
+    await DemoDataSeed.RunIfNeededAsync(seedDb, seedCfg, seedLog, hostEnv);
 }
 
 app.UseRouting();

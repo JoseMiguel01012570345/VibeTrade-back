@@ -8,6 +8,7 @@ namespace VibeTrade.Backend.Api;
 [ApiController]
 [Route("api/v1/me/saved-offers")]
 [Produces("application/json")]
+[Tags("Saved offers")]
 public sealed class SavedOffersController(IAuthService auth, ISavedOffersService savedOffers) : ControllerBase
 {
     public sealed record SaveBody(string ProductId);
@@ -46,7 +47,7 @@ public sealed class SavedOffersController(IAuthService auth, ISavedOffersService
         return Ok(new SavedOfferIdsResponse(ids));
     }
 
-    /// <summary>Quita un id de la lista guardada.</summary>
+    /// <summary>Quita un id de la lista guardada; devuelve la lista actualizada.</summary>
     [HttpDelete("{productId}")]
     [ProducesResponseType(typeof(SavedOfferIdsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

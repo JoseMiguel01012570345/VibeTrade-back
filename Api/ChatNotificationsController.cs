@@ -5,13 +5,16 @@ using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Api;
 
+/// <summary>Notificaciones del chat (comentarios en ofertas, likes, etc.).</summary>
 [ApiController]
 [Route("api/v1/me")]
 [Produces("application/json")]
+[Tags("Notifications")]
 public sealed class ChatNotificationsController(IAuthService auth, IChatService chat) : ControllerBase
 {
     public sealed record MarkReadBody(string[]? Ids);
 
+    /// <summary>Lista notificaciones no leídas o recientes del usuario.</summary>
     [HttpGet("notifications")]
     [ProducesResponseType(typeof(IReadOnlyList<ChatNotificationDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -24,6 +27,7 @@ public sealed class ChatNotificationsController(IAuthService auth, IChatService 
         return Ok(list);
     }
 
+    /// <summary>Marca notificaciones como leídas; si <c>ids</c> es null, marca todas.</summary>
     [HttpPost("notifications/mark-read")]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
