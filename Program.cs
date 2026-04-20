@@ -18,7 +18,6 @@ using VibeTrade.Backend.Features.SavedOffers;
 using Microsoft.Extensions.Hosting;
 using VibeTrade.Backend.Infrastructure;
 using VibeTrade.Backend.Infrastructure.DemoData;
-using VibeTrade.Backend.Utils.TimeZone;
 void TryLoadEnv(string path)
 {
     if (File.Exists(path))
@@ -41,7 +40,6 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString)
         .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
-builder.Services.AddScoped<RequestTimeZoneContext>();
 builder.Services.AddSingleton<IMarketWorkspaceIntegrity, MarketWorkspaceIntegrity>();
 builder.Services.AddScoped<IMarketWorkspaceRepository, MarketWorkspaceRepository>();
 builder.Services.AddScoped<IMarketCatalogSyncService, MarketCatalogSyncService>();
@@ -94,8 +92,6 @@ builder.Services.AddSwaggerGen(o =>
             "### Visión general\n"
             + "API REST usada por el cliente web VibeTrade: mercado, autenticación por OTP, chat, recomendaciones y medios.\n\n"
             + "### Cabeceras\n"
-            + "- **`X-Timezone`**: zona horaria IANA del cliente (p. ej. `America/Havana`, `America/Argentina/Buenos_Aires`). "
-            + "Recomendada en las peticiones para interpretar fechas correctamente.\n"
             + "- **`Authorization`**: `Bearer {token}` tras `POST /api/v1/auth/verify` (sesión opaca almacenada en servidor).\n\n"
             + "### Salud y entorno\n"
             + "- `GET /health` — JSON; **503** si PostgreSQL u otra dependencia falla.\n"
@@ -124,7 +120,6 @@ builder.Services.AddSwaggerGen(o =>
     var xml = Path.Combine(AppContext.BaseDirectory, $"{Assembly.GetExecutingAssembly().GetName().Name}.xml");
     if (File.Exists(xml))
         o.IncludeXmlComments(xml, includeControllerXmlComments: true);
-    o.OperationFilter<XTimezoneHeaderOperationFilter>();
     o.DocumentFilter<TagDescriptionsDocumentFilter>();
 });
 
@@ -203,7 +198,6 @@ if (app.Configuration.GetValue("Swagger:Enabled", true))
     });
 }
 
-app.UseMiddleware<TimeZoneHeaderMiddleware>();
 app.MapControllers();
 app.MapHub<ChatHub>("/ws/chat").RequireCors("Dev");
 

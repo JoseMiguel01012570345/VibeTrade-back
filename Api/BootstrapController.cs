@@ -12,7 +12,7 @@ namespace VibeTrade.Backend.Api;
 public sealed class BootstrapController(IBootstrapService bootstrap, IAuthService auth) : ControllerBase
 {
     /// <summary>Bootstrap autenticado: mercado + reels + recomendaciones + hilos del vendedor fusionados con PostgreSQL.</summary>
-    /// <remarks>Requiere <c>Authorization: Bearer</c>. Cabecera recomendada: <c>X-Timezone</c> (IANA).</remarks>
+    /// <remarks>Requiere <c>Authorization: Bearer</c>.</remarks>
     /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
