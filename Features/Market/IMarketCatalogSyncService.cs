@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Features.Market;
 
@@ -30,8 +31,8 @@ public interface IMarketCatalogSyncService
     /// <summary>Autor del comentario con <paramref name="commentId"/> en la oferta (producto/servicio).</summary>
     Task<string?> TryGetOfferCommentAuthorIdAsync(string offerId, string commentId, CancellationToken cancellationToken = default);
 
-    /// <summary>JSON array <c>OfferQaJson</c> tal cual en BD, o null si no existe el producto/servicio.</summary>
-    Task<string?> GetOfferQaJsonForOfferAsync(string offerId, CancellationToken cancellationToken = default);
+    /// <summary>Comentarios QA persistidos (jsonb <c>OfferQaJson</c>), o null si no existe la oferta.</summary>
+    Task<IReadOnlyList<OfferQaComment>?> GetOfferQaForOfferAsync(string offerId, CancellationToken cancellationToken = default);
 
     Task<JsonObject> BuildStoresJsonObjectAsync(CancellationToken cancellationToken = default);
 

@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace VibeTrade.Backend.Features.Market.Utils;
 
@@ -42,18 +41,4 @@ internal static class MarketCatalogJsonHelpers
         return false;
     }
 
-    public static JsonArray ParseOfferQaArray(string? json)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(json))
-                return new JsonArray();
-            var n = JsonNode.Parse(json);
-            return n as JsonArray ?? new JsonArray();
-        }
-        catch
-        {
-            return new JsonArray();
-        }
-    }
 }

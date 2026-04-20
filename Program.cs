@@ -53,6 +53,8 @@ builder.Services.AddScoped<IBootstrapService, BootstrapService>();
 builder.Services.AddScoped<IGuestBootstrapService, GuestBootstrapService>();
 builder.Services.AddScoped<ISavedOffersService, SavedOffersService>();
 builder.Services.AddScoped<IRecommendationService, RecommendationService>();
+builder.Services.AddScoped<IRecommendationElasticsearchQuery, RecommendationElasticsearchQuery>();
+builder.Services.AddScoped<RecommendationFeedV2>();
 builder.Services.AddSingleton<IGuestInteractionStore, GuestInteractionStore>();
 builder.Services.AddScoped<IGuestRecommendationService, GuestRecommendationService>();
 builder.Services.AddHostedService<OfferPopularityWeightBackfillHostedService>();
@@ -68,6 +70,7 @@ builder.Services.AddSingleton<IStoreSearchTextEmbeddingService, StoreSearchMlNet
 builder.Services.AddScoped<IElasticsearchStoreSearchQuery, ElasticsearchStoreSearchQuery>();
 builder.Services.AddScoped<IStoreSearchIndexWriter, ElasticsearchStoreSearchIndexWriter>();
 builder.Services.AddHostedService<ElasticsearchSearchStartupHostedService>();
+builder.Services.AddHostedService<ElasticsearchDailyReindexHostedService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(o =>

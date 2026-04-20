@@ -1,3 +1,5 @@
+using VibeTrade.Backend.Domain.Market;
+
 namespace VibeTrade.Backend.Data.Entities;
 
 /// <summary>Producto de catálogo de una tienda.</summary>
@@ -50,8 +52,8 @@ public sealed class StoreProductRow
     /// <summary>Lista de campos personalizados (JSON, alineado a StoreCustomField[]).</summary>
     public string CustomFieldsJson { get; set; } = "[]";
 
-    /// <summary>Preguntas y respuestas públicas de la oferta (JSON array, mismo shape que el cliente).</summary>
-    public string OfferQaJson { get; set; } = "[]";
+    /// <summary>Preguntas y respuestas públicas (jsonb <c>OfferQaJson</c>).</summary>
+    public List<OfferQaComment> OfferQa { get; set; } = new();
 
     public DateTimeOffset UpdatedAt { get; set; }
 

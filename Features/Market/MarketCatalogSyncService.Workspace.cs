@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Market.Utils;
 
 namespace VibeTrade.Backend.Features.Market;
@@ -232,11 +233,12 @@ public sealed partial class MarketCatalogSyncService
 
             var qaRaw = qaEl.GetRawText();
             var id = prop.Name;
+            var qaList = OfferQaJson.FromJsonb(qaRaw);
 
             var product = db.StoreProducts.Find(id);
             if (product is not null)
             {
-                product.OfferQaJson = qaRaw;
+                product.OfferQa = qaList;
                 product.UpdatedAt = now;
                 continue;
             }
@@ -244,7 +246,7 @@ public sealed partial class MarketCatalogSyncService
             var service = db.StoreServices.Find(id);
             if (service is not null)
             {
-                service.OfferQaJson = qaRaw;
+                service.OfferQa = qaList;
                 service.UpdatedAt = now;
             }
         }

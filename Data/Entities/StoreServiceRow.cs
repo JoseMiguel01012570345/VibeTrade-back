@@ -1,3 +1,5 @@
+using VibeTrade.Backend.Domain.Market;
+
 namespace VibeTrade.Backend.Data.Entities;
 
 /// <summary>Servicio de catálogo de una tienda.</summary>
@@ -43,8 +45,8 @@ public sealed class StoreServiceRow
     /// <summary>Array JSON de URLs de imágenes (mismo contrato que productos).</summary>
     public string PhotoUrlsJson { get; set; } = "[]";
 
-    /// <summary>Preguntas y respuestas públicas de la oferta (JSON array).</summary>
-    public string OfferQaJson { get; set; } = "[]";
+    /// <summary>Preguntas y respuestas públicas (jsonb <c>OfferQaJson</c>).</summary>
+    public List<OfferQaComment> OfferQa { get; set; } = new();
 
     public DateTimeOffset UpdatedAt { get; set; }
 

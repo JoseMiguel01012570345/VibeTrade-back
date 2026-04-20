@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Features.Market.Utils;
 
@@ -35,7 +36,7 @@ internal static class MarketCatalogOfferJsonBuilder
             ["tags"] = new JsonArray(tags.Select(t => (JsonNode?)JsonValue.Create(t)).ToArray()),
             ["imageUrl"] = primary,
             ["imageUrls"] = new JsonArray(photoUrls.Select(u => (JsonNode?)JsonValue.Create(u)).ToArray()),
-            ["qa"] = MarketCatalogJsonHelpers.ParseOfferQaArray(p.OfferQaJson),
+            ["qa"] = OfferQaJson.ToJsonNode(p.OfferQa),
         };
     }
 
@@ -70,7 +71,7 @@ internal static class MarketCatalogOfferJsonBuilder
             ["tags"] = new JsonArray(tags.Select(t => (JsonNode?)JsonValue.Create(t)).ToArray()),
             ["imageUrl"] = primary,
             ["imageUrls"] = imageUrlsNode,
-            ["qa"] = MarketCatalogJsonHelpers.ParseOfferQaArray(s.OfferQaJson),
+            ["qa"] = OfferQaJson.ToJsonNode(s.OfferQa),
         };
     }
 

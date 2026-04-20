@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Features.Market;
 
@@ -8,7 +9,7 @@ public interface IOfferEngagementService
     Task EnrichOffersJsonAsync(JsonObject offers, string? likerKey, CancellationToken cancellationToken = default);
 
     /// <summary>Array QA con <c>likeCount</c> y <c>viewerLiked</c> por ítem.</summary>
-    Task<string?> EnrichOfferQaJsonAsync(string offerId, string qaJson, string? likerKey, CancellationToken cancellationToken = default);
+    Task<string?> EnrichOfferQaJsonAsync(string offerId, IReadOnlyList<OfferQaComment> qa, string? likerKey, CancellationToken cancellationToken = default);
 
     Task<(bool Liked, int LikeCount)> ToggleOfferLikeAsync(string offerId, string likerKey, CancellationToken cancellationToken = default);
 

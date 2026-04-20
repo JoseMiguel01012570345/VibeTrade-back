@@ -179,7 +179,7 @@ public static class DemoDataSeed
             Published = true,
             PhotoUrlsJson = "[]",
             CustomFieldsJson = "[]",
-            OfferQaJson = "[]",
+            OfferQa = new List<OfferQaComment>(),
             UpdatedAt = now,
         });
     }
@@ -208,7 +208,7 @@ public static class DemoDataSeed
             MonedasJson = """["USD"]""",
             CustomFieldsJson = "[]",
             PhotoUrlsJson = "[]",
-            OfferQaJson = "[]",
+            OfferQa = new List<OfferQaComment>(),
             UpdatedAt = now,
         });
     }

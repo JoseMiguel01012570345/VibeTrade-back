@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Recommendations;
 
 namespace VibeTrade.Backend.Features.Market;
@@ -61,7 +62,7 @@ public sealed class OfferEngagementService(
 
     public async Task<string?> EnrichOfferQaJsonAsync(
         string offerId,
-        string qaJson,
+        IReadOnlyList<OfferQaComment> qa,
         string? likerKey,
         CancellationToken cancellationToken = default)
     {
@@ -72,7 +73,7 @@ public sealed class OfferEngagementService(
         JsonArray? arr;
         try
         {
-            var root = JsonNode.Parse(string.IsNullOrWhiteSpace(qaJson) ? "[]" : qaJson);
+            var root = JsonNode.Parse(OfferQaJson.ToJsonb(qa.ToList()));
             arr = root as JsonArray;
         }
         catch

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Data;
 
@@ -92,7 +93,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.MonedasJson).HasColumnType("jsonb");
             e.Property(x => x.PhotoUrlsJson).HasColumnType("jsonb");
             e.Property(x => x.CustomFieldsJson).HasColumnType("jsonb");
-            e.Property(x => x.OfferQaJson).HasColumnType("jsonb");
+            e.Property(x => x.OfferQa)
+                .HasColumnName("OfferQaJson")
+                .HasColumnType("jsonb")
+                .HasConversion(OfferQaJson.CreateEfConverter());
             e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
             e.HasIndex(x => x.StoreId);
         });
@@ -109,7 +113,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.MonedasJson).HasColumnType("jsonb");
             e.Property(x => x.CustomFieldsJson).HasColumnType("jsonb");
             e.Property(x => x.PhotoUrlsJson).HasColumnType("jsonb");
-            e.Property(x => x.OfferQaJson).HasColumnType("jsonb");
+            e.Property(x => x.OfferQa)
+                .HasColumnName("OfferQaJson")
+                .HasColumnType("jsonb")
+                .HasConversion(OfferQaJson.CreateEfConverter());
             e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
             e.HasIndex(x => x.StoreId);
         });

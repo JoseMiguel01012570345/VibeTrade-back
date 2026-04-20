@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Features.Market.Utils;
 
@@ -33,7 +34,7 @@ internal static class MarketCatalogRowJsonSerialization
             o["taxesShippingInstall"] = p.TaxesShippingInstall;
         o["photoUrls"] = TryParseArray(p.PhotoUrlsJson);
         o["customFields"] = TryParseArray(p.CustomFieldsJson);
-        o["qa"] = TryParseArray(p.OfferQaJson);
+        o["qa"] = OfferQaJson.ToJsonNode(p.OfferQa);
         return o;
     }
 
@@ -62,7 +63,7 @@ internal static class MarketCatalogRowJsonSerialization
         o["photoUrls"] = urls.Count > 0
             ? new JsonArray(urls.Select(u => (JsonNode?)JsonValue.Create(u)).ToArray())
             : new JsonArray();
-        o["qa"] = TryParseArray(s.OfferQaJson);
+        o["qa"] = OfferQaJson.ToJsonNode(s.OfferQa);
         return o;
     }
 

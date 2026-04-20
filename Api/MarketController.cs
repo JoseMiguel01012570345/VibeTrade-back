@@ -397,11 +397,11 @@ public sealed class MarketController(
         string offerId,
         CancellationToken cancellationToken)
     {
-        var json = await catalog.GetOfferQaJsonForOfferAsync(offerId, cancellationToken);
-        if (json is null)
+        var qa = await catalog.GetOfferQaForOfferAsync(offerId, cancellationToken);
+        if (qa is null)
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
         var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
-        var enriched = await offerEngagement.EnrichOfferQaJsonAsync(offerId, json, likerKey, cancellationToken);
+        var enriched = await offerEngagement.EnrichOfferQaJsonAsync(offerId, qa, likerKey, cancellationToken);
         return Content(enriched ?? "[]", "application/json");
     }
 

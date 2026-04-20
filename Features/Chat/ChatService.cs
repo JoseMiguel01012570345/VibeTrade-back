@@ -1,9 +1,9 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Features.Chat;
 
@@ -1071,12 +1071,8 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         if (oid.Length < 4)
             return;
 
-        var qaJson = await GetOfferQaJsonForOfferAsync(oid, cancellationToken);
-        if (string.IsNullOrWhiteSpace(qaJson))
-            return;
-
-        var root = JsonNode.Parse(qaJson);
-        if (root is not JsonArray arr)
+        var qaList = await GetOfferQaListForOfferAsync(oid, cancellationToken);
+        if (qaList is null || qaList.Count == 0)
             return;
 
         var threads = await GetActiveThreadsForOfferAsync(oid, cancellationToken);
@@ -1087,9 +1083,9 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         var now = DateTimeOffset.UtcNow;
         var hubRows = new List<ChatMessageRow>();
 
-        foreach (var node in arr)
+        foreach (var c in qaList)
         {
-            if (node is not JsonObject o || !TryParseOfferQaSyncEntry(o, out var qaId, out var answer, out var buyerId))
+            if (!TryGetOfferQaSyncEntry(c, out var qaId, out var answer, out var buyerId))
                 continue;
 
             var thread = threads.FirstOrDefault(t => t.BuyerUserId == buyerId);
@@ -1139,16 +1135,18 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         await BroadcastNewOfferQaMessagesToHubAsync(hubRows, threads, cancellationToken);
     }
 
-    private async Task<string?> GetOfferQaJsonForOfferAsync(string offerId, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<OfferQaComment>?> GetOfferQaListForOfferAsync(
+        string offerId,
+        CancellationToken cancellationToken)
     {
         var product = await db.StoreProducts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(product?.OfferQaJson))
-            return product!.OfferQaJson;
+        if (product is not null)
+            return product.OfferQa;
 
         var service = await db.StoreServices.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
-        return string.IsNullOrWhiteSpace(service?.OfferQaJson) ? null : service!.OfferQaJson;
+        return service?.OfferQa;
     }
 
     private async Task<List<ChatThreadRow>> GetActiveThreadsForOfferAsync(
@@ -1177,36 +1175,19 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         return sellerMsgsCache;
     }
 
-    private static bool TryParseOfferQaSyncEntry(
-        JsonObject o,
+    private static bool TryGetOfferQaSyncEntry(
+        OfferQaComment c,
         out string qaId,
         out string answer,
         out string buyerId)
     {
-        qaId = "";
-        answer = "";
-        buyerId = "";
-
-        if (!o.TryGetPropertyValue("id", out var idNode) || idNode is not JsonValue idVal)
+        qaId = (c.Id ?? "").Trim();
+        answer = (c.Answer ?? "").Trim();
+        buyerId = (c.AskedBy?.Id ?? "").Trim();
+        if (string.IsNullOrEmpty(qaId) || answer.Length == 0)
             return false;
-        qaId = idVal.GetValue<string>()?.Trim() ?? "";
-        if (string.IsNullOrEmpty(qaId))
-            return false;
-
-        if (!o.TryGetPropertyValue("answer", out var ansNode) || ansNode is not JsonValue ansVal)
-            return false;
-        answer = (ansVal.GetValue<string>() ?? "").Trim();
-        if (answer.Length == 0)
-            return false;
-
-        if (!o.TryGetPropertyValue("askedBy", out var abNode) || abNode is not JsonObject askedByObj)
-            return false;
-        if (!askedByObj.TryGetPropertyValue("id", out var bidNode) || bidNode is not JsonValue bidVal)
-            return false;
-        buyerId = bidVal.GetValue<string>()?.Trim() ?? "";
         if (string.IsNullOrEmpty(buyerId) || buyerId.Equals("guest", StringComparison.OrdinalIgnoreCase))
             return false;
-
         return true;
     }
 

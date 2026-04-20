@@ -2,6 +2,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Features.Search;
 
@@ -47,7 +48,7 @@ internal static class CatalogSearchEmbeddingText
         AppendLine(sb, "ContentIncluded", p.ContentIncluded);
         AppendLine(sb, "UsageConditions", p.UsageConditions);
         AppendLine(sb, "CustomFields", p.CustomFieldsJson);
-        AppendLine(sb, "OfferQa", p.OfferQaJson);
+        AppendLine(sb, "OfferQa", OfferQaJson.ToJsonb(p.OfferQa));
         AppendFoldedLine(sb, store.Name, p.Name, p.Category, p.ShortDescription);
         return Normalize(sb.ToString());
     }
@@ -69,7 +70,7 @@ internal static class CatalogSearchEmbeddingText
         AppendLine(sb, "Dependencias", sv.DependenciasJson);
         AppendLine(sb, "Garantias", sv.GarantiasJson);
         AppendLine(sb, "CustomFields", sv.CustomFieldsJson);
-        AppendLine(sb, "OfferQa", sv.OfferQaJson);
+        AppendLine(sb, "OfferQa", OfferQaJson.ToJsonb(sv.OfferQa));
         AppendFoldedLine(sb, store.Name, sv.TipoServicio, sv.Category, sv.Descripcion);
         return Normalize(sb.ToString());
     }

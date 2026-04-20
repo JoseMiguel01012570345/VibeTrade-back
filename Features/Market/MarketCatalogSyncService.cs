@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market.Utils;
 using VibeTrade.Backend.Features.Search;
@@ -49,55 +50,54 @@ public sealed partial class MarketCatalogSyncService(
             ? ms
             : now.ToUnixTimeMilliseconds();
 
-        // Dos objetos distintos: JsonNode no permite compartir la misma instancia entre propiedades (un solo padre).
-        JsonObject BuildAuthorSnapshot() => new JsonObject
+        var author = new OfferQaAuthorSnapshot
         {
-            ["id"] = askedById,
-            ["name"] = askedByName,
-            ["trustScore"] = trustScore,
+            Id = askedById,
+            Name = askedByName,
+            TrustScore = trustScore,
         };
 
-        var newItem = new JsonObject
+        var newItem = new OfferQaComment
         {
-            ["id"] = qaId,
-            ["text"] = text,
-            ["question"] = text,
-            ["parentId"] = pid,
-            ["askedBy"] = BuildAuthorSnapshot(),
-            ["author"] = BuildAuthorSnapshot(),
-            ["createdAt"] = createdMs,
+            Id = qaId,
+            Text = text,
+            Question = text,
+            ParentId = pid,
+            AskedBy = author,
+            Author = author,
+            CreatedAt = createdMs,
         };
 
         var product = await db.StoreProducts.FindAsync([offerId], cancellationToken);
         if (product is not null)
         {
-            var arr = MarketCatalogJsonHelpers.ParseOfferQaArray(product.OfferQaJson);
-            if (pid is not null && !CommentIdExistsInArray(arr, pid))
+            var list = product.OfferQa.ToList();
+            if (pid is not null && !list.Any(x => string.Equals(x.Id, pid, StringComparison.Ordinal)))
                 throw new ArgumentException("parentId no corresponde a un comentario de esta oferta.", nameof(parentId));
-            arr.Insert(0, newItem);
-            product.OfferQaJson = arr.ToJsonString();
+            list.Insert(0, newItem);
+            product.OfferQa = list;
             product.UpdatedAt = now;
             await db.SaveChangesAsync(cancellationToken);
-            return newItem;
+            return JsonSerializer.SerializeToNode(newItem, OfferQaJson.SerializerOptions) as JsonObject;
         }
 
         var service = await db.StoreServices.FindAsync([offerId], cancellationToken);
         if (service is not null)
         {
-            var arr = MarketCatalogJsonHelpers.ParseOfferQaArray(service.OfferQaJson);
-            if (pid is not null && !CommentIdExistsInArray(arr, pid))
+            var list = service.OfferQa.ToList();
+            if (pid is not null && !list.Any(x => string.Equals(x.Id, pid, StringComparison.Ordinal)))
                 throw new ArgumentException("parentId no corresponde a un comentario de esta oferta.", nameof(parentId));
-            arr.Insert(0, newItem);
-            service.OfferQaJson = arr.ToJsonString();
+            list.Insert(0, newItem);
+            service.OfferQa = list;
             service.UpdatedAt = now;
             await db.SaveChangesAsync(cancellationToken);
-            return newItem;
+            return JsonSerializer.SerializeToNode(newItem, OfferQaJson.SerializerOptions) as JsonObject;
         }
 
         return null;
     }
 
-    public async Task<string?> GetOfferQaJsonForOfferAsync(
+    public async Task<IReadOnlyList<OfferQaComment>?> GetOfferQaForOfferAsync(
         string offerId,
         CancellationToken cancellationToken = default)
     {
@@ -108,13 +108,11 @@ public sealed partial class MarketCatalogSyncService(
         var product = await db.StoreProducts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
         if (product is not null)
-            return string.IsNullOrWhiteSpace(product.OfferQaJson) ? "[]" : product.OfferQaJson;
+            return product.OfferQa;
 
         var service = await db.StoreServices.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
-        if (service is null)
-            return null;
-        return string.IsNullOrWhiteSpace(service.OfferQaJson) ? "[]" : service.OfferQaJson;
+        return service?.OfferQa;
     }
 
     public async Task<string?> TryGetOfferCommentAuthorIdAsync(
@@ -129,50 +127,29 @@ public sealed partial class MarketCatalogSyncService(
 
         var product = await db.StoreProducts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
-        var json = product?.OfferQaJson;
-        if (json is null)
+        var list = product?.OfferQa;
+        if (list is null || list.Count == 0)
         {
             var service = await db.StoreServices.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
-            json = service?.OfferQaJson;
+            list = service?.OfferQa;
         }
 
-        if (string.IsNullOrWhiteSpace(json))
+        if (list is null)
             return null;
 
-        try
+        foreach (var o in list)
         {
-            var arr = JsonNode.Parse(json) as JsonArray;
-            if (arr is null)
-                return null;
-            foreach (var node in arr)
-            {
-                if (node is not JsonObject o)
-                    continue;
-                if (!string.Equals(o["id"]?.GetValue<string>(), cid, StringComparison.Ordinal))
-                    continue;
-                if (o["author"] is JsonObject auth && auth["id"]?.GetValue<string>() is { } a)
-                    return a;
-                if (o["askedBy"] is JsonObject ask && ask["id"]?.GetValue<string>() is { } b)
-                    return b;
-            }
-        }
-        catch
-        {
-            return null;
+            if (!string.Equals(o.Id, cid, StringComparison.Ordinal))
+                continue;
+            var a = o.Author?.Id?.Trim();
+            if (!string.IsNullOrEmpty(a))
+                return a;
+            var b = o.AskedBy?.Id?.Trim();
+            if (!string.IsNullOrEmpty(b))
+                return b;
         }
 
         return null;
-    }
-
-    private static bool CommentIdExistsInArray(JsonArray arr, string commentId)
-    {
-        foreach (var node in arr)
-        {
-            if (node is JsonObject o && string.Equals(o["id"]?.GetValue<string>(), commentId, StringComparison.Ordinal))
-                return true;
-        }
-
-        return false;
     }
 }
