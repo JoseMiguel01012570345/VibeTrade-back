@@ -41,7 +41,7 @@ public sealed class RecommendationService(
         var offers = await BuildOffersJsonForIdsAsync(pageIds, cancellationToken);
         await offerEngagement.EnrichOffersJsonAsync(offers, "u:" + userId, cancellationToken);
         var storeBadges = await BuildStoreBadgesJsonAsync(pageIds, candidates, cancellationToken);
-        return new RecommendationBatchResponse(offers, storeBadges, batchSize, ScoreThreshold);
+        return new RecommendationBatchResponse(pageIds, offers, storeBadges, batchSize, ScoreThreshold);
     }
 
     public async Task RecordInteractionAsync(

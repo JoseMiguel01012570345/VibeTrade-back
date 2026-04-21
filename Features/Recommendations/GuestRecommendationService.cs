@@ -92,7 +92,7 @@ public sealed class GuestRecommendationService(
         var offers = await BuildOffersJsonForIdsAsync(topIds, cancellationToken);
         await offerEngagement.EnrichOffersJsonAsync(offers, "g:" + gid, cancellationToken);
         var storeBadges = await BuildStoreBadgesJsonAsync(topIds, candidates, cancellationToken);
-        return new RecommendationBatchResponse(offers, storeBadges, batchSize, RecommendationService.ScoreThreshold);
+        return new RecommendationBatchResponse(topIds, offers, storeBadges, batchSize, RecommendationService.ScoreThreshold);
     }
 
     private async Task<JsonObject> BuildStoreBadgesJsonAsync(

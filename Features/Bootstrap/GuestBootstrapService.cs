@@ -34,7 +34,9 @@ public sealed class GuestBootstrapService(
             RecommendationService.MaxBatchSize,
             cancellationToken);
 
-        var bootRecOfferIds = recommendationFeed.Offers.Select(kv => kv.Key).ToArray();
+        var bootRecOfferIds = recommendationFeed.OfferIds.Length > 0
+            ? recommendationFeed.OfferIds
+            : recommendationFeed.Offers.Select(kv => kv.Key).ToArray();
         marketObj["offerIds"] = JsonSerializer.SerializeToNode(bootRecOfferIds, JsonOptions) ?? new JsonArray();
 
         const string reels =
