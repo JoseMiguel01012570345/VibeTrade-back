@@ -31,7 +31,7 @@ public sealed class GuestBootstrapService(
 
         var recommendationFeed = await recommendations.GetBatchAsync(
             guestId,
-            RecommendationService.DefaultBatchSize,
+            RecommendationService.MaxBatchSize,
             cancellationToken);
 
         var bootRecOfferIds = recommendationFeed.Offers.Select(kv => kv.Key).ToArray();

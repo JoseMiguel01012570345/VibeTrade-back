@@ -14,7 +14,8 @@ public sealed class RecommendationService(
     RecommendationFeedV2 feedV2) : IRecommendationService
 {
     public const int DefaultBatchSize = 20;
-    public const int MaxBatchSize = 20;
+    /// <summary>Tope de <c>take</c> en API / bootstrap; el cliente pide 140 y parte en lotes de 20.</summary>
+    public const int MaxBatchSize = 140;
     public const double ScoreThreshold = 0.35d;
 
     public async Task<RecommendationBatchResponse> GetBatchAsync(
