@@ -3,28 +3,19 @@ using System.Text.Json.Nodes;
 namespace VibeTrade.Backend.Features.Recommendations;
 
 /// <summary>
-/// Lote de recomendaciones. <see cref="StoreBadges"/> repite la forma de <c>market.stores[*]</c> para refrescar URL y metadatos en el cliente.
+/// Lote de recomendaciones. Las ofertas van en <see cref="Offers"/>; el cliente toma el orden por las claves del objeto.
+/// <see cref="StoreBadges"/> repite la forma de <c>market.stores[*]</c> para refrescar URL y metadatos.
 /// </summary>
 public sealed record RecommendationBatchResponse(
-    IReadOnlyList<string> OfferIds,
     JsonObject Offers,
-    int NextCursor,
-    int TotalAvailable,
+    JsonObject StoreBadges,
     int BatchSize,
-    double Threshold,
-    bool Wrapped,
-    IReadOnlyList<string> RecommendedStoreIds,
-    JsonObject StoreBadges)
+    double Threshold)
 {
     public static RecommendationBatchResponse Empty(int batchSize, double threshold) =>
         new(
-            Array.Empty<string>(),
             new JsonObject(),
-            0,
-            0,
+            new JsonObject(),
             Math.Max(1, batchSize),
-            threshold,
-            false,
-            Array.Empty<string>(),
-            new JsonObject());
+            threshold);
 }

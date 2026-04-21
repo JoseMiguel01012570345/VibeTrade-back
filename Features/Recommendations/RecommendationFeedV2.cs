@@ -11,6 +11,7 @@ namespace VibeTrade.Backend.Features.Recommendations;
 /// <summary>
 /// Recomendaciones V2: palabras ponderadas (oferta vs comentarios + likes), bulks,
 /// consultas Elasticsearch y semilla de hasta 100 ofertas (70/20/10). Sin cargar el catálogo completo en RAM.
+/// El merge final respeta el tope pedido (típicamente el <c>take</c> del lote).
 /// </summary>
 public sealed class RecommendationFeedV2(
     AppDbContext db,
@@ -30,6 +31,7 @@ public sealed class RecommendationFeedV2(
         List<InteractionPoint> contactEvents,
         DateTimeOffset now,
         double scoreThreshold,
+        int maxMergedOffers,
         CancellationToken cancellationToken)
     {
         if (!elasticsearch.IsConfigured)
@@ -58,15 +60,26 @@ public sealed class RecommendationFeedV2(
 
         var random = new Random(HashCode.Combine(viewerUserId, DateOnly.FromDateTime(now.UtcDateTime).GetHashCode(), 31));
 
-        var q1 = Math.Max(1, (int)Math.Round(0.7d * RecommendationService.MaxRecommendationFeedLength));
-        var q2 = Math.Max(1, (int)Math.Round(0.2d * RecommendationService.MaxRecommendationFeedLength));
-        var q3 = Math.Max(1, RecommendationService.MaxRecommendationFeedLength - q1 - q2);
+        var cap = Math.Clamp(maxMergedOffers, 1, RecommendationService.MaxBatchSize);
+        var q1 = Math.Max(1, (int)Math.Round(0.7d * cap));
+        var q2 = Math.Max(1, (int)Math.Round(0.2d * cap));
+        int q3;
+        if (q1 + q2 >= cap)
+        {
+            q1 = Math.Max(1, cap - 1);
+            q2 = cap - q1;
+            q3 = 0;
+        }
+        else
+            q3 = cap - q1 - q2;
 
-        var hits1 = await CollectBulkHitsAsync(bulk1, viewerUserId, q1, scoreThreshold, random, cancellationToken);
-        var hits2 = await CollectBulkHitsAsync(bulk2, viewerUserId, q2, scoreThreshold, random, cancellationToken);
-        var hits3 = await CollectBulkHitsAsync(bulk3, viewerUserId, q3, scoreThreshold, random, cancellationToken);
+        var esTake = Math.Min(120, Math.Max(24, cap * 5));
 
-        var merged = MergeRoundRobin(hits1, hits2, hits3, RecommendationService.MaxRecommendationFeedLength);
+        var hits1 = await CollectBulkHitsAsync(bulk1, viewerUserId, q1, scoreThreshold, random, esTake, cancellationToken);
+        var hits2 = await CollectBulkHitsAsync(bulk2, viewerUserId, q2, scoreThreshold, random, esTake, cancellationToken);
+        var hits3 = await CollectBulkHitsAsync(bulk3, viewerUserId, q3, scoreThreshold, random, esTake, cancellationToken);
+
+        var merged = MergeRoundRobin(hits1, hits2, hits3, cap);
         return merged.Count > 0 ? merged : null;
     }
 
@@ -519,6 +532,7 @@ public sealed class RecommendationFeedV2(
         int targetDistinct,
         double relativeThreshold,
         Random random,
+        int elasticsearchTake,
         CancellationToken cancellationToken)
     {
         if (bulkWords.Count == 0 || targetDistinct <= 0)
@@ -529,7 +543,7 @@ public sealed class RecommendationFeedV2(
 
         async Task RunQueryAsync(string query, bool applyThreshold)
         {
-            var raw = await elasticsearch.SearchOffersAsync(query, 120, cancellationToken);
+            var raw = await elasticsearch.SearchOffersAsync(query, elasticsearchTake, cancellationToken);
             if (raw.Count == 0)
                 return;
             var eligible = await FilterEligibleOfferIdsFromHitsAsync(raw, viewerUserId, cancellationToken);

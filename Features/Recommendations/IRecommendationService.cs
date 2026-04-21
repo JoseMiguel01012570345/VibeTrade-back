@@ -5,7 +5,6 @@ public interface IRecommendationService
     Task<RecommendationBatchResponse> GetBatchAsync(
         string viewerUserId,
         int take,
-        int cursor,
         CancellationToken cancellationToken = default);
 
     Task RecordInteractionAsync(

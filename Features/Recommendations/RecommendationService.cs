@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
@@ -16,40 +15,11 @@ public sealed class RecommendationService(
 {
     public const int DefaultBatchSize = 20;
     public const int MaxBatchSize = 20;
-    /// <summary>
-    /// Máximo de índices en la lista rankeada para cursores de recomendación; <c>nextCursor</c> no supera este valor.
-    /// </summary>
-    public const int MaxRecommendationFeedLength = 100;
     public const double ScoreThreshold = 0.35d;
-
-    /// <summary>
-    /// Copia como mucho los primeros <see cref="MaxRecommendationFeedLength"/> ids (nunca devuelve la lista completa por referencia).
-    /// </summary>
-    public static string[] CapOrderedIdsForPaging(IReadOnlyList<string> orderedIds)
-    {
-        if (orderedIds is null || orderedIds.Count == 0)
-            return [];
-        var n = Math.Min(orderedIds.Count, MaxRecommendationFeedLength);
-        var arr = new string[n];
-        for (var i = 0; i < n; i++)
-            arr[i] = orderedIds[i]!;
-        return arr;
-    }
-
-    /// <summary>Garantiza <c>nextCursor</c> y <c>totalAvailable</c> acotados al feed máximo.</summary>
-    public static (int NextCursor, int TotalAvailable) ClampBatchCursorMeta(
-        int nextCursor,
-        int feedCount)
-    {
-        var total = Math.Min(Math.Max(0, feedCount), MaxRecommendationFeedLength);
-        var next = Math.Min(Math.Max(0, nextCursor), MaxRecommendationFeedLength);
-        return (next, total);
-    }
 
     public async Task<RecommendationBatchResponse> GetBatchAsync(
         string viewerUserId,
         int take,
-        int cursor,
         CancellationToken cancellationToken = default)
     {
         var userId = viewerUserId.Trim();
@@ -62,12 +32,15 @@ public sealed class RecommendationService(
             return RecommendationBatchResponse.Empty(DefaultBatchSize, ScoreThreshold);
 
         var batchSize = Math.Clamp(take, 1, MaxBatchSize);
-        var (orderedIds, candidates) = await BuildOrderedFeedAsync(viewer, cancellationToken);
-        var page = BuildPage(orderedIds, candidates, batchSize, cursor);
-        var offers = await BuildOffersJsonForIdsAsync(page.OfferIds, cancellationToken);
+        var (orderedIds, candidates) = await BuildOrderedFeedAsync(viewer, batchSize, cancellationToken);
+        var pageIds = orderedIds.Where(id => candidates.ContainsKey(id)).ToArray();
+        if (pageIds.Length == 0)
+            return RecommendationBatchResponse.Empty(batchSize, ScoreThreshold);
+
+        var offers = await BuildOffersJsonForIdsAsync(pageIds, cancellationToken);
         await offerEngagement.EnrichOffersJsonAsync(offers, "u:" + userId, cancellationToken);
-        var storeBadges = await BuildStoreBadgesJsonAsync(page.OfferIds, page.RecommendedStoreIds, candidates, cancellationToken);
-        return page with { Offers = offers, StoreBadges = storeBadges };
+        var storeBadges = await BuildStoreBadgesJsonAsync(pageIds, candidates, cancellationToken);
+        return new RecommendationBatchResponse(offers, storeBadges, batchSize, ScoreThreshold);
     }
 
     public async Task RecordInteractionAsync(
@@ -96,9 +69,10 @@ public sealed class RecommendationService(
         await popularityWeight.RecomputeAsync(pid, cancellationToken);
     }
 
-    private async Task<(IReadOnlyList<string> OrderedIds, Dictionary<string, OfferCandidate> Candidates)>
+    private async Task<(string[] OrderedIds, Dictionary<string, OfferCandidate> Candidates)>
         BuildOrderedFeedAsync(
             UserAccount viewer,
+            int maxOffers,
             CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
@@ -115,14 +89,15 @@ public sealed class RecommendationService(
             contactEvents,
             now,
             ScoreThreshold,
+            maxOffers,
             cancellationToken);
 
         if (v2Ids is not { Count: > 0 })
-            return (Array.Empty<string>(), new Dictionary<string, OfferCandidate>(StringComparer.Ordinal));
+            return ([], new Dictionary<string, OfferCandidate>(StringComparer.Ordinal));
 
-        var feed = CapOrderedIdsForPaging(v2Ids);
-        var candidates = await LoadCandidatesForOfferIdsAsync(viewer.Id, feed.ToHashSet(StringComparer.Ordinal), cancellationToken);
-        return (v2Ids, candidates);
+        var idList = v2Ids.Select(id => id.Trim()).Where(id => id.Length > 0).ToArray();
+        var candidates = await LoadCandidatesForOfferIdsAsync(viewer.Id, idList.ToHashSet(StringComparer.Ordinal), cancellationToken);
+        return (idList, candidates);
     }
 
     private async Task<Dictionary<string, OfferCandidate>> LoadCandidatesForOfferIdsAsync(
@@ -232,49 +207,8 @@ public sealed class RecommendationService(
             .AnyAsync(s => s.Id == offerId, cancellationToken);
     }
 
-    private static RecommendationBatchResponse BuildPage(
-        IReadOnlyList<string> orderedIds,
-        IReadOnlyDictionary<string, OfferCandidate> candidates,
-        int take,
-        int cursor)
-    {
-        var feed = CapOrderedIdsForPaging(orderedIds);
-        if (feed.Length == 0)
-            return RecommendationBatchResponse.Empty(take, ScoreThreshold);
-
-        var start = cursor < 0 ? 0 : cursor;
-        if (start >= feed.Length)
-            start %= feed.Length;
-
-        var count = Math.Min(take, feed.Length - start);
-        var page = feed.Skip(start).Take(count).ToArray();
-        var nextCursor = start + count;
-        var wrapped = false;
-        if (nextCursor >= feed.Length)
-        {
-            nextCursor = 0;
-            wrapped = true;
-        }
-
-        var (cursorOut, totalOut) = ClampBatchCursorMeta(nextCursor, feed.Length);
-
-        var recommendedStores = RankRecommendedStoreIds(feed, page, start, candidates, take);
-
-        return new RecommendationBatchResponse(
-            page,
-            new JsonObject(),
-            cursorOut,
-            totalOut,
-            take,
-            ScoreThreshold,
-            wrapped,
-            recommendedStores,
-            new JsonObject());
-    }
-
     private async Task<JsonObject> BuildStoreBadgesJsonAsync(
         IReadOnlyList<string> pageOfferIds,
-        IReadOnlyList<string> recommendedStoreIds,
         IReadOnlyDictionary<string, OfferCandidate> candidates,
         CancellationToken cancellationToken)
     {
@@ -284,8 +218,6 @@ public sealed class RecommendationService(
             if (candidates.TryGetValue(oid, out var c))
                 ids.Add(c.StoreId);
         }
-        foreach (var sid in recommendedStoreIds)
-            ids.Add(sid);
         if (ids.Count == 0)
             return new JsonObject();
 
@@ -298,53 +230,14 @@ public sealed class RecommendationService(
         return o;
     }
 
-    /// <summary>
-    /// Por ventana [start, start + page.Count): peso (lengthFeed - pos) por posición; score tienda = suma de pesos
-    /// de sus ofertas en la ventana, normalizado por la suma total de pesos de la ventana. Orden desc, hasta take ids.
-    /// </summary>
-    private static string[] RankRecommendedStoreIds(
-        IReadOnlyList<string> orderedIds,
-        IReadOnlyList<string> pageOfferIds,
-        int pageStart,
-        IReadOnlyDictionary<string, OfferCandidate> candidates,
-        int maxStores)
-    {
-        var lengthFeed = orderedIds.Count;
-        if (lengthFeed == 0 || pageOfferIds.Count == 0 || maxStores <= 0)
-            return Array.Empty<string>();
-
-        var storeRaw = new Dictionary<string, double>(StringComparer.Ordinal);
-        var denom = 0d;
-        for (var i = 0; i < pageOfferIds.Count; i++)
-        {
-            var pos = pageStart + i;
-            var w = lengthFeed - pos;
-            denom += w;
-            var offerId = pageOfferIds[i];
-            if (!candidates.TryGetValue(offerId, out var c))
-                continue;
-            storeRaw[c.StoreId] = storeRaw.GetValueOrDefault(c.StoreId) + w;
-        }
-
-        if (denom <= 0d)
-            return Array.Empty<string>();
-
-        return storeRaw
-            .OrderByDescending(kv => kv.Value / denom)
-            .ThenBy(kv => kv.Key, StringComparer.Ordinal)
-            .Take(maxStores)
-            .Select(kv => kv.Key)
-            .ToArray();
-    }
-
     private async Task<JsonObject> BuildOffersJsonForIdsAsync(
-        IReadOnlyList<string> ids,
+        IReadOnlyList<string> idsInOrder,
         CancellationToken cancellationToken)
     {
-        if (ids.Count == 0)
+        if (idsInOrder.Count == 0)
             return new JsonObject();
 
-        var idSet = ids.ToHashSet(StringComparer.Ordinal);
+        var idSet = idsInOrder.ToHashSet(StringComparer.Ordinal);
         var products = await db.StoreProducts.AsNoTracking()
             .Where(p => idSet.Contains(p.Id))
             .ToListAsync(cancellationToken);
@@ -352,11 +245,18 @@ public sealed class RecommendationService(
             .Where(s => idSet.Contains(s.Id))
             .ToListAsync(cancellationToken);
 
-        var offers = new JsonObject();
+        var byId = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
         foreach (var p in products)
-            offers[p.Id] = MarketCatalogOfferJsonBuilder.ProductRowToOfferJson(p);
+            byId[p.Id] = MarketCatalogOfferJsonBuilder.ProductRowToOfferJson(p);
         foreach (var s in services)
-            offers[s.Id] = MarketCatalogOfferJsonBuilder.ServiceRowToOfferJson(s);
+            byId[s.Id] = MarketCatalogOfferJsonBuilder.ServiceRowToOfferJson(s);
+
+        var offers = new JsonObject();
+        foreach (var id in idsInOrder)
+        {
+            if (byId.TryGetValue(id, out var node))
+                offers[id] = node;
+        }
         return offers;
     }
 

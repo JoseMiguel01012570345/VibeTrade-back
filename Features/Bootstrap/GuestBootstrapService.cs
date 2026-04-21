@@ -32,10 +32,10 @@ public sealed class GuestBootstrapService(
         var recommendationFeed = await recommendations.GetBatchAsync(
             guestId,
             RecommendationService.DefaultBatchSize,
-            0,
             cancellationToken);
 
-        marketObj["offerIds"] = JsonSerializer.SerializeToNode(recommendationFeed.OfferIds, JsonOptions) ?? new JsonArray();
+        var bootRecOfferIds = recommendationFeed.Offers.Select(kv => kv.Key).ToArray();
+        marketObj["offerIds"] = JsonSerializer.SerializeToNode(bootRecOfferIds, JsonOptions) ?? new JsonArray();
 
         const string reels =
             """{"items":[],"initialComments":{},"initialLikeCounts":{}}""";

@@ -18,15 +18,11 @@ public sealed class RecommendationsController(
 {
     public sealed record TrackInteractionBody(string? OfferId, string? EventType);
 
-    /// <summary>Lote de ofertas recomendadas para el usuario autenticado (cursor + take).</summary>
-    /// <param name="cursor">Índice de inicio en el feed ordenado.</param>
-    /// <param name="take">Cantidad de ítems (acotado por el servidor).</param>
-    /// <param name="cancellationToken">Token de cancelación.</param>
+    /// <summary>Lote de ofertas recomendadas para el usuario autenticado (<c>take</c> opcional).</summary>
     [HttpGet]
     [ProducesResponseType(typeof(RecommendationBatchResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<RecommendationBatchResponse>> Get(
-        [FromQuery] int? cursor,
         [FromQuery] int? take,
         CancellationToken cancellationToken)
     {
@@ -37,7 +33,6 @@ public sealed class RecommendationsController(
         var batch = await recommendations.GetBatchAsync(
             userId,
             take ?? RecommendationService.DefaultBatchSize,
-            cursor ?? 0,
             cancellationToken);
         return Ok(batch);
     }
@@ -71,16 +66,11 @@ public sealed class RecommendationsController(
     public sealed record TrackGuestInteractionBody(string? GuestId, string? OfferId, string? EventType);
 
     /// <summary>Feed de recomendaciones para un invitado (sin sesión).</summary>
-    /// <param name="guestId">Identificador estable del invitado (mín. 8 caracteres).</param>
-    /// <param name="cursor">Índice de inicio en el feed ordenado.</param>
-    /// <param name="take">Cantidad de ítems (acotado por el servidor).</param>
-    /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpGet("guest")]
     [ProducesResponseType(typeof(RecommendationBatchResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<RecommendationBatchResponse>> GetGuest(
         [FromQuery] string? guestId,
-        [FromQuery] int? cursor,
         [FromQuery] int? take,
         CancellationToken cancellationToken)
     {
@@ -91,7 +81,6 @@ public sealed class RecommendationsController(
         var batch = await guestRecommendations.GetBatchAsync(
             gid,
             take ?? RecommendationService.DefaultBatchSize,
-            cursor ?? 0,
             cancellationToken);
         return Ok(batch);
     }

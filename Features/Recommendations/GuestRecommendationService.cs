@@ -11,7 +11,6 @@ public interface IGuestRecommendationService
     Task<RecommendationBatchResponse> GetBatchAsync(
         string guestId,
         int take,
-        int cursor,
         CancellationToken cancellationToken = default);
 }
 
@@ -28,7 +27,6 @@ public sealed class GuestRecommendationService(
     public async Task<RecommendationBatchResponse> GetBatchAsync(
         string guestId,
         int take,
-        int cursor,
         CancellationToken cancellationToken = default)
     {
         var gid = (guestId ?? "").Trim();
@@ -37,7 +35,6 @@ public sealed class GuestRecommendationService(
 
         var batchSize = Math.Clamp(take, 1, RecommendationService.MaxBatchSize);
 
-        // Candidatos: como invitado, no hay "mis tiendas", así que no filtramos por owner.
         var candidates = await LoadCandidatesAsync(cancellationToken);
         if (candidates.Count == 0)
             return RecommendationBatchResponse.Empty(batchSize, RecommendationService.ScoreThreshold);
@@ -60,7 +57,7 @@ public sealed class GuestRecommendationService(
         var maxPopularity = MaxOrZero(candidates.Values.Select(c => c.PopularityWeight));
         var random = new Random(HashCode.Combine(gid, DateOnly.FromDateTime(now.UtcDateTime).GetHashCode()));
 
-        var scored = candidates.Values
+        var topIds = candidates.Values
             .Select(c =>
             {
                 var categoryMatch = category.ContainsKey(c.Category) ? 1d : 0d;
@@ -85,19 +82,21 @@ public sealed class GuestRecommendationService(
             })
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.RandomTie)
+            .Take(batchSize)
             .Select(x => x.OfferId)
-            .ToList();
+            .ToArray();
 
-        var page = BuildPage(scored, candidates, batchSize, cursor);
-        var offers = await BuildOffersJsonForIdsAsync(page.OfferIds, cancellationToken);
+        if (topIds.Length == 0)
+            return RecommendationBatchResponse.Empty(batchSize, RecommendationService.ScoreThreshold);
+
+        var offers = await BuildOffersJsonForIdsAsync(topIds, cancellationToken);
         await offerEngagement.EnrichOffersJsonAsync(offers, "g:" + gid, cancellationToken);
-        var storeBadges = await BuildStoreBadgesJsonAsync(page.OfferIds, page.RecommendedStoreIds, candidates, cancellationToken);
-        return page with { Offers = offers, StoreBadges = storeBadges };
+        var storeBadges = await BuildStoreBadgesJsonAsync(topIds, candidates, cancellationToken);
+        return new RecommendationBatchResponse(offers, storeBadges, batchSize, RecommendationService.ScoreThreshold);
     }
 
     private async Task<JsonObject> BuildStoreBadgesJsonAsync(
         IReadOnlyList<string> pageOfferIds,
-        IReadOnlyList<string> recommendedStoreIds,
         IReadOnlyDictionary<string, OfferCandidate> candidates,
         CancellationToken cancellationToken)
     {
@@ -107,8 +106,6 @@ public sealed class GuestRecommendationService(
             if (candidates.TryGetValue(oid, out var c))
                 ids.Add(c.StoreId);
         }
-        foreach (var sid in recommendedStoreIds)
-            ids.Add(sid);
         if (ids.Count == 0)
             return new JsonObject();
 
@@ -151,73 +148,14 @@ public sealed class GuestRecommendationService(
         return map;
     }
 
-    private static RecommendationBatchResponse BuildPage(
-        IReadOnlyList<string> orderedIds,
-        IReadOnlyDictionary<string, OfferCandidate> candidates,
-        int take,
-        int cursor)
-    {
-        var feed = RecommendationService.CapOrderedIdsForPaging(orderedIds);
-        if (feed.Length == 0)
-            return RecommendationBatchResponse.Empty(take, RecommendationService.ScoreThreshold);
-
-        var start = cursor < 0 ? 0 : cursor;
-        if (start >= feed.Length)
-            start %= feed.Length;
-
-        var count = Math.Min(take, feed.Length - start);
-        var page = feed.Skip(start).Take(count).ToArray();
-        var nextCursor = start + count;
-        var wrapped = false;
-        if (nextCursor >= feed.Length)
-        {
-            nextCursor = 0;
-            wrapped = true;
-        }
-
-        var (cursorOut, totalOut) = RecommendationService.ClampBatchCursorMeta(nextCursor, feed.Length);
-
-        // guest: recomendación simple de tiendas según ventana actual.
-        var storeRaw = new Dictionary<string, double>(StringComparer.Ordinal);
-        var denom = 0d;
-        var lengthFeed = feed.Length;
-        for (var i = 0; i < page.Length; i++)
-        {
-            var pos = start + i;
-            var w = lengthFeed - pos;
-            denom += w;
-            if (!candidates.TryGetValue(page[i], out var c))
-                continue;
-            storeRaw[c.StoreId] = storeRaw.GetValueOrDefault(c.StoreId) + w;
-        }
-        var stores = denom <= 0d
-            ? Array.Empty<string>()
-            : storeRaw.OrderByDescending(kv => kv.Value / denom)
-                .ThenBy(kv => kv.Key, StringComparer.Ordinal)
-                .Take(take)
-                .Select(kv => kv.Key)
-                .ToArray();
-
-        return new RecommendationBatchResponse(
-            page,
-            new JsonObject(),
-            cursorOut,
-            totalOut,
-            take,
-            RecommendationService.ScoreThreshold,
-            wrapped,
-            stores,
-            new JsonObject());
-    }
-
     private async Task<JsonObject> BuildOffersJsonForIdsAsync(
-        IReadOnlyList<string> ids,
+        IReadOnlyList<string> idsInOrder,
         CancellationToken cancellationToken)
     {
-        if (ids.Count == 0)
+        if (idsInOrder.Count == 0)
             return new JsonObject();
 
-        var idSet = ids.ToHashSet(StringComparer.Ordinal);
+        var idSet = idsInOrder.ToHashSet(StringComparer.Ordinal);
         var products = await db.StoreProducts.AsNoTracking()
             .Where(p => idSet.Contains(p.Id))
             .ToListAsync(cancellationToken);
@@ -225,11 +163,18 @@ public sealed class GuestRecommendationService(
             .Where(s => idSet.Contains(s.Id))
             .ToListAsync(cancellationToken);
 
-        var offers = new JsonObject();
+        var byId = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
         foreach (var p in products)
-            offers[p.Id] = MarketCatalogOfferJsonBuilder.ProductRowToOfferJson(p);
+            byId[p.Id] = MarketCatalogOfferJsonBuilder.ProductRowToOfferJson(p);
         foreach (var s in services)
-            offers[s.Id] = MarketCatalogOfferJsonBuilder.ServiceRowToOfferJson(s);
+            byId[s.Id] = MarketCatalogOfferJsonBuilder.ServiceRowToOfferJson(s);
+
+        var offers = new JsonObject();
+        foreach (var id in idsInOrder)
+        {
+            if (byId.TryGetValue(id, out var node))
+                offers[id] = node;
+        }
         return offers;
     }
 
@@ -274,4 +219,3 @@ public sealed class GuestRecommendationService(
             _ => value,
         };
 }
-

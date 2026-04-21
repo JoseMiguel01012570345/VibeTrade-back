@@ -91,10 +91,10 @@ public sealed class BootstrapService(
             : await recommendations.GetBatchAsync(
                 viewerUser.Id,
                 RecommendationService.DefaultBatchSize,
-                0,
                 cancellationToken);
 
-        marketObj["offerIds"] = JsonSerializer.SerializeToNode(recommendationFeed.OfferIds, JsonOptions) ?? new JsonArray();
+        var bootRecOfferIds = recommendationFeed.Offers.Select(kv => kv.Key).ToArray();
+        marketObj["offerIds"] = JsonSerializer.SerializeToNode(bootRecOfferIds, JsonOptions) ?? new JsonArray();
 
         var root = new JsonObject
         {
