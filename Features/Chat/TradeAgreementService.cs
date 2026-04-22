@@ -18,7 +18,7 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
 
         var list = await db.TradeAgreements.AsNoTracking()
             .AsSplitQuery()
-            .Where(a => a.ThreadId == threadId)
+            .Where(a => a.ThreadId == threadId && a.DeletedAtUtc == null)
             .Include(a => a.MerchandiseLines)
             .Include(a => a.MerchandiseMeta)
             .Include(a => a.ServiceItems).ThenInclude(s => s.ScheduleMonths)

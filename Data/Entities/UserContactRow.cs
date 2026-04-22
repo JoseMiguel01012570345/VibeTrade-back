@@ -10,4 +10,7 @@ public sealed class UserContactRow
     public string ContactUserId { get; set; } = "";
 
     public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>Borrado lógico; null = contacto visible en la agenda.</summary>
+    public DateTimeOffset? DeletedAtUtc { get; set; }
 }

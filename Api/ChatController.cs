@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Api;
@@ -12,7 +13,11 @@ namespace VibeTrade.Backend.Api;
 [Route("api/v1/chat")]
 [Produces("application/json")]
 [Tags("Chat")]
-public sealed class ChatController(IAuthService auth, IChatService chat, ITradeAgreementService tradeAgreements)
+public sealed class ChatController(
+    IAuthService auth,
+    IChatService chat,
+    ITradeAgreementService tradeAgreements,
+    IRouteSheetChatService routeSheets)
     : ControllerBase
 {
     public sealed record CreateThreadBody(string OfferId, bool? PurchaseIntent);
@@ -179,6 +184,62 @@ public sealed class ChatController(IAuthService auth, IChatService chat, ITradeA
         if (msg is null)
             return NotFound(new { error = "not_found", message = "Mensaje o hilo no encontrado." });
         return Ok(msg);
+    }
+
+    /// <summary>Hojas de ruta persistidas del hilo (mismo contrato que <see cref="RouteSheetPayload"/>).</summary>
+    [HttpGet("threads/{threadId}/route-sheets")]
+    [ProducesResponseType(typeof(IReadOnlyList<RouteSheetPayload>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetRouteSheets(string threadId, CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var list = await routeSheets.ListForThreadAsync(userId, threadId, cancellationToken);
+        if (list is null)
+            return NotFound();
+        return Ok(list);
+    }
+
+    /// <summary>Crea o actualiza una hoja de ruta en el hilo.</summary>
+    [HttpPut("threads/{threadId}/route-sheets/{routeSheetId}")]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PutRouteSheet(
+        string threadId,
+        string routeSheetId,
+        [FromBody] RouteSheetPayload payload,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var ok = await routeSheets.UpsertAsync(userId, threadId, routeSheetId, payload, cancellationToken);
+        if (!ok)
+            return NotFound(new { error = "not_found", message = "Hilo no encontrado o datos inválidos." });
+        return NoContent();
+    }
+
+    /// <summary>Elimina una hoja de ruta persistida y retira la señal emergente asociada.</summary>
+    [HttpDelete("threads/{threadId}/route-sheets/{routeSheetId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteRouteSheet(
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var ok = await routeSheets.DeleteAsync(userId, threadId, routeSheetId, cancellationToken);
+        if (!ok)
+            return NotFound(new { error = "not_found", message = "Hoja no encontrada o sin permiso." });
+        return NoContent();
     }
 
     /// <summary>Acuerdos del hilo (mercancías/servicios en tablas relacionales).</summary>

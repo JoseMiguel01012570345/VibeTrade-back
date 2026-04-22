@@ -128,7 +128,8 @@ public sealed partial class MarketCatalogSyncService
         var stale = await db.StoreProducts
             .Where(p => p.StoreId == storeId && !incomingIds.Contains(p.Id))
             .ToListAsync(cancellationToken);
-        db.StoreProducts.RemoveRange(stale);
+        foreach (var p in stale)
+            p.DeletedAtUtc = now;
 
         foreach (var item in arr.EnumerateArray())
         {
@@ -160,7 +161,8 @@ public sealed partial class MarketCatalogSyncService
         var stale = await db.StoreServices
             .Where(s => s.StoreId == storeId && !incomingIds.Contains(s.Id))
             .ToListAsync(cancellationToken);
-        db.StoreServices.RemoveRange(stale);
+        foreach (var s in stale)
+            s.DeletedAtUtc = now;
 
         foreach (var item in arr.EnumerateArray())
         {
@@ -182,7 +184,8 @@ public sealed partial class MarketCatalogSyncService
     {
         MarketCatalogCurrency.ThrowIfProductCurrencyInvalid(item, id);
 
-        var row = await db.StoreProducts.FindAsync([id], cancellationToken);
+        var row = await db.StoreProducts.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
         if (row is not null && row.StoreId != storeId)
             return;
 
@@ -191,6 +194,8 @@ public sealed partial class MarketCatalogSyncService
             row = new StoreProductRow { Id = id, StoreId = storeId };
             db.StoreProducts.Add(row);
         }
+        else
+            row.DeletedAtUtc = null;
 
         MarketCatalogProductRowMapper.Apply(item, row, now);
     }
@@ -204,7 +209,8 @@ public sealed partial class MarketCatalogSyncService
     {
         MarketCatalogCurrency.ThrowIfServiceCurrencyInvalid(item, id);
 
-        var row = await db.StoreServices.FindAsync([id], cancellationToken);
+        var row = await db.StoreServices.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
         if (row is not null && row.StoreId != storeId)
             return;
 
@@ -213,6 +219,8 @@ public sealed partial class MarketCatalogSyncService
             row = new StoreServiceRow { Id = id, StoreId = storeId };
             db.StoreServices.Add(row);
         }
+        else
+            row.DeletedAtUtc = null;
 
         MarketCatalogServiceRowMapper.Apply(item, row, now);
         if (item.TryGetProperty("photoUrls", out var phEl) && phEl.ValueKind == JsonValueKind.Array)

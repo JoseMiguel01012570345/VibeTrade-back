@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Data.RouteSheets;
 
 namespace VibeTrade.Backend.Data;
 
@@ -19,6 +21,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ChatThreadRow> ChatThreads => Set<ChatThreadRow>();
     public DbSet<ChatMessageRow> ChatMessages => Set<ChatMessageRow>();
     public DbSet<TradeAgreementRow> TradeAgreements => Set<TradeAgreementRow>();
+    public DbSet<ChatRouteSheetRow> ChatRouteSheets => Set<ChatRouteSheetRow>();
+    public DbSet<EmergentOfferRow> EmergentOffers => Set<EmergentOfferRow>();
     public DbSet<TradeAgreementMerchandiseLineRow> TradeAgreementMerchandiseLines => Set<TradeAgreementMerchandiseLineRow>();
     public DbSet<TradeAgreementMerchandiseMetaRow> TradeAgreementMerchandiseMetas => Set<TradeAgreementMerchandiseMetaRow>();
     public DbSet<TradeAgreementServiceItemRow> TradeAgreementServiceItems => Set<TradeAgreementServiceItemRow>();
@@ -102,6 +106,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasColumnType("jsonb")
                 .HasConversion(OfferQaJson.CreateEfConverter());
             e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
+            e.Property(x => x.DeletedAtUtc);
+            e.HasQueryFilter(p => p.DeletedAtUtc == null);
             e.HasIndex(x => x.StoreId);
         });
 
@@ -122,6 +128,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasColumnType("jsonb")
                 .HasConversion(OfferQaJson.CreateEfConverter());
             e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
+            e.Property(x => x.DeletedAtUtc);
+            e.HasQueryFilter(s => s.DeletedAtUtc == null);
             e.HasIndex(x => x.StoreId);
         });
 
@@ -167,8 +175,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.OwnerUserId).HasMaxLength(64);
             e.Property(x => x.ContactUserId).HasMaxLength(64);
             e.Property(x => x.CreatedAt);
+            e.Property(x => x.DeletedAtUtc);
+            e.HasQueryFilter(c => c.DeletedAtUtc == null);
             e.HasIndex(x => x.OwnerUserId);
-            e.HasIndex(x => new { x.OwnerUserId, x.ContactUserId }).IsUnique();
+            e.HasIndex(x => new { x.OwnerUserId, x.ContactUserId })
+                .IsUnique()
+                .HasFilter("\"DeletedAtUtc\" IS NULL");
             e.HasOne<UserAccount>()
                 .WithMany()
                 .HasForeignKey(x => x.OwnerUserId)
@@ -223,6 +235,57 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithOne(x => x.Thread)
                 .HasForeignKey(x => x.ThreadId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChatRouteSheetRow>(e =>
+        {
+            e.ToTable("chat_route_sheets");
+            e.HasKey(x => new { x.ThreadId, x.RouteSheetId });
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.RouteSheetId).HasMaxLength(64);
+            e.Property(x => x.Payload)
+                .HasColumnName("PayloadJson")
+                .HasColumnType("jsonb")
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, RouteSheetJson.Options),
+                    v => string.IsNullOrWhiteSpace(v)
+                        ? new RouteSheetPayload()
+                        : JsonSerializer.Deserialize<RouteSheetPayload>(v, RouteSheetJson.Options)
+                            ?? new RouteSheetPayload());
+            e.Property(x => x.UpdatedAtUtc);
+            e.Property(x => x.DeletedAtUtc);
+            e.Property(x => x.DeletedByUserId).HasMaxLength(64);
+            e.HasIndex(x => x.ThreadId);
+            e.HasOne<ChatThreadRow>()
+                .WithMany()
+                .HasForeignKey(x => x.ThreadId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<EmergentOfferRow>(e =>
+        {
+            e.ToTable("emergent_offers");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.Kind).HasMaxLength(32);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.OfferId).HasMaxLength(64);
+            e.Property(x => x.RouteSheetId).HasMaxLength(64);
+            e.Property(x => x.PublisherUserId).HasMaxLength(64);
+            e.Property(x => x.RouteSheetSnapshot)
+                .HasColumnName("SnapshotJson")
+                .HasColumnType("jsonb")
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, RouteSheetJson.Options),
+                    v => string.IsNullOrWhiteSpace(v)
+                        ? new EmergentRouteSheetSnapshot()
+                        : JsonSerializer.Deserialize<EmergentRouteSheetSnapshot>(v, RouteSheetJson.Options)
+                            ?? new EmergentRouteSheetSnapshot());
+            e.Property(x => x.PublishedAtUtc);
+            e.Property(x => x.RetractedAtUtc);
+            e.HasIndex(x => new { x.ThreadId, x.RouteSheetId }).IsUnique();
+            e.HasIndex(x => x.OfferId);
+            e.HasIndex(x => new { x.Kind, x.RetractedAtUtc, x.PublishedAtUtc });
         });
 
         modelBuilder.Entity<TradeAgreementRow>(e =>

@@ -52,15 +52,22 @@ public sealed class UserContactsService(AppDbContext db) : IUserContactsService
         if (target.Id == ownerUserId)
             throw new InvalidOperationException("No podés agregarte a vos mismo como contacto.");
 
-        var exists = await db.UserContacts.AsNoTracking()
-            .AnyAsync(
+        var now = DateTimeOffset.UtcNow;
+        var existing = await db.UserContacts.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
                 c => c.OwnerUserId == ownerUserId && c.ContactUserId == target.Id,
                 cancellationToken);
-        if (exists)
-            throw new InvalidOperationException("Ese contacto ya está en tu lista.");
+        if (existing is not null)
+        {
+            if (existing.DeletedAtUtc is null)
+                throw new InvalidOperationException("Ese contacto ya está en tu lista.");
+            existing.DeletedAtUtc = null;
+            existing.CreatedAt = now;
+            await db.SaveChangesAsync(cancellationToken);
+            return ToDto(target, existing.CreatedAt);
+        }
 
         var id = "uc_" + Guid.NewGuid().ToString("N");
-        var now = DateTimeOffset.UtcNow;
         db.UserContacts.Add(new UserContactRow
         {
             Id = id,
@@ -78,13 +85,16 @@ public sealed class UserContactsService(AppDbContext db) : IUserContactsService
         string contactUserId,
         CancellationToken cancellationToken = default)
     {
-        var row = await db.UserContacts
+        var row = await db.UserContacts.IgnoreQueryFilters()
             .FirstOrDefaultAsync(
                 c => c.OwnerUserId == ownerUserId && c.ContactUserId == contactUserId,
                 cancellationToken);
         if (row is null)
             return false;
-        db.UserContacts.Remove(row);
+        if (row.DeletedAtUtc is not null)
+            return true;
+
+        row.DeletedAtUtc = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         return true;
     }

@@ -57,6 +57,9 @@ public sealed class StoreProductRow
 
     public DateTimeOffset UpdatedAt { get; set; }
 
+    /// <summary>Borrado lógico; null = activo en catálogo.</summary>
+    public DateTimeOffset? DeletedAtUtc { get; set; }
+
     /// <summary>
     /// Peso de popularidad (últimos 30 días): interacciones ponderadas + likes a oferta + likes a comentarios × 0,25.
     /// Denormalizado para lectura rápida en recomendaciones.

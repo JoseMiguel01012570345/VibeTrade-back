@@ -275,16 +275,11 @@ public sealed class RecommendationFeedV2(
     {
         if (take <= 0)
             return [];
-        return await db.Database
-            .SqlQuery<OfferIdRow>($"""
-                SELECT p."Id" AS "Id"
-                FROM store_products AS p
-                INNER JOIN stores AS s ON s."Id" = p."StoreId"
-                WHERE p."Published" AND s."OwnerUserId" <> {viewerUserId}
-                ORDER BY random()
-                LIMIT {take}
-                """)
-            .Select(x => x.Id)
+        return await db.StoreProducts.AsNoTracking()
+            .Where(p => p.Published && p.Store.OwnerUserId != viewerUserId)
+            .OrderBy(_ => EF.Functions.Random())
+            .Select(p => p.Id)
+            .Take(take)
             .ToListAsync(cancellationToken);
     }
 
@@ -295,22 +290,12 @@ public sealed class RecommendationFeedV2(
     {
         if (take <= 0)
             return [];
-        return await db.Database
-            .SqlQuery<OfferIdRow>($"""
-                SELECT sv."Id" AS "Id"
-                FROM store_services AS sv
-                INNER JOIN stores AS s ON s."Id" = sv."StoreId"
-                WHERE (sv."Published" IS NULL OR sv."Published" = TRUE) AND s."OwnerUserId" <> {viewerUserId}
-                ORDER BY random()
-                LIMIT {take}
-                """)
-            .Select(x => x.Id)
+        return await db.StoreServices.AsNoTracking()
+            .Where(s => (s.Published == null || s.Published == true) && s.Store.OwnerUserId != viewerUserId)
+            .OrderBy(_ => EF.Functions.Random())
+            .Select(s => s.Id)
+            .Take(take)
             .ToListAsync(cancellationToken);
-    }
-
-    private sealed class OfferIdRow
-    {
-        public string Id { get; set; } = "";
     }
 
     private async Task<HashSet<string>> FilterEligibleOfferIdsAsync(

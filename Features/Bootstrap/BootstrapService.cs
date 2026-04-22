@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Utils;
 using VibeTrade.Backend.Features.Recommendations;
@@ -15,7 +16,8 @@ public sealed class BootstrapService(
     AppDbContext db,
     ISavedOffersService savedOffers,
     IRecommendationService recommendations,
-    IChatService chat) : IBootstrapService
+    IChatService chat,
+    IRouteSheetChatService routeSheets) : IBootstrapService
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -132,7 +134,15 @@ public sealed class BootstrapService(
         foreach (var summ in summaries)
         {
             if (threadsOut.ContainsKey(summ.Id))
+            {
+                var rsExisting = await routeSheets.ListForThreadAsync(viewerUserId, summ.Id, cancellationToken);
+                if (rsExisting is { Count: > 0 } && threadsOut[summ.Id] is JsonObject thNode)
+                {
+                    thNode["routeSheets"] = JsonSerializer.SerializeToNode(rsExisting, RouteSheetJson.Options)
+                        ?? new JsonArray();
+                }
                 continue;
+            }
 
             var store = await db.Stores.AsNoTracking()
                 .FirstOrDefaultAsync(s => s.Id == summ.StoreId, cancellationToken);
@@ -163,6 +173,11 @@ public sealed class BootstrapService(
             foreach (var m in msgs)
                 messagesArr.Add(ChatMarketMessageJsonMapper.ToMarketMessage(m, viewerUserId));
 
+            var routeSheetsList = await routeSheets.ListForThreadAsync(viewerUserId, summ.Id, cancellationToken)
+                ?? Array.Empty<RouteSheetPayload>();
+            var routeSheetsNode = JsonSerializer.SerializeToNode(routeSheetsList, RouteSheetJson.Options)
+                ?? new JsonArray();
+
             var thJson = new JsonObject
             {
                 ["id"] = summ.Id,
@@ -174,7 +189,7 @@ public sealed class BootstrapService(
                 ["purchaseMode"] = summ.PurchaseMode,
                 ["messages"] = messagesArr,
                 ["contracts"] = new JsonArray(),
-                ["routeSheets"] = new JsonArray(),
+                ["routeSheets"] = routeSheetsNode,
             };
             if (!string.IsNullOrWhiteSpace(summ.BuyerDisplayName))
                 thJson["buyerDisplayName"] = summ.BuyerDisplayName.Trim();
