@@ -126,10 +126,14 @@ public sealed record ChatAgreementPayload : ChatMessagePayload
 {
     public ChatAgreementPayload() => Type = "agreement";
 
-    public required string Title { get; init; }
-    public required string Body { get; init; }
+    /// <summary>Id del registro en <c>trade_agreements</c> (cliente: <c>agreementId</c> en el mensaje).</summary>
+    public required string AgreementId { get; init; }
 
-    /// <summary>e.g. "pending", "accepted", "rejected".</summary>
+    public required string Title { get; init; }
+
+    public string Body { get; init; } = "";
+
+    /// <summary><c>pending_buyer</c> | <c>accepted</c> | <c>rejected</c>.</summary>
     public required string Status { get; init; }
 }
 

@@ -12,7 +12,8 @@ namespace VibeTrade.Backend.Api;
 [Route("api/v1/chat")]
 [Produces("application/json")]
 [Tags("Chat")]
-public sealed class ChatController(IAuthService auth, IChatService chat) : ControllerBase
+public sealed class ChatController(IAuthService auth, IChatService chat, ITradeAgreementService tradeAgreements)
+    : ControllerBase
 {
     public sealed record CreateThreadBody(string OfferId, bool? PurchaseIntent);
 
@@ -178,5 +179,102 @@ public sealed class ChatController(IAuthService auth, IChatService chat) : Contr
         if (msg is null)
             return NotFound(new { error = "not_found", message = "Mensaje o hilo no encontrado." });
         return Ok(msg);
+    }
+
+    /// <summary>Acuerdos del hilo (mercancías/servicios en tablas relacionales).</summary>
+    [HttpGet("threads/{threadId}/trade-agreements")]
+    [ProducesResponseType(typeof(IReadOnlyList<TradeAgreementApiResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetTradeAgreements(string threadId, CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var list = await tradeAgreements.ListForThreadAsync(userId, threadId, cancellationToken);
+        return Ok(list);
+    }
+
+    /// <summary>Emite un acuerdo (solo vendedor).</summary>
+    [HttpPost("threads/{threadId}/trade-agreements")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(TradeAgreementApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostTradeAgreement(
+        string threadId,
+        [FromBody] TradeAgreementDraftRequest body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var created = await tradeAgreements.CreateAsync(userId, threadId, body, cancellationToken);
+        if (created is null)
+            return NotFound(new { error = "not_found", message = "No se pudo crear el acuerdo." });
+        return Ok(created);
+    }
+
+    /// <summary>Actualiza borrador pendiente o rechazado, o revisa uno aceptado (solo vendedor).</summary>
+    [HttpPatch("threads/{threadId}/trade-agreements/{agreementId}")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(TradeAgreementApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PatchTradeAgreement(
+        string threadId,
+        string agreementId,
+        [FromBody] TradeAgreementDraftRequest body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var updated = await tradeAgreements.UpdateAsync(userId, threadId, agreementId, body, cancellationToken);
+        if (updated is null)
+            return NotFound(new { error = "not_found", message = "No se pudo actualizar el acuerdo." });
+        return Ok(updated);
+    }
+
+    public sealed record TradeAgreementRespondBody(bool Accept);
+
+    /// <summary>Acepta o rechaza el acuerdo (solo comprador).</summary>
+    [HttpPost("threads/{threadId}/trade-agreements/{agreementId}/respond")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(TradeAgreementApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostTradeAgreementRespond(
+        string threadId,
+        string agreementId,
+        [FromBody] TradeAgreementRespondBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var updated = await tradeAgreements.RespondAsync(userId, threadId, agreementId, body.Accept, cancellationToken);
+        if (updated is null)
+            return NotFound(new { error = "not_found", message = "No se pudo registrar la respuesta." });
+        return Ok(updated);
+    }
+
+    /// <summary>Elimina un acuerdo no aceptado (solo vendedor).</summary>
+    [HttpDelete("threads/{threadId}/trade-agreements/{agreementId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteTradeAgreement(
+        string threadId,
+        string agreementId,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var ok = await tradeAgreements.DeleteAsync(userId, threadId, agreementId, cancellationToken);
+        if (!ok)
+            return NotFound(new { error = "not_found", message = "No se pudo eliminar el acuerdo." });
+        return NoContent();
     }
 }

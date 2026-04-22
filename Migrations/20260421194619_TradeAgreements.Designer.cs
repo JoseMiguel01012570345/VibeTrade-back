@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using VibeTrade.Backend.Data;
@@ -11,9 +12,11 @@ using VibeTrade.Backend.Data;
 namespace VibeTrade.Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260421194619_TradeAgreements")]
+    partial class TradeAgreements
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -607,128 +610,6 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("stored_media", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementMerchandiseLineRow", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Cantidad")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("Descuento")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("DevolucionPlazos")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("DevolucionQuienPaga")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("DevolucionesDesc")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Estado")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("Impuestos")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("LinkedStoreProductId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Moneda")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("Regulaciones")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Tipo")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("TipoEmbalaje")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("TradeAgreementId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ValorUnitario")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TradeAgreementId");
-
-                    b.ToTable("trade_agreement_merchandise_lines", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementMerchandiseMetaRow", b =>
-                {
-                    b.Property<string>("TradeAgreementId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("DevolucionPlazos")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("DevolucionQuienPaga")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("DevolucionesDesc")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Moneda")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("Regulaciones")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("TipoEmbalaje")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.HasKey("TradeAgreementId");
-
-                    b.ToTable("trade_agreement_merchandise_metas", (string)null);
-                });
-
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementRow", b =>
                 {
                     b.Property<string>("Id")
@@ -754,6 +635,16 @@ namespace VibeTrade.Backend.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
 
+                    b.Property<string>("LegacyServiceBlockJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("MerchandiseJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("MerchandiseMetaJson")
+                        .HasColumnType("jsonb");
+
                     b.Property<DateTimeOffset?>("RespondedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -770,6 +661,10 @@ namespace VibeTrade.Backend.Migrations
 
                     b.Property<bool>("SellerEditBlockedUntilBuyerResponse")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("ServicesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -793,337 +688,6 @@ namespace VibeTrade.Backend.Migrations
                     b.HasIndex("ThreadId", "Status");
 
                     b.ToTable("trade_agreements", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceDependenciaRow", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ServiceItemId")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ServiceItemId");
-
-                    b.ToTable("trade_agreement_service_dependencias", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<bool>("Configured")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("DependenciasEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Descripcion")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Entregables")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("GarantiasEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("GarantiasTexto")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Incluye")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("LinkedStoreServiceId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("MedicionCumplimiento")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("MetodoPago")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("Moneda")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<string>("NivelResponsabilidad")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("NoIncluye")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("PenalAtrasoEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("PenalAtrasoTexto")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("PenalIncumplimiento")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("PropIntelectual")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("RiesgosEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("ScheduleCalendarYear")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ScheduleDefaultWindowEnd")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("ScheduleDefaultWindowStart")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("TerminacionAvisoDias")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<bool>("TerminacionEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("TiempoEndDate")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("TiempoStartDate")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("TipoServicio")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("TradeAgreementId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TradeAgreementId");
-
-                    b.ToTable("trade_agreement_service_items", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceMonedaRow", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("ServiceItemId")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ServiceItemId");
-
-                    b.ToTable("trade_agreement_service_monedas", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServicePaymentEntryRow", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Amount")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("Day")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("Month")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ServiceItemId")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ServiceItemId");
-
-                    b.ToTable("trade_agreement_service_payment_entries", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServicePaymentMonthRow", b =>
-                {
-                    b.Property<string>("ServiceItemId")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<int>("Month")
-                        .HasColumnType("integer");
-
-                    b.HasKey("ServiceItemId", "Month");
-
-                    b.ToTable("trade_agreement_service_payment_months", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceRiesgoRow", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ServiceItemId")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ServiceItemId");
-
-                    b.ToTable("trade_agreement_service_riesgos", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleDayRow", b =>
-                {
-                    b.Property<string>("ServiceItemId")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<int>("Month")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("CalendarDay")
-                        .HasColumnType("integer");
-
-                    b.HasKey("ServiceItemId", "Month", "CalendarDay");
-
-                    b.ToTable("trade_agreement_service_schedule_days", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleMonthRow", b =>
-                {
-                    b.Property<string>("ServiceItemId")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<int>("Month")
-                        .HasColumnType("integer");
-
-                    b.HasKey("ServiceItemId", "Month");
-
-                    b.ToTable("trade_agreement_service_schedule_months", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleOverrideRow", b =>
-                {
-                    b.Property<string>("ServiceItemId")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<int>("Month")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("CalendarDay")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("WindowEnd")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("WindowStart")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.HasKey("ServiceItemId", "Month", "CalendarDay");
-
-                    b.ToTable("trade_agreement_service_schedule_overrides", (string)null);
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceTerminacionCausaRow", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ServiceItemId")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ServiceItemId");
-
-                    b.ToTable("trade_agreement_service_terminacion_causas", (string)null);
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserAccount", b =>
@@ -1300,28 +864,6 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("Store");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementMerchandiseLineRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementRow", "TradeAgreement")
-                        .WithMany("MerchandiseLines")
-                        .HasForeignKey("TradeAgreementId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("TradeAgreement");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementMerchandiseMetaRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementRow", "TradeAgreement")
-                        .WithOne("MerchandiseMeta")
-                        .HasForeignKey("VibeTrade.Backend.Data.Entities.TradeAgreementMerchandiseMetaRow", "TradeAgreementId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("TradeAgreement");
-                });
-
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementRow", b =>
                 {
                     b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", "Thread")
@@ -1331,116 +873,6 @@ namespace VibeTrade.Backend.Migrations
                         .IsRequired();
 
                     b.Navigation("Thread");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceDependenciaRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
-                        .WithMany("DependenciaItems")
-                        .HasForeignKey("ServiceItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ServiceItem");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementRow", "TradeAgreement")
-                        .WithMany("ServiceItems")
-                        .HasForeignKey("TradeAgreementId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("TradeAgreement");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceMonedaRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
-                        .WithMany("MonedasAceptadas")
-                        .HasForeignKey("ServiceItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ServiceItem");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServicePaymentEntryRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
-                        .WithMany("PaymentEntries")
-                        .HasForeignKey("ServiceItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ServiceItem");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServicePaymentMonthRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
-                        .WithMany("PaymentMonths")
-                        .HasForeignKey("ServiceItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ServiceItem");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceRiesgoRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
-                        .WithMany("RiesgoItems")
-                        .HasForeignKey("ServiceItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ServiceItem");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleDayRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
-                        .WithMany("ScheduleDays")
-                        .HasForeignKey("ServiceItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ServiceItem");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleMonthRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
-                        .WithMany("ScheduleMonths")
-                        .HasForeignKey("ServiceItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ServiceItem");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleOverrideRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
-                        .WithMany("ScheduleOverrides")
-                        .HasForeignKey("ServiceItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ServiceItem");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceTerminacionCausaRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
-                        .WithMany("TerminacionCausas")
-                        .HasForeignKey("ServiceItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ServiceItem");
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserContactRow", b =>
@@ -1470,36 +902,6 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("Products");
 
                     b.Navigation("Services");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementRow", b =>
-                {
-                    b.Navigation("MerchandiseLines");
-
-                    b.Navigation("MerchandiseMeta");
-
-                    b.Navigation("ServiceItems");
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", b =>
-                {
-                    b.Navigation("DependenciaItems");
-
-                    b.Navigation("MonedasAceptadas");
-
-                    b.Navigation("PaymentEntries");
-
-                    b.Navigation("PaymentMonths");
-
-                    b.Navigation("RiesgoItems");
-
-                    b.Navigation("ScheduleDays");
-
-                    b.Navigation("ScheduleMonths");
-
-                    b.Navigation("ScheduleOverrides");
-
-                    b.Navigation("TerminacionCausas");
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserAccount", b =>

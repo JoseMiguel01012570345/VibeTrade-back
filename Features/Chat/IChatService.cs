@@ -114,6 +114,22 @@ public interface IChatService
 
     Task<ChatMessageDto?> PostMessageAsync(string senderUserId, string threadId, JsonElement payload, CancellationToken cancellationToken = default);
 
+    /// <summary>Mensaje de acuerdo en el hilo (solo vendedor).</summary>
+    Task<ChatMessageDto?> PostAgreementAnnouncementAsync(
+        string sellerUserId,
+        string threadId,
+        string agreementId,
+        string title,
+        string status,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Aviso de sistema en el hilo (texto informativo; actor = comprador o vendedor).</summary>
+    Task<ChatMessageDto?> PostSystemThreadNoticeAsync(
+        string actorUserId,
+        string threadId,
+        string text,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Actualiza entrega/lectura (solo participantes; destinatario para delivered/read).</summary>
     Task<ChatMessageDto?> UpdateMessageStatusAsync(
         string userId,

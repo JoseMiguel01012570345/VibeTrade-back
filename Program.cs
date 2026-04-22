@@ -62,6 +62,7 @@ builder.Services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
 builder.Services.AddScoped<IUserContactsService, UserContactsService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<ITradeAgreementService, TradeAgreementService>();
 builder.Services.AddMemoryCache();
 
 builder.Services.Configure<ElasticsearchStoreSearchOptions>(

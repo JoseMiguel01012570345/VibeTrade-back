@@ -35,4 +35,6 @@ public sealed class ChatThreadRow
     public DateTimeOffset? DeletedAtUtc { get; set; }
 
     public ICollection<ChatMessageRow> Messages { get; set; } = new List<ChatMessageRow>();
+
+    public ICollection<TradeAgreementRow> TradeAgreements { get; set; } = new List<TradeAgreementRow>();
 }

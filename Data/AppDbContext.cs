@@ -18,6 +18,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<UserOfferInteractionRow> UserOfferInteractions => Set<UserOfferInteractionRow>();
     public DbSet<ChatThreadRow> ChatThreads => Set<ChatThreadRow>();
     public DbSet<ChatMessageRow> ChatMessages => Set<ChatMessageRow>();
+    public DbSet<TradeAgreementRow> TradeAgreements => Set<TradeAgreementRow>();
+    public DbSet<TradeAgreementMerchandiseLineRow> TradeAgreementMerchandiseLines => Set<TradeAgreementMerchandiseLineRow>();
+    public DbSet<TradeAgreementMerchandiseMetaRow> TradeAgreementMerchandiseMetas => Set<TradeAgreementMerchandiseMetaRow>();
+    public DbSet<TradeAgreementServiceItemRow> TradeAgreementServiceItems => Set<TradeAgreementServiceItemRow>();
     public DbSet<ChatNotificationRow> ChatNotifications => Set<ChatNotificationRow>();
     public DbSet<OfferLikeRow> OfferLikes => Set<OfferLikeRow>();
     public DbSet<OfferQaCommentLikeRow> OfferQaCommentLikes => Set<OfferQaCommentLikeRow>();
@@ -215,6 +219,218 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithOne(x => x.Thread)
                 .HasForeignKey(x => x.ThreadId)
                 .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.TradeAgreements)
+                .WithOne(x => x.Thread)
+                .HasForeignKey(x => x.ThreadId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TradeAgreementRow>(e =>
+        {
+            e.ToTable("trade_agreements");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.Title).HasMaxLength(512);
+            e.Property(x => x.IssuedByStoreId).HasMaxLength(64);
+            e.Property(x => x.IssuerLabel).HasMaxLength(512);
+            e.Property(x => x.Status).HasMaxLength(32);
+            e.Property(x => x.RespondedByUserId).HasMaxLength(64);
+            e.Property(x => x.RouteSheetId).HasMaxLength(64);
+            e.Property(x => x.RouteSheetUrl).HasColumnType("text");
+            e.HasIndex(x => x.ThreadId);
+            e.HasIndex(x => new { x.ThreadId, x.Status });
+            e.HasMany(x => x.MerchandiseLines)
+                .WithOne(x => x.TradeAgreement)
+                .HasForeignKey(x => x.TradeAgreementId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.MerchandiseMeta)
+                .WithOne(x => x.TradeAgreement)
+                .HasForeignKey<TradeAgreementMerchandiseMetaRow>(x => x.TradeAgreementId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.ServiceItems)
+                .WithOne(x => x.TradeAgreement)
+                .HasForeignKey(x => x.TradeAgreementId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TradeAgreementMerchandiseLineRow>(e =>
+        {
+            e.ToTable("trade_agreement_merchandise_lines");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.TradeAgreementId).HasMaxLength(64);
+            e.Property(x => x.LinkedStoreProductId).HasMaxLength(64);
+            e.Property(x => x.Tipo).HasMaxLength(512);
+            e.Property(x => x.Cantidad).HasMaxLength(128);
+            e.Property(x => x.ValorUnitario).HasMaxLength(128);
+            e.Property(x => x.Estado).HasMaxLength(32);
+            e.Property(x => x.Descuento).HasMaxLength(128);
+            e.Property(x => x.Impuestos).HasMaxLength(128);
+            e.Property(x => x.Moneda).HasMaxLength(32);
+            e.Property(x => x.TipoEmbalaje).HasMaxLength(256);
+            e.Property(x => x.DevolucionesDesc).HasColumnType("text");
+            e.Property(x => x.DevolucionQuienPaga).HasMaxLength(256);
+            e.Property(x => x.DevolucionPlazos).HasMaxLength(256);
+            e.Property(x => x.Regulaciones).HasColumnType("text");
+            e.HasIndex(x => x.TradeAgreementId);
+        });
+
+        modelBuilder.Entity<TradeAgreementMerchandiseMetaRow>(e =>
+        {
+            e.ToTable("trade_agreement_merchandise_metas");
+            e.HasKey(x => x.TradeAgreementId);
+            e.Property(x => x.TradeAgreementId).HasMaxLength(64);
+            e.Property(x => x.Moneda).HasMaxLength(32);
+            e.Property(x => x.TipoEmbalaje).HasMaxLength(256);
+            e.Property(x => x.DevolucionesDesc).HasColumnType("text");
+            e.Property(x => x.DevolucionQuienPaga).HasMaxLength(256);
+            e.Property(x => x.DevolucionPlazos).HasMaxLength(256);
+            e.Property(x => x.Regulaciones).HasColumnType("text");
+        });
+
+        modelBuilder.Entity<TradeAgreementServiceItemRow>(e =>
+        {
+            e.ToTable("trade_agreement_service_items");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(80);
+            e.Property(x => x.TradeAgreementId).HasMaxLength(64);
+            e.Property(x => x.LinkedStoreServiceId).HasMaxLength(64);
+            e.Property(x => x.TipoServicio).HasMaxLength(512);
+            e.Property(x => x.TiempoStartDate).HasMaxLength(64);
+            e.Property(x => x.TiempoEndDate).HasMaxLength(64);
+            e.Property(x => x.Descripcion).HasColumnType("text");
+            e.Property(x => x.Incluye).HasColumnType("text");
+            e.Property(x => x.NoIncluye).HasColumnType("text");
+            e.Property(x => x.Entregables).HasColumnType("text");
+            e.Property(x => x.MetodoPago).HasMaxLength(256);
+            e.Property(x => x.Moneda).HasMaxLength(128);
+            e.Property(x => x.MedicionCumplimiento).HasColumnType("text");
+            e.Property(x => x.PenalIncumplimiento).HasColumnType("text");
+            e.Property(x => x.NivelResponsabilidad).HasColumnType("text");
+            e.Property(x => x.PropIntelectual).HasColumnType("text");
+            e.Property(x => x.ScheduleDefaultWindowStart).HasMaxLength(16);
+            e.Property(x => x.ScheduleDefaultWindowEnd).HasMaxLength(16);
+            e.Property(x => x.GarantiasTexto).HasColumnType("text");
+            e.Property(x => x.PenalAtrasoTexto).HasColumnType("text");
+            e.Property(x => x.TerminacionAvisoDias).HasMaxLength(64);
+            e.HasIndex(x => x.TradeAgreementId);
+            e.HasMany(x => x.ScheduleMonths)
+                .WithOne(x => x.ServiceItem)
+                .HasForeignKey(x => x.ServiceItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.ScheduleDays)
+                .WithOne(x => x.ServiceItem)
+                .HasForeignKey(x => x.ServiceItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.ScheduleOverrides)
+                .WithOne(x => x.ServiceItem)
+                .HasForeignKey(x => x.ServiceItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.PaymentMonths)
+                .WithOne(x => x.ServiceItem)
+                .HasForeignKey(x => x.ServiceItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.PaymentEntries)
+                .WithOne(x => x.ServiceItem)
+                .HasForeignKey(x => x.ServiceItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.RiesgoItems)
+                .WithOne(x => x.ServiceItem)
+                .HasForeignKey(x => x.ServiceItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.DependenciaItems)
+                .WithOne(x => x.ServiceItem)
+                .HasForeignKey(x => x.ServiceItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.TerminacionCausas)
+                .WithOne(x => x.ServiceItem)
+                .HasForeignKey(x => x.ServiceItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.MonedasAceptadas)
+                .WithOne(x => x.ServiceItem)
+                .HasForeignKey(x => x.ServiceItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TradeAgreementServiceScheduleMonthRow>(e =>
+        {
+            e.ToTable("trade_agreement_service_schedule_months");
+            e.HasKey(x => new { x.ServiceItemId, x.Month });
+            e.Property(x => x.ServiceItemId).HasMaxLength(80);
+        });
+
+        modelBuilder.Entity<TradeAgreementServiceScheduleDayRow>(e =>
+        {
+            e.ToTable("trade_agreement_service_schedule_days");
+            e.HasKey(x => new { x.ServiceItemId, x.Month, x.CalendarDay });
+            e.Property(x => x.ServiceItemId).HasMaxLength(80);
+        });
+
+        modelBuilder.Entity<TradeAgreementServiceScheduleOverrideRow>(e =>
+        {
+            e.ToTable("trade_agreement_service_schedule_overrides");
+            e.HasKey(x => new { x.ServiceItemId, x.Month, x.CalendarDay });
+            e.Property(x => x.ServiceItemId).HasMaxLength(80);
+            e.Property(x => x.WindowStart).HasMaxLength(16);
+            e.Property(x => x.WindowEnd).HasMaxLength(16);
+        });
+
+        modelBuilder.Entity<TradeAgreementServicePaymentMonthRow>(e =>
+        {
+            e.ToTable("trade_agreement_service_payment_months");
+            e.HasKey(x => new { x.ServiceItemId, x.Month });
+            e.Property(x => x.ServiceItemId).HasMaxLength(80);
+        });
+
+        modelBuilder.Entity<TradeAgreementServicePaymentEntryRow>(e =>
+        {
+            e.ToTable("trade_agreement_service_payment_entries");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ServiceItemId).HasMaxLength(80);
+            e.Property(x => x.Amount).HasMaxLength(64);
+            e.HasIndex(x => x.ServiceItemId);
+        });
+
+        modelBuilder.Entity<TradeAgreementServiceRiesgoRow>(e =>
+        {
+            e.ToTable("trade_agreement_service_riesgos");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ServiceItemId).HasMaxLength(80);
+            e.Property(x => x.Text).HasColumnType("text");
+            e.HasIndex(x => x.ServiceItemId);
+        });
+
+        modelBuilder.Entity<TradeAgreementServiceDependenciaRow>(e =>
+        {
+            e.ToTable("trade_agreement_service_dependencias");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ServiceItemId).HasMaxLength(80);
+            e.Property(x => x.Text).HasColumnType("text");
+            e.HasIndex(x => x.ServiceItemId);
+        });
+
+        modelBuilder.Entity<TradeAgreementServiceTerminacionCausaRow>(e =>
+        {
+            e.ToTable("trade_agreement_service_terminacion_causas");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ServiceItemId).HasMaxLength(80);
+            e.Property(x => x.Text).HasColumnType("text");
+            e.HasIndex(x => x.ServiceItemId);
+        });
+
+        modelBuilder.Entity<TradeAgreementServiceMonedaRow>(e =>
+        {
+            e.ToTable("trade_agreement_service_monedas");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ServiceItemId).HasMaxLength(80);
+            e.Property(x => x.Code).HasMaxLength(16);
+            e.HasIndex(x => x.ServiceItemId);
         });
 
         modelBuilder.Entity<ChatMessageRow>(e =>

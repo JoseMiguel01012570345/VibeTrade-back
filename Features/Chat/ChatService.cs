@@ -473,6 +473,12 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             "docs" when root.TryGetProperty("documents", out var docs) && docs.ValueKind == JsonValueKind.Array =>
                 docs.GetArrayLength() > 1 ? $"{docs.GetArrayLength()} documentos" : SingleDocName(docs),
             "docs" => "Documentos",
+            "agreement" => root.TryGetProperty("title", out var agt) && agt.ValueKind == JsonValueKind.String
+                ? $"Acuerdo: {agt.GetString() ?? "…"}"
+                : "Acuerdo",
+            "system_text" => root.TryGetProperty("text", out var stx) && stx.ValueKind == JsonValueKind.String
+                ? PreviewText(stx.GetString() ?? "")
+                : "Mensaje",
             _ => "Mensaje",
         };
 
@@ -1251,5 +1257,52 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
                 new { message = dto },
                 cancellationToken);
         }
+    }
+
+    public async Task<ChatMessageDto?> PostAgreementAnnouncementAsync(
+        string sellerUserId,
+        string threadId,
+        string agreementId,
+        string title,
+        string status,
+        CancellationToken cancellationToken = default)
+    {
+        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null || !UserCanSeeThread(sellerUserId, t))
+            return null;
+        if (sellerUserId != t.SellerUserId)
+            return null;
+        if (string.IsNullOrWhiteSpace(agreementId) || string.IsNullOrWhiteSpace(title))
+            return null;
+        if (status is not ("pending_buyer" or "accepted" or "rejected"))
+            status = "pending_buyer";
+
+        var payload = new ChatAgreementPayload
+        {
+            AgreementId = agreementId.Trim(),
+            Title = title.Trim(),
+            Body = "",
+            Status = status,
+        };
+        return await InsertChatMessageAsync(t, sellerUserId, payload, cancellationToken);
+    }
+
+    public async Task<ChatMessageDto?> PostSystemThreadNoticeAsync(
+        string actorUserId,
+        string threadId,
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null || !UserCanSeeThread(actorUserId, t))
+            return null;
+        if (actorUserId != t.BuyerUserId && actorUserId != t.SellerUserId)
+            return null;
+        var tx = (text ?? "").Trim();
+        if (tx.Length == 0 || tx.Length > 12_000)
+            return null;
+
+        var payload = new ChatSystemTextPayload { Text = tx };
+        return await InsertChatMessageAsync(t, actorUserId, payload, cancellationToken);
     }
 }

@@ -30,6 +30,8 @@ public static class ChatMarketMessageJsonMapper
             "image" => MapImage(m.Id, from, at, read, p),
             "doc" => MapDoc(m.Id, from, at, read, p),
             "docs" => MapDocs(m.Id, from, at, read, p),
+            "agreement" => MapAgreement(m.Id, from, at, read, statusStr, p),
+            "system_text" => MapSystemText(m.Id, at, read, p),
             _ => TextFallback(
                 m.Id,
                 from,
@@ -250,6 +252,43 @@ public static class ChatMarketMessageJsonMapper
         }
         if (outArr.Count > 0)
             obj["replyQuotes"] = outArr;
+    }
+
+    private static JsonObject MapAgreement(
+        string id,
+        string from,
+        long at,
+        bool read,
+        string chatStatus,
+        JsonElement p)
+    {
+        var aid = p.TryGetProperty("agreementId", out var a) ? a.GetString() ?? "" : "";
+        var title = p.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+        return new JsonObject
+        {
+            ["id"] = id,
+            ["from"] = from,
+            ["type"] = "agreement",
+            ["agreementId"] = aid,
+            ["title"] = title,
+            ["at"] = at,
+            ["read"] = read,
+            ["chatStatus"] = chatStatus,
+        };
+    }
+
+    private static JsonObject MapSystemText(string id, long at, bool read, JsonElement p)
+    {
+        var text = p.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
+        return new JsonObject
+        {
+            ["id"] = id,
+            ["from"] = "system",
+            ["type"] = "text",
+            ["text"] = text,
+            ["at"] = at,
+            ["read"] = read,
+        };
     }
 
     private static JsonObject TextFallback(
