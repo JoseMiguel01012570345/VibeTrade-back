@@ -238,8 +238,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.RespondedByUserId).HasMaxLength(64);
             e.Property(x => x.RouteSheetId).HasMaxLength(64);
             e.Property(x => x.RouteSheetUrl).HasColumnType("text");
+            e.Property(x => x.DeletedByUserId).HasMaxLength(64);
             e.HasIndex(x => x.ThreadId);
             e.HasIndex(x => new { x.ThreadId, x.Status });
+            e.HasIndex(x => x.DeletedAtUtc);
             e.HasMany(x => x.MerchandiseLines)
                 .WithOne(x => x.TradeAgreement)
                 .HasForeignKey(x => x.TradeAgreementId)

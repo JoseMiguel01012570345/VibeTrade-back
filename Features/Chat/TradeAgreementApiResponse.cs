@@ -10,6 +10,8 @@ public sealed class TradeAgreementApiResponse
     public string IssuedByStoreId { get; set; } = "";
     public string IssuerLabel { get; set; } = "";
     public string Status { get; set; } = "";
+    /// <summary>Si el acuerdo fue eliminado (baja lógica), instante UTC en epoch ms.</summary>
+    public long? DeletedAt { get; set; }
     public long? RespondedAt { get; set; }
     public bool? SellerEditBlockedUntilBuyerResponse { get; set; }
     public bool IncludeMerchandise { get; set; }

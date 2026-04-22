@@ -15,6 +15,7 @@ public static class TradeAgreementEntityToApiMapper
 
     private static TradeAgreementApiResponse MapAgreementHeader(TradeAgreementRow ag)
     {
+        var deleted = ag.DeletedAtUtc is not null;
         return new TradeAgreementApiResponse
         {
             Id = ag.Id,
@@ -23,7 +24,8 @@ public static class TradeAgreementEntityToApiMapper
             IssuedAt = ag.IssuedAtUtc.ToUnixTimeMilliseconds(),
             IssuedByStoreId = ag.IssuedByStoreId,
             IssuerLabel = ag.IssuerLabel,
-            Status = ag.Status,
+            Status = deleted ? "deleted" : ag.Status,
+            DeletedAt = deleted ? ag.DeletedAtUtc!.Value.ToUnixTimeMilliseconds() : null,
             RespondedAt = ag.RespondedAtUtc?.ToUnixTimeMilliseconds(),
             SellerEditBlockedUntilBuyerResponse = ag.SellerEditBlockedUntilBuyerResponse ? true : null,
             IncludeMerchandise = ag.IncludeMerchandise,

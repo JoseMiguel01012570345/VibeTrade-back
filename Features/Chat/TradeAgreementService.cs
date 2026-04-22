@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 
@@ -167,7 +166,7 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
             return null;
 
         var ag = await db.TradeAgreements.FirstOrDefaultAsync(
-            x => x.Id == agreementId && x.ThreadId == threadId,
+            x => x.Id == agreementId && x.ThreadId == threadId && x.DeletedAtUtc == null,
             cancellationToken);
         if (ag is null || ag.Status != "pending_buyer")
             return null;
@@ -204,23 +203,15 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
         var ag = await db.TradeAgreements.FirstOrDefaultAsync(
             x => x.Id == agreementId && x.ThreadId == threadId,
             cancellationToken);
-        if (ag is null || ag.Status == "accepted" || ag.IssuedByStoreId != t.StoreId)
+        if (ag is null
+            || ag.DeletedAtUtc is not null
+            || ag.Status == "accepted"
+            || ag.IssuedByStoreId != t.StoreId)
             return false;
 
         var title = ag.Title;
-        db.TradeAgreements.Remove(ag);
-        await db.SaveChangesAsync(cancellationToken);
-
-        var msgs = await db.ChatMessages
-            .Where(m => m.ThreadId == threadId && m.DeletedAtUtc == null)
-            .ToListAsync(cancellationToken);
-        foreach (var m in msgs)
-        {
-            if (!TryGetAgreementIdFromPayload(m.PayloadJson, out var aid) || aid != agreementId)
-                continue;
-            db.ChatMessages.Remove(m);
-        }
-
+        ag.DeletedAtUtc = DateTimeOffset.UtcNow;
+        ag.DeletedByUserId = sellerUserId;
         await db.SaveChangesAsync(cancellationToken);
 
         await chat.PostSystemThreadNoticeAsync(
@@ -257,7 +248,7 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
             .Include(a => a.ServiceItems).ThenInclude(s => s.DependenciaItems)
             .Include(a => a.ServiceItems).ThenInclude(s => s.TerminacionCausas)
             .Include(a => a.ServiceItems).ThenInclude(s => s.MonedasAceptadas)
-            .Where(a => a.Id == agreementId);
+            .Where(a => a.Id == agreementId && a.DeletedAtUtc == null);
         if (threadId is not null)
             q = q.Where(a => a.ThreadId == threadId);
         return await q.FirstOrDefaultAsync(cancellationToken);
@@ -273,24 +264,4 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
     }
 
     private static string NewAgrId() => "agr_" + Guid.NewGuid().ToString("N")[..16];
-
-    private static bool TryGetAgreementIdFromPayload(string payloadJson, out string agreementId)
-    {
-        agreementId = "";
-        try
-        {
-            using var doc = JsonDocument.Parse(payloadJson);
-            var root = doc.RootElement;
-            if (!root.TryGetProperty("type", out var t) || t.GetString() != "agreement")
-                return false;
-            if (!root.TryGetProperty("agreementId", out var id) || id.ValueKind != JsonValueKind.String)
-                return false;
-            agreementId = id.GetString() ?? "";
-            return agreementId.Length > 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
 }

@@ -38,6 +38,11 @@ public sealed class TradeAgreementRow
 
     public string? RouteSheetUrl { get; set; }
 
+    /// <summary>Baja lógica: el acuerdo y el historial de chat se conservan; el cliente lo muestra como eliminado.</summary>
+    public DateTimeOffset? DeletedAtUtc { get; set; }
+
+    public string? DeletedByUserId { get; set; }
+
     public ICollection<TradeAgreementMerchandiseLineRow> MerchandiseLines { get; set; } =
         new List<TradeAgreementMerchandiseLineRow>();
 
