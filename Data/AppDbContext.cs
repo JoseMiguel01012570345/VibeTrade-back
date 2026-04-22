@@ -392,6 +392,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Id).HasMaxLength(64);
             e.Property(x => x.ServiceItemId).HasMaxLength(80);
             e.Property(x => x.Amount).HasMaxLength(64);
+            e.Property(x => x.Moneda).HasMaxLength(32);
             e.HasIndex(x => x.ServiceItemId);
         });
 

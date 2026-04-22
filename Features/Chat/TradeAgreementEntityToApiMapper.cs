@@ -158,6 +158,7 @@ public static class TradeAgreementEntityToApiMapper
                 Month = e.Month,
                 Day = e.Day,
                 Amount = e.Amount,
+                Moneda = e.Moneda,
             }).ToList(),
         };
     }

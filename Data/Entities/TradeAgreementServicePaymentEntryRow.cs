@@ -15,4 +15,6 @@ public sealed class TradeAgreementServicePaymentEntryRow
     public int Day { get; set; }
 
     public string Amount { get; set; } = "";
+
+    public string Moneda { get; set; } = "";
 }

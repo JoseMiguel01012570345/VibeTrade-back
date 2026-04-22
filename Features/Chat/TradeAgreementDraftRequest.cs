@@ -133,6 +133,9 @@ public sealed class PaymentEntryRequest
     public int Month { get; set; }
     public int Day { get; set; }
     public string Amount { get; set; } = "";
+
+    [JsonPropertyName("moneda")]
+    public string Moneda { get; set; } = "";
 }
 
 public sealed class RiesgosBlockRequest

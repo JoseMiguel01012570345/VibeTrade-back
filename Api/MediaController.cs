@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Net.Http.Headers;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth;
@@ -67,8 +69,12 @@ public sealed class MediaController(AppDbContext db, IAuthService auth) : Contro
         if (row is null)
             return NotFound();
 
-        // Inline by default so images render; browser can still download via "Save as".
-        Response.Headers.ContentDisposition = $"inline; filename=\"{row.FileName.Replace("\"", "")}\"";
+        // Inline by default so images render; kestrel only allows ASCII in the raw header string unless
+        // the filename is encoded (RFC 5987 filename*). SetHttpFileName does filename + filename* safely.
+        var contentDisposition = new ContentDispositionHeaderValue("inline");
+        contentDisposition.SetHttpFileName(
+            string.IsNullOrWhiteSpace(row.FileName) ? "file" : row.FileName);
+        Response.GetTypedHeaders().ContentDisposition = contentDisposition;
         return File(row.Bytes, row.MimeType);
     }
 }

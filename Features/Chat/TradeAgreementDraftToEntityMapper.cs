@@ -199,6 +199,7 @@ public static class TradeAgreementDraftToEntityMapper
                     Month = e.Month,
                     Day = e.Day,
                     Amount = e.Amount ?? "",
+                    Moneda = e.Moneda?.Trim() ?? "",
                 });
             }
         }

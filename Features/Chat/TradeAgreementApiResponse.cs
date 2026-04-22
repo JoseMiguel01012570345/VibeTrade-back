@@ -109,6 +109,7 @@ public sealed class PaymentEntryApi
     public int Month { get; set; }
     public int Day { get; set; }
     public string Amount { get; set; } = "";
+    public string Moneda { get; set; } = "";
 }
 
 public sealed class RiesgosApi
