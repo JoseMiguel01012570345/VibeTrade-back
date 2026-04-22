@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using VibeTrade.Backend.Data;
 
@@ -15,30 +14,18 @@ public static class ChatMarketMessageJsonMapper
         var at = m.CreatedAtUtc.ToUnixTimeMilliseconds();
         var read = from == "me" ? m.Status == ChatMessageStatus.Read : true;
         var statusStr = ChatStatusToApiString(m.Status);
-        var p = m.Payload;
 
-        if (p.ValueKind != JsonValueKind.Object)
-            return TextFallback(m.Id, from, at, read, statusStr, "");
-
-        if (!p.TryGetProperty("type", out var typeEl) || typeEl.ValueKind != JsonValueKind.String)
-            return TextFallback(m.Id, from, at, read, statusStr, "");
-
-        return typeEl.GetString() switch
+        return m.Payload switch
         {
-            "text" => MapText(m.Id, from, at, read, statusStr, p),
-            "audio" => MapAudio(m.Id, from, at, read, p),
-            "image" => MapImage(m.Id, from, at, read, p),
-            "doc" => MapDoc(m.Id, from, at, read, p),
-            "docs" => MapDocs(m.Id, from, at, read, p),
-            "agreement" => MapAgreement(m.Id, from, at, read, statusStr, p),
-            "system_text" => MapSystemText(m.Id, at, read, p),
-            _ => TextFallback(
-                m.Id,
-                from,
-                at,
-                read,
-                statusStr,
-                p.TryGetProperty("text", out var tx) ? tx.GetString() ?? "" : ""),
+            ChatTextPayload p => MapText(m.Id, from, at, read, statusStr, p),
+            ChatAudioPayload p => MapAudio(m.Id, from, at, read, p),
+            ChatImagePayload p => MapImage(m.Id, from, at, read, p),
+            ChatDocPayload p => MapDoc(m.Id, from, at, read, p),
+            ChatDocsBundlePayload p => MapDocs(m.Id, from, at, read, p),
+            ChatAgreementPayload p => MapAgreement(m.Id, from, at, read, statusStr, p),
+            ChatSystemTextPayload p => MapSystemText(m.Id, at, read, p),
+            ChatCertificatePayload p => MapCertificate(m.Id, from, at, read, statusStr, p),
+            _ => TextFallback(m.Id, from, at, read, statusStr, ""),
         };
     }
 
@@ -58,56 +45,46 @@ public static class ChatMarketMessageJsonMapper
         long at,
         bool read,
         string chatStatus,
-        JsonElement p)
+        ChatTextPayload p)
     {
         var obj = new JsonObject
         {
             ["id"] = id,
             ["from"] = from,
             ["type"] = "text",
-            ["text"] = p.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "",
+            ["text"] = p.Text,
             ["at"] = at,
             ["read"] = read,
             ["chatStatus"] = chatStatus,
         };
-        if (p.TryGetProperty("offerQaId", out var oq) && oq.ValueKind == JsonValueKind.String)
-        {
-            var oqs = oq.GetString();
-            if (!string.IsNullOrEmpty(oqs))
-                obj["offerQaId"] = oqs;
-        }
-        AppendReplyQuotes(obj, p);
+        if (!string.IsNullOrEmpty(p.OfferQaId))
+            obj["offerQaId"] = p.OfferQaId;
+        AppendReplyQuotes(obj, p.ReplyQuotes);
         return obj;
     }
 
-    private static JsonObject MapAudio(string id, string from, long at, bool read, JsonElement p)
+    private static JsonObject MapAudio(string id, string from, long at, bool read, ChatAudioPayload p)
     {
         var obj = new JsonObject
         {
             ["id"] = id,
             ["from"] = from,
             ["type"] = "audio",
-            ["url"] = p.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "",
-            ["seconds"] = p.TryGetProperty("seconds", out var s) && s.TryGetInt32(out var sec) ? sec : 1,
+            ["url"] = p.Url,
+            ["seconds"] = p.Seconds,
             ["at"] = at,
             ["read"] = read,
         };
-        AppendReplyQuotes(obj, p);
+        AppendReplyQuotes(obj, p.ReplyQuotes);
         return obj;
     }
 
-    private static JsonObject MapImage(string id, string from, long at, bool read, JsonElement p)
+    private static JsonObject MapImage(string id, string from, long at, bool read, ChatImagePayload p)
     {
         var images = new JsonArray();
-        if (p.TryGetProperty("images", out var arr) && arr.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var el in arr.EnumerateArray())
-            {
-                if (el.ValueKind != JsonValueKind.Object || !el.TryGetProperty("url", out var u))
-                    continue;
-                images.Add(new JsonObject { ["url"] = u.GetString() ?? "" });
-            }
-        }
+        foreach (var img in p.Images)
+            images.Add(new JsonObject { ["url"] = img.Url });
+
         var obj = new JsonObject
         {
             ["id"] = id,
@@ -117,87 +94,57 @@ public static class ChatMarketMessageJsonMapper
             ["at"] = at,
             ["read"] = read,
         };
-        if (p.TryGetProperty("caption", out var cap) && cap.ValueKind == JsonValueKind.String)
-        {
-            var cs = cap.GetString();
-            if (!string.IsNullOrEmpty(cs))
-                obj["caption"] = cs;
-        }
-        if (p.TryGetProperty("embeddedAudio", out var ea)
-            && ea.ValueKind == JsonValueKind.Object
-            && ea.TryGetProperty("url", out var eau)
-            && ea.TryGetProperty("seconds", out var eas)
-            && eas.TryGetInt32(out var easc))
+        if (!string.IsNullOrEmpty(p.Caption))
+            obj["caption"] = p.Caption;
+        if (p.EmbeddedAudio is { } ea)
         {
             obj["embeddedAudio"] = new JsonObject
             {
-                ["url"] = eau.GetString() ?? "",
-                ["seconds"] = easc,
+                ["url"] = ea.Url,
+                ["seconds"] = ea.Seconds,
             };
         }
-        AppendReplyQuotes(obj, p);
+        AppendReplyQuotes(obj, p.ReplyQuotes);
         return obj;
     }
 
-    private static JsonObject MapDoc(string id, string from, long at, bool read, JsonElement p)
+    private static JsonObject MapDoc(string id, string from, long at, bool read, ChatDocPayload p)
     {
-        var kind = p.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String
-            ? k.GetString() ?? "other"
-            : "other";
         var obj = new JsonObject
         {
             ["id"] = id,
             ["from"] = from,
             ["type"] = "doc",
-            ["name"] = p.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
-            ["size"] = p.TryGetProperty("size", out var sz) ? sz.GetString() ?? "" : "",
-            ["kind"] = kind,
+            ["name"] = p.Name,
+            ["size"] = p.Size,
+            ["kind"] = p.Kind,
             ["at"] = at,
             ["read"] = read,
         };
-        if (p.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String)
-        {
-            var us = u.GetString();
-            if (!string.IsNullOrEmpty(us))
-                obj["url"] = us;
-        }
-        if (p.TryGetProperty("caption", out var cap) && cap.ValueKind == JsonValueKind.String)
-        {
-            var cs = cap.GetString();
-            if (!string.IsNullOrEmpty(cs))
-                obj["caption"] = cs;
-        }
-        AppendReplyQuotes(obj, p);
+        if (!string.IsNullOrEmpty(p.Url))
+            obj["url"] = p.Url;
+        if (!string.IsNullOrEmpty(p.Caption))
+            obj["caption"] = p.Caption;
+        AppendReplyQuotes(obj, p.ReplyQuotes);
         return obj;
     }
 
-    private static JsonObject MapDocs(string id, string from, long at, bool read, JsonElement p)
+    private static JsonObject MapDocs(string id, string from, long at, bool read, ChatDocsBundlePayload p)
     {
         var docs = new JsonArray();
-        if (p.TryGetProperty("documents", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        foreach (var el in p.Documents)
         {
-            foreach (var el in arr.EnumerateArray())
+            var one = new JsonObject
             {
-                if (el.ValueKind != JsonValueKind.Object)
-                    continue;
-                var kind = el.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String
-                    ? k.GetString() ?? "other"
-                    : "other";
-                var one = new JsonObject
-                {
-                    ["name"] = el.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "",
-                    ["size"] = el.TryGetProperty("size", out var sz) ? sz.GetString() ?? "" : "",
-                    ["kind"] = kind,
-                };
-                if (el.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String)
-                {
-                    var us = u.GetString();
-                    if (!string.IsNullOrEmpty(us))
-                        one["url"] = us;
-                }
-                docs.Add(one);
-            }
+                ["name"] = el.Name,
+                ["size"] = el.Size,
+                ["kind"] = el.Kind,
+            };
+            if (!string.IsNullOrEmpty(el.Url))
+                one["url"] = el.Url;
+            docs.Add(one);
         }
+
         var obj = new JsonObject
         {
             ["id"] = id,
@@ -207,47 +154,34 @@ public static class ChatMarketMessageJsonMapper
             ["at"] = at,
             ["read"] = read,
         };
-        if (p.TryGetProperty("caption", out var cap) && cap.ValueKind == JsonValueKind.String)
-        {
-            var cs = cap.GetString();
-            if (!string.IsNullOrEmpty(cs))
-                obj["caption"] = cs;
-        }
-        if (p.TryGetProperty("embeddedAudio", out var ea)
-            && ea.ValueKind == JsonValueKind.Object
-            && ea.TryGetProperty("url", out var eau)
-            && ea.TryGetProperty("seconds", out var eas)
-            && eas.TryGetInt32(out var easc))
+        if (!string.IsNullOrEmpty(p.Caption))
+            obj["caption"] = p.Caption;
+        if (p.EmbeddedAudio is { } ea)
         {
             obj["embeddedAudio"] = new JsonObject
             {
-                ["url"] = eau.GetString() ?? "",
-                ["seconds"] = easc,
+                ["url"] = ea.Url,
+                ["seconds"] = ea.Seconds,
             };
         }
-        AppendReplyQuotes(obj, p);
+        AppendReplyQuotes(obj, p.ReplyQuotes);
         return obj;
     }
 
-    private static void AppendReplyQuotes(JsonObject obj, JsonElement p)
+    private static void AppendReplyQuotes(JsonObject obj, IReadOnlyList<ReplyQuoteDto>? quotes)
     {
-        if (!p.TryGetProperty("replyQuotes", out var rq) || rq.ValueKind != JsonValueKind.Array)
+        if (quotes is null || quotes.Count == 0)
             return;
         var outArr = new JsonArray();
-        foreach (var el in rq.EnumerateArray())
+        foreach (var el in quotes)
         {
-            if (el.ValueKind != JsonValueKind.Object)
-                continue;
-            var mid = el.TryGetProperty("messageId", out var mi) ? mi.GetString() : null;
-            var author = el.TryGetProperty("author", out var au) ? au.GetString() : null;
-            var preview = el.TryGetProperty("preview", out var pr) ? pr.GetString() : null;
-            if (string.IsNullOrEmpty(mid) || author is null || preview is null)
+            if (string.IsNullOrEmpty(el.MessageId) || el.Author is null || el.Preview is null)
                 continue;
             outArr.Add(new JsonObject
             {
-                ["id"] = mid,
-                ["author"] = author,
-                ["preview"] = preview,
+                ["id"] = el.MessageId,
+                ["author"] = el.Author,
+                ["preview"] = el.Preview,
             });
         }
         if (outArr.Count > 0)
@@ -260,32 +194,49 @@ public static class ChatMarketMessageJsonMapper
         long at,
         bool read,
         string chatStatus,
-        JsonElement p)
+        ChatAgreementPayload p)
     {
-        var aid = p.TryGetProperty("agreementId", out var a) ? a.GetString() ?? "" : "";
-        var title = p.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
         return new JsonObject
         {
             ["id"] = id,
             ["from"] = from,
             ["type"] = "agreement",
-            ["agreementId"] = aid,
-            ["title"] = title,
+            ["agreementId"] = p.AgreementId,
+            ["title"] = p.Title,
             ["at"] = at,
             ["read"] = read,
             ["chatStatus"] = chatStatus,
         };
     }
 
-    private static JsonObject MapSystemText(string id, long at, bool read, JsonElement p)
+    private static JsonObject MapCertificate(
+        string id,
+        string from,
+        long at,
+        bool read,
+        string chatStatus,
+        ChatCertificatePayload p)
     {
-        var text = p.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
+        return new JsonObject
+        {
+            ["id"] = id,
+            ["from"] = from,
+            ["type"] = "text",
+            ["text"] = string.IsNullOrEmpty(p.Body) ? p.Title : $"{p.Title}: {p.Body}",
+            ["at"] = at,
+            ["read"] = read,
+            ["chatStatus"] = chatStatus,
+        };
+    }
+
+    private static JsonObject MapSystemText(string id, long at, bool read, ChatSystemTextPayload p)
+    {
         return new JsonObject
         {
             ["id"] = id,
             ["from"] = "system",
             ["type"] = "text",
-            ["text"] = text,
+            ["text"] = p.Text,
             ["at"] = at,
             ["read"] = read,
         };

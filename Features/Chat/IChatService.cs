@@ -21,7 +21,7 @@ public sealed record ChatMessageDto(
     string Id,
     string ThreadId,
     string SenderUserId,
-    JsonElement Payload,
+    ChatMessagePayload Payload,
     ChatMessageStatus Status,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? UpdatedAtUtc,

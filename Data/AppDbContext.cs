@@ -506,7 +506,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Id).HasMaxLength(64);
             e.Property(x => x.ThreadId).HasMaxLength(64);
             e.Property(x => x.SenderUserId).HasMaxLength(64);
-            e.Property(x => x.PayloadJson).HasColumnType("jsonb");
+            e.Property(x => x.Payload)
+                .HasColumnName("PayloadJson")
+                .HasColumnType("jsonb")
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, ChatMessageJson.Options),
+                    v => ChatMessageJson.DeserializePayload(v));
             e.Property(x => x.Status).HasConversion<int>();
             e.Property(x => x.CreatedAtUtc);
             e.Property(x => x.UpdatedAtUtc);

@@ -1,17 +1,25 @@
-using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
-namespace VibeTrade.Backend.Features.Chat;
+namespace VibeTrade.Backend.Data;
 
 /// <summary>
-/// Shape of the JSON payload stored in <see cref="Data.Entities.ChatMessageRow.PayloadJson"/>.
-/// Always serialized with System.Text.Json using JsonSerializerDefaults.Web (camelCase).
+/// Contenido persistido del mensaje de chat (columna <c>PayloadJson</c>, jsonb).
+/// Serialización con <see cref="ChatMessageJson.Options"/> (camelCase Web).
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(ChatTextPayload), "text")]
+[JsonDerivedType(typeof(ChatImagePayload), "image")]
+[JsonDerivedType(typeof(ChatAudioPayload), "audio")]
+[JsonDerivedType(typeof(ChatDocPayload), "doc")]
+[JsonDerivedType(typeof(ChatDocsBundlePayload), "docs")]
+[JsonDerivedType(typeof(ChatCertificatePayload), "certificate")]
+[JsonDerivedType(typeof(ChatAgreementPayload), "agreement")]
+[JsonDerivedType(typeof(ChatSystemTextPayload), "system_text")]
 public abstract record ChatMessagePayload
 {
     /// <summary>
-    /// Discriminator for the concrete payload type.
-    /// Examples: "text", "image", "audio", "doc", "docs", "agreement", "certificate", "system_text".
+    /// Discriminador; coincide con la propiedad JSON <c>type</c>.
     /// </summary>
     public string Type { get; init; } = "";
 }
@@ -146,4 +154,3 @@ public sealed record ChatSystemTextPayload : ChatMessagePayload
 
     public required string Text { get; init; }
 }
-

@@ -19,6 +19,16 @@ public sealed class RecommendationFeedV2(
 {
     public const int MaxSeedOffers = 100;
     private const int MaxCombinationsBeforeFallback = 10;
+
+    /// <summary>
+    /// Muestra aleatoria acotada de ofertas publicadas (~10% emergentes + productos/servicios al azar).
+    /// </summary>
+    public Task<List<string>> SampleRandomPublishedOfferIdsAsync(
+        string viewerUserId,
+        int take,
+        HashSet<string> exclude,
+        CancellationToken cancellationToken) =>
+        SampleRandomOfferIdsAsync(viewerUserId, take, exclude, cancellationToken);
     private const double CommentLikeBoostScale = 0.15d;
     private const double CommentWordWeightMultiplier = 0.25d;
     private const int IdChunkSize = 500;
@@ -240,9 +250,6 @@ public sealed class RecommendationFeedV2(
             return [];
 
         var want = take;
-        var half = (want + 1) / 2;
-        var fromP = await SampleProductIdsRandomAsync(viewerUserId, half, cancellationToken);
-        var fromS = await SampleServiceIdsRandomAsync(viewerUserId, want - fromP.Count, cancellationToken);
         var merged = new List<string>(want);
         var seen = new HashSet<string>(exclude, StringComparer.Ordinal);
         void TryAddRange(IEnumerable<string> ids)
@@ -256,6 +263,24 @@ public sealed class RecommendationFeedV2(
                 merged.Add(id);
             }
         }
+
+        // ~10% de la muestra aleatoria: ofertas emergentes (hoja de ruta), elegibles para el viewer.
+        var emergentQuota = Math.Min(want, Math.Max(1, (int)Math.Ceiling(want * 0.1d)));
+        var fromEmergent = await EmergentRouteOfferRanking.TakeRandomEmergentOfferIdsAsync(
+            db,
+            viewerUserId,
+            emergentQuota,
+            seen,
+            cancellationToken);
+        TryAddRange(fromEmergent);
+
+        var remaining = want - merged.Count;
+        if (remaining <= 0)
+            return merged.Take(want).ToList();
+
+        var half = (remaining + 1) / 2;
+        var fromP = await SampleProductIdsRandomAsync(viewerUserId, half, cancellationToken);
+        var fromS = await SampleServiceIdsRandomAsync(viewerUserId, remaining - fromP.Count, cancellationToken);
 
         TryAddRange(fromP);
         TryAddRange(fromS);

@@ -9,8 +9,6 @@ namespace VibeTrade.Backend.Features.Chat;
 
 public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : IChatService
 {
-    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
-
     /// <summary>
     /// Grupo SignalR por usuario (todos los clientes del participante). Usado para eventos de chat
     /// aunque el cliente haya salido del grupo del hilo (<c>thread:*</c>).
@@ -244,28 +242,13 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         return MapThread(t, f.DisplayName, f.AvatarUrl);
     }
 
-    private static JsonElement PayloadJsonToElement(string payloadJson)
-    {
-        try
-        {
-            return JsonSerializer.Deserialize<JsonElement>(payloadJson, JsonOpts);
-        }
-        catch
-        {
-            return JsonSerializer.SerializeToElement(
-                new ChatTextPayload { Text = "" },
-                JsonOpts);
-        }
-    }
-
     private static ChatMessageDto MapMessage(ChatMessageRow m, string? senderDisplayLabel = null)
     {
-        var payload = PayloadJsonToElement(m.PayloadJson);
         return new ChatMessageDto(
             m.Id,
             m.ThreadId,
             m.SenderUserId,
-            payload,
+            m.Payload,
             m.Status,
             m.CreatedAtUtc,
             m.UpdatedAtUtc,
@@ -420,7 +403,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             lastPerThread.TryGetValue(t.Id, out var lastMsg);
             string? pv = null;
             if (lastMsg is not null)
-                pv = PreviewFromStoredPayload(lastMsg.PayloadJson);
+                pv = PreviewFromPayload(lastMsg.Payload);
             string? bdn = null;
             string? bav = null;
             if (buyerById.TryGetValue(t.BuyerUserId, out var bu))
@@ -444,41 +427,27 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         }).ToList();
     }
 
-    private static string PreviewFromStoredPayload(string payloadJson)
+    private static string PreviewFromPayload(ChatMessagePayload payload)
     {
-        try
+        return payload switch
         {
-            var el = JsonSerializer.Deserialize<JsonElement>(payloadJson, JsonOpts);
-            return PreviewFromPayloadElement(el);
-        }
-        catch
-        {
-            return "Mensaje";
-        }
-    }
-
-    private static string PreviewFromPayloadElement(JsonElement root)
-    {
-        var type = root.TryGetProperty("type", out var t) ? t.GetString() : "";
-        return type switch
-        {
-            "text" => PreviewText((root.TryGetProperty("text", out var tx) ? tx.GetString() : null) ?? ""),
-            "audio" => "Nota de voz",
-            "image" when root.TryGetProperty("caption", out var c) && c.ValueKind == JsonValueKind.String =>
-                string.IsNullOrWhiteSpace(c.GetString()) ? "Foto" : (c.GetString() ?? "Foto"),
-            "image" => "Foto",
-            "doc" => root.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
-                ? (n.GetString() ?? "Documento")
-                : "Documento",
-            "docs" when root.TryGetProperty("documents", out var docs) && docs.ValueKind == JsonValueKind.Array =>
-                docs.GetArrayLength() > 1 ? $"{docs.GetArrayLength()} documentos" : SingleDocName(docs),
-            "docs" => "Documentos",
-            "agreement" => root.TryGetProperty("title", out var agt) && agt.ValueKind == JsonValueKind.String
-                ? $"Acuerdo: {agt.GetString() ?? "…"}"
-                : "Acuerdo",
-            "system_text" => root.TryGetProperty("text", out var stx) && stx.ValueKind == JsonValueKind.String
-                ? PreviewText(stx.GetString() ?? "")
-                : "Mensaje",
+            ChatTextPayload p => PreviewText(p.Text),
+            ChatAudioPayload => "Nota de voz",
+            ChatImagePayload p => string.IsNullOrWhiteSpace(p.Caption) ? "Foto" : p.Caption!.Trim(),
+            ChatDocPayload p => string.IsNullOrWhiteSpace(p.Name) ? "Documento" : p.Name.Trim(),
+            ChatDocsBundlePayload p => p.Documents.Count switch
+            {
+                0 => "Documento",
+                1 => string.IsNullOrWhiteSpace(p.Documents[0].Name) ? "Documento" : p.Documents[0].Name.Trim(),
+                var n => $"{n} documentos",
+            },
+            ChatAgreementPayload p => string.IsNullOrWhiteSpace(p.Title)
+                ? "Acuerdo"
+                : $"Acuerdo: {p.Title.Trim()}",
+            ChatSystemTextPayload p => PreviewText(p.Text),
+            ChatCertificatePayload p => string.IsNullOrWhiteSpace(p.Title)
+                ? "Certificado"
+                : p.Title.Trim(),
             _ => "Mensaje",
         };
 
@@ -486,15 +455,6 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         {
             tx = tx.Trim();
             return tx.Length == 0 ? "Mensaje" : tx;
-        }
-
-        static string SingleDocName(JsonElement docsArr)
-        {
-            if (docsArr.GetArrayLength() == 0) return "Documento";
-            var first = docsArr[0];
-            return first.TryGetProperty("name", out var nn) && nn.ValueKind == JsonValueKind.String
-                ? (nn.GetString() ?? "Documento")
-                : "Documento";
         }
     }
 
@@ -567,7 +527,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             if (row is null)
                 continue;
             var author = await GetParticipantAuthorLabelAsync(thread, row.SenderUserId, cancellationToken);
-            var preview = PreviewFromStoredPayload(row.PayloadJson);
+            var preview = PreviewFromPayload(row.Payload);
             list.Add(new ReplyQuoteDto
             {
                 MessageId = row.Id,
@@ -609,7 +569,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
     private async Task<ChatMessageDto> InsertChatMessageAsync(
         ChatThreadRow thread,
         string senderUserId,
-        object payloadObj,
+        ChatMessagePayload payloadObj,
         CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
@@ -618,13 +578,12 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             thread.FirstMessageSentAtUtc = now;
 
         var msgId = "cmg_" + Guid.NewGuid().ToString("N")[..16];
-        var json = JsonSerializer.Serialize(payloadObj, JsonOpts);
         var row = new ChatMessageRow
         {
             Id = msgId,
             ThreadId = thread.Id,
             SenderUserId = senderUserId,
-            PayloadJson = json,
+            Payload = payloadObj,
             Status = ChatMessageStatus.Sent,
             CreatedAtUtc = now,
             UpdatedAtUtc = now,
@@ -632,7 +591,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         db.ChatMessages.Add(row);
 
         var recipientId = senderUserId == thread.BuyerUserId ? thread.SellerUserId : thread.BuyerUserId;
-        var preview = PreviewFromStoredPayload(json);
+        var preview = PreviewFromPayload(payloadObj);
         await NotifyRecipientAsync(recipientId, thread, row, preview, senderUserId, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
@@ -757,7 +716,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         ChatImagePayload parsed;
         try
         {
-            parsed = JsonSerializer.Deserialize<ChatImagePayload>(payload.GetRawText(), JsonOpts)
+            parsed = JsonSerializer.Deserialize<ChatImagePayload>(payload.GetRawText(), ChatMessageJson.Options)
                      ?? throw new JsonException();
         }
         catch
@@ -805,7 +764,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         ChatDocPayload parsed;
         try
         {
-            parsed = JsonSerializer.Deserialize<ChatDocPayload>(payload.GetRawText(), JsonOpts)
+            parsed = JsonSerializer.Deserialize<ChatDocPayload>(payload.GetRawText(), ChatMessageJson.Options)
                      ?? throw new JsonException();
         }
         catch
@@ -847,7 +806,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         ChatDocsBundlePayload parsed;
         try
         {
-            parsed = JsonSerializer.Deserialize<ChatDocsBundlePayload>(payload.GetRawText(), JsonOpts)
+            parsed = JsonSerializer.Deserialize<ChatDocsBundlePayload>(payload.GetRawText(), ChatMessageJson.Options)
                      ?? throw new JsonException();
         }
         catch
@@ -1198,11 +1157,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
     }
 
     private bool SellerThreadAlreadyHasOfferQaAnswer(IReadOnlyList<ChatMessageRow> sellerMsgs, string qaId) =>
-        sellerMsgs.Any(m =>
-        {
-            var pl = JsonSerializer.Deserialize<ChatTextPayload>(m.PayloadJson, JsonOpts);
-            return pl?.OfferQaId == qaId;
-        });
+        sellerMsgs.Any(m => m.Payload is ChatTextPayload text && text.OfferQaId == qaId);
 
     private ChatMessageRow CreateAndStageOfferQaAnswerMessageRow(
         ChatThreadRow thread,
@@ -1228,7 +1183,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             Id = msgId,
             ThreadId = thread.Id,
             SenderUserId = thread.SellerUserId,
-            PayloadJson = JsonSerializer.Serialize(payloadObj, JsonOpts),
+            Payload = payloadObj,
             Status = ChatMessageStatus.Sent,
             CreatedAtUtc = now,
             UpdatedAtUtc = now,

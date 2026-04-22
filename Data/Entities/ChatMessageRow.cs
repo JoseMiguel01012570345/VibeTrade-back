@@ -13,8 +13,8 @@ public sealed class ChatMessageRow
 
     public string SenderUserId { get; set; } = "";
 
-    /// <summary>JSON con forma de cliente: type text/image/audio/… + campos.</summary>
-    public string PayloadJson { get; set; } = "{}";
+    /// <summary>Contenido del mensaje; persistido en columna <c>PayloadJson</c> (jsonb).</summary>
+    public ChatMessagePayload Payload { get; set; } = new ChatTextPayload { Text = "" };
 
     public ChatMessageStatus Status { get; set; } = ChatMessageStatus.Sent;
 

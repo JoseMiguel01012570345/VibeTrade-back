@@ -93,16 +93,13 @@ public sealed class RecommendationService(
             maxOffers,
             cancellationToken);
 
-        if (v2Ids is not { Count: > 0 })
+        var idList = v2Ids is { Count: > 0 }
+            ? v2Ids.Select(id => id.Trim()).Where(id => id.Length > 0).ToArray()
+            : Array.Empty<string>();
+
+        if (idList.Length == 0)
             return ([], new Dictionary<string, OfferCandidate>(StringComparer.Ordinal));
 
-        var idList = v2Ids.Select(id => id.Trim()).Where(id => id.Length > 0).ToArray();
-        idList = await EmergentRouteOfferRanking.MergeForCarrierViewersAsync(
-            db,
-            viewer.Id,
-            idList,
-            maxOffers,
-            cancellationToken);
         var candidates = await LoadCandidatesForOfferIdsAsync(viewer.Id, idList.ToHashSet(StringComparer.Ordinal), cancellationToken);
         return (idList, candidates);
     }

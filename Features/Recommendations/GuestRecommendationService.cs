@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Utils;
 
@@ -15,15 +16,19 @@ public interface IGuestRecommendationService
 }
 
 /// <summary>
-/// Recomendaciones para invitado (sin UserAccount): usa señales locales (visitas/clicks)
-/// guardadas en <see cref="IGuestInteractionStore"/> + popularidad global.
+/// Recomendaciones para invitado: mismo pipeline <see cref="RecommendationFeedV2"/> que usuarios autenticados
+/// (semilla desde interacciones en <see cref="IGuestInteractionStore"/> + Elasticsearch).
+/// Si ES/V2 no devuelve resultados, se usa una muestra aleatoria acotada (incl. emergentes).
 /// </summary>
 public sealed class GuestRecommendationService(
     AppDbContext db,
     IGuestInteractionStore guestStore,
-    IOfferEngagementService offerEngagement)
+    IOfferEngagementService offerEngagement,
+    RecommendationFeedV2 feedV2)
     : IGuestRecommendationService
 {
+    private const int IdChunkSize = 500;
+
     public async Task<RecommendationBatchResponse> GetBatchAsync(
         string guestId,
         int take,
@@ -34,118 +39,161 @@ public sealed class GuestRecommendationService(
             return RecommendationBatchResponse.Empty(RecommendationService.DefaultBatchSize, RecommendationService.ScoreThreshold);
 
         var batchSize = Math.Clamp(take, 1, RecommendationService.MaxBatchSize);
-
-        var candidates = await LoadCandidatesAsync(cancellationToken);
-        if (candidates.Count == 0)
-            return RecommendationBatchResponse.Empty(batchSize, RecommendationService.ScoreThreshold);
-
         var now = DateTimeOffset.UtcNow;
-        var guestEvents = guestStore.GetRecent(gid, max: 250);
 
-        var direct = new Dictionary<string, double>(StringComparer.Ordinal);
-        var category = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (offerId, eventType) in guestEvents)
+        var guestEvents = guestStore.GetRecent(gid, max: 250);
+        var userEvents = guestEvents
+            .Select(e => new InteractionPoint(gid, (e.OfferId ?? "").Trim(), e.EventType, e.At))
+            .Where(x => x.OfferId.Length > 0)
+            .ToList();
+
+        var guestViewer = new UserAccount
         {
-            var w = eventType == "chat_start" ? 3d : eventType == "inquiry" ? 2d : 1d;
-            AddWeight(direct, offerId, w);
-            if (candidates.TryGetValue(offerId, out var c))
-                AddWeight(category, c.Category, w);
+            Id = gid,
+            SavedOfferIdsJson = "[]",
+        };
+
+        var v2Ids = await feedV2.TryBuildOrderedOfferIdsAsync(
+            gid,
+            guestViewer,
+            contactIds: [],
+            userEvents,
+            contactEvents: [],
+            now,
+            RecommendationService.ScoreThreshold,
+            batchSize,
+            cancellationToken);
+
+        string[] pageIds;
+        if (v2Ids is { Count: > 0 })
+        {
+            pageIds = v2Ids
+                .Select(id => id.Trim())
+                .Where(id => id.Length > 0)
+                .ToArray();
+        }
+        else
+        {
+            var randomIds = await feedV2.SampleRandomPublishedOfferIdsAsync(
+                gid,
+                batchSize,
+                new HashSet<string>(StringComparer.Ordinal),
+                cancellationToken);
+            pageIds = randomIds
+                .Select(id => id.Trim())
+                .Where(id => id.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
         }
 
-        var maxDirect = MaxOrZero(direct.Values);
-        var maxCategory = MaxOrZero(category.Values);
-        var maxPopularity = MaxOrZero(candidates.Values.Select(c => c.PopularityWeight));
-        var random = new Random(HashCode.Combine(gid, DateOnly.FromDateTime(now.UtcDateTime).GetHashCode()));
-
-        var topIds = candidates.Values
-            .Select(c =>
-            {
-                var categoryMatch = category.ContainsKey(c.Category) ? 1d : 0d;
-                var directInterest = Normalize(GetWeight(direct, c.OfferId), maxDirect);
-                var categoryInterest = Normalize(GetWeight(category, c.Category), maxCategory);
-                var userInterest = Math.Max(directInterest, categoryInterest);
-                var popularity = Normalize(c.PopularityWeight, maxPopularity);
-                var recency = ComputeRecency(c.UpdatedAt, now);
-                var trustScore = Normalize(c.TrustScore, 100d);
-
-                var score =
-                    (0.35d * categoryMatch)
-                    + (0.30d * userInterest)
-                    + (0.20d * popularity)
-                    + (0.10d * recency)
-                    + (0.05d * trustScore);
-
-                if (c.TrustScore < 40)
-                    score *= 0.2d;
-
-                return new ScoredCandidate(c.OfferId, Clamp01(score), random.NextDouble());
-            })
-            .OrderByDescending(x => x.Score)
-            .ThenBy(x => x.RandomTie)
-            .Take(batchSize)
-            .Select(x => x.OfferId)
-            .ToArray();
-
-        if (topIds.Length == 0)
+        if (pageIds.Length == 0)
             return RecommendationBatchResponse.Empty(batchSize, RecommendationService.ScoreThreshold);
 
-        var offers = await BuildOffersJsonForIdsAsync(topIds, cancellationToken);
+        var candidates = await LoadCandidatesForOfferIdsAsync(gid, pageIds.ToHashSet(StringComparer.Ordinal), cancellationToken);
+        var filtered = pageIds.Where(id => candidates.ContainsKey(id)).ToArray();
+        if (filtered.Length == 0)
+            return RecommendationBatchResponse.Empty(batchSize, RecommendationService.ScoreThreshold);
+
+        var offers = await BuildOffersJsonForIdsAsync(filtered, cancellationToken);
         await offerEngagement.EnrichOffersJsonAsync(offers, "g:" + gid, cancellationToken);
-        var storeBadges = await BuildStoreBadgesJsonAsync(topIds, candidates, cancellationToken);
-        return new RecommendationBatchResponse(topIds, offers, storeBadges, batchSize, RecommendationService.ScoreThreshold);
+        var storeBadges = await BuildStoreBadgesJsonAsync(filtered, cancellationToken);
+        return new RecommendationBatchResponse(filtered, offers, storeBadges, batchSize, RecommendationService.ScoreThreshold);
+    }
+
+    private async Task<Dictionary<string, OfferCandidate>> LoadCandidatesForOfferIdsAsync(
+        string viewerUserId,
+        IReadOnlyCollection<string> offerIds,
+        CancellationToken cancellationToken)
+    {
+        var map = new Dictionary<string, OfferCandidate>(StringComparer.Ordinal);
+        if (offerIds.Count == 0)
+            return map;
+
+        var idList = offerIds.ToList();
+        var products = await db.StoreProducts.AsNoTracking()
+            .Include(p => p.Store)
+            .Where(p => idList.Contains(p.Id) && p.Published && p.Store.OwnerUserId != viewerUserId)
+            .ToListAsync(cancellationToken);
+
+        var services = await db.StoreServices.AsNoTracking()
+            .Include(s => s.Store)
+            .Where(s => idList.Contains(s.Id) && (s.Published == null || s.Published == true) && s.Store.OwnerUserId != viewerUserId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var item in products)
+        {
+            map[item.Id] = new OfferCandidate(
+                item.Id,
+                item.StoreId,
+                item.Category ?? "",
+                item.Store.OwnerUserId,
+                item.Store.TrustScore,
+                item.UpdatedAt,
+                item.OfferQa.Count,
+                item.PopularityWeight);
+        }
+
+        foreach (var item in services)
+        {
+            map[item.Id] = new OfferCandidate(
+                item.Id,
+                item.StoreId,
+                item.Category ?? "",
+                item.Store.OwnerUserId,
+                item.Store.TrustScore,
+                item.UpdatedAt,
+                item.OfferQa.Count,
+                item.PopularityWeight);
+        }
+
+        return map;
     }
 
     private async Task<JsonObject> BuildStoreBadgesJsonAsync(
         IReadOnlyList<string> pageOfferIds,
-        IReadOnlyDictionary<string, OfferCandidate> candidates,
         CancellationToken cancellationToken)
     {
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var oid in pageOfferIds)
+        if (pageOfferIds.Count == 0)
+            return new JsonObject();
+
+        var storeIds = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < pageOfferIds.Count; i += IdChunkSize)
         {
-            if (candidates.TryGetValue(oid, out var c))
-                ids.Add(c.StoreId);
+            var slice = pageOfferIds
+                .Skip(i)
+                .Take(IdChunkSize)
+                .Select(id => (id ?? "").Trim())
+                .Where(id => id.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (slice.Count == 0)
+                continue;
+
+            var fromP = await db.StoreProducts.AsNoTracking()
+                .Where(p => slice.Contains(p.Id))
+                .Select(p => p.StoreId)
+                .ToListAsync(cancellationToken);
+            foreach (var sid in fromP)
+                storeIds.Add(sid);
+
+            var fromS = await db.StoreServices.AsNoTracking()
+                .Where(s => slice.Contains(s.Id))
+                .Select(s => s.StoreId)
+                .ToListAsync(cancellationToken);
+            foreach (var sid in fromS)
+                storeIds.Add(sid);
         }
-        if (ids.Count == 0)
+
+        if (storeIds.Count == 0)
             return new JsonObject();
 
         var rows = await db.Stores.AsNoTracking()
-            .Where(s => ids.Contains(s.Id))
+            .Where(s => storeIds.Contains(s.Id))
             .ToListAsync(cancellationToken);
         var o = new JsonObject();
         foreach (var row in rows)
             o[row.Id] = MarketCatalogStoreBadgeJson.FromStoreRow(row);
         return o;
-    }
-
-    private sealed record OfferCandidate(
-        string OfferId,
-        string StoreId,
-        string Category,
-        int TrustScore,
-        DateTimeOffset UpdatedAt,
-        double PopularityWeight);
-
-    private sealed record ScoredCandidate(string OfferId, double Score, double RandomTie);
-
-    private async Task<Dictionary<string, OfferCandidate>> LoadCandidatesAsync(CancellationToken cancellationToken)
-    {
-        var products = await db.StoreProducts.AsNoTracking()
-            .Where(p => p.Published)
-            .Select(p => new { p.Id, p.StoreId, p.Category, p.UpdatedAt, p.PopularityWeight, TrustScore = p.Store.TrustScore })
-            .ToListAsync(cancellationToken);
-
-        var services = await db.StoreServices.AsNoTracking()
-            .Where(s => s.Published == null || s.Published == true)
-            .Select(s => new { s.Id, s.StoreId, s.Category, s.UpdatedAt, s.PopularityWeight, TrustScore = s.Store.TrustScore })
-            .ToListAsync(cancellationToken);
-
-        var map = new Dictionary<string, OfferCandidate>(StringComparer.Ordinal);
-        foreach (var p in products)
-            map[p.Id] = new OfferCandidate(p.Id, p.StoreId, p.Category ?? "", p.TrustScore, p.UpdatedAt, p.PopularityWeight);
-        foreach (var s in services)
-            map[s.Id] = new OfferCandidate(s.Id, s.StoreId, s.Category ?? "", s.TrustScore, s.UpdatedAt, s.PopularityWeight);
-        return map;
     }
 
     private async Task<JsonObject> BuildOffersJsonForIdsAsync(
@@ -177,45 +225,4 @@ public sealed class GuestRecommendationService(
         }
         return offers;
     }
-
-    private static void AddWeight(IDictionary<string, double> target, string key, double weight)
-    {
-        if (string.IsNullOrWhiteSpace(key) || weight <= 0d)
-            return;
-        if (target.TryGetValue(key, out var existing))
-            target[key] = existing + weight;
-        else
-            target[key] = weight;
-    }
-
-    private static double GetWeight(IReadOnlyDictionary<string, double> source, string key) =>
-        source.TryGetValue(key, out var value) ? value : 0d;
-
-    private static double MaxOrZero(IEnumerable<double> values)
-    {
-        var max = 0d;
-        foreach (var value in values)
-        {
-            if (value > max)
-                max = value;
-        }
-        return max;
-    }
-
-    private static double Normalize(double value, double max) =>
-        max <= 0d ? 0d : Clamp01(value / max);
-
-    private static double ComputeRecency(DateTimeOffset updatedAt, DateTimeOffset now)
-    {
-        var ageDays = Math.Max(0d, (now - updatedAt).TotalDays);
-        return Clamp01(1d - (ageDays / 30d));
-    }
-
-    private static double Clamp01(double value) =>
-        value switch
-        {
-            < 0d => 0d,
-            > 1d => 1d,
-            _ => value,
-        };
 }

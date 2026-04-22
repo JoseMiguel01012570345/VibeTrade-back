@@ -5,7 +5,7 @@ namespace VibeTrade.Backend.Features.Recommendations;
 public interface IGuestInteractionStore
 {
     void Record(string guestId, string offerId, RecommendationInteractionType eventType);
-    IReadOnlyList<(string OfferId, string EventType)> GetRecent(string guestId, int max = 250);
+    IReadOnlyList<(string OfferId, string EventType, DateTimeOffset At)> GetRecent(string guestId, int max = 250);
 }
 
 /// <summary>
@@ -54,15 +54,15 @@ public sealed class GuestInteractionStore(IMemoryCache cache) : IGuestInteractio
         }
     }
 
-    public IReadOnlyList<(string OfferId, string EventType)> GetRecent(string guestId, int max = 250)
+    public IReadOnlyList<(string OfferId, string EventType, DateTimeOffset At)> GetRecent(string guestId, int max = 250)
     {
         var gid = (guestId ?? "").Trim();
         if (gid.Length == 0)
-            return Array.Empty<(string, string)>();
+            return Array.Empty<(string, string, DateTimeOffset)>();
 
         var key = BuildKey(gid);
         if (!cache.TryGetValue(key, out List<GuestInteraction>? list) || list is null)
-            return Array.Empty<(string, string)>();
+            return Array.Empty<(string, string, DateTimeOffset)>();
 
         lock (list)
         {
@@ -70,7 +70,7 @@ public sealed class GuestInteractionStore(IMemoryCache cache) : IGuestInteractio
             return list
                 .OrderByDescending(x => x.At)
                 .Take(take)
-                .Select(x => (x.OfferId, x.EventType))
+                .Select(x => (x.OfferId, x.EventType, x.At))
                 .ToArray();
         }
     }
