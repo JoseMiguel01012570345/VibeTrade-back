@@ -7,15 +7,7 @@ namespace VibeTrade.Backend.Data;
 /// Contenido persistido del mensaje de chat (columna <c>PayloadJson</c>, jsonb).
 /// Serialización con <see cref="ChatMessageJson.Options"/> (camelCase Web).
 /// </summary>
-[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
-[JsonDerivedType(typeof(ChatTextPayload), "text")]
-[JsonDerivedType(typeof(ChatImagePayload), "image")]
-[JsonDerivedType(typeof(ChatAudioPayload), "audio")]
-[JsonDerivedType(typeof(ChatDocPayload), "doc")]
-[JsonDerivedType(typeof(ChatDocsBundlePayload), "docs")]
-[JsonDerivedType(typeof(ChatCertificatePayload), "certificate")]
-[JsonDerivedType(typeof(ChatAgreementPayload), "agreement")]
-[JsonDerivedType(typeof(ChatSystemTextPayload), "system_text")]
+[JsonConverter(typeof(ChatMessagePayloadJsonConverter))]
 public abstract record ChatMessagePayload
 {
     /// <summary>
