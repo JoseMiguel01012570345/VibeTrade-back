@@ -69,7 +69,7 @@ public sealed class MarketController(
     }
 
     /// <summary>
-    /// Busca en Elasticsearch (índice de catálogo): tiendas, productos y servicios (nombre, categoría, distancia km).
+    /// Busca en Elasticsearch (índice de catálogo): tiendas, productos, servicios y publicaciones emergentes <c>emo_*</c> (nombre, categoría, distancia km).
     /// Sin Elasticsearch o si la búsqueda falla: respuesta vacía. Tolerancia a typos: fuzzy de Lucene en la query (<c>ElasticsearchStoreSearchQuery</c>).
     /// </summary>
     /// <param name="name">Texto libre (nombre de tienda u oferta).</param>

@@ -57,6 +57,11 @@ public sealed class TagDescriptionsDocumentFilter : IDocumentFilter
                 Name = "Saved offers",
                 Description = "Ids de ofertas guardadas en el perfil del usuario autenticado.",
             },
+            new OpenApiTag
+            {
+                Name = "Emergent offers",
+                Description = "Publicaciones de hoja de ruta (emo_*): elegibilidad de transportistas y reglas vinculadas al hilo.",
+            },
         ];
     }
 }

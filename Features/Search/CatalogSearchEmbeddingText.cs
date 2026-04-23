@@ -2,6 +2,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Features.Search;
@@ -72,6 +73,51 @@ internal static class CatalogSearchEmbeddingText
         AppendLine(sb, "CustomFields", sv.CustomFieldsJson);
         AppendLine(sb, "OfferQa", OfferQaJson.ToJsonb(sv.OfferQa));
         AppendFoldedLine(sb, store.Name, sv.TipoServicio, sv.Category, sv.Descripcion);
+        return Normalize(sb.ToString());
+    }
+
+    public static string ForEmergent(EmergentOfferRow e, StoreRow store, StoreProductRow? p, StoreServiceRow? s)
+    {
+        var sb = new StringBuilder();
+        AppendLine(sb, "StoreName", store.Name);
+        AppendLine(sb, "StorePitch", store.Pitch);
+        AppendLine(sb, "Categories", CategoriesJsonToPlain(store.CategoriesJson));
+        var snap = e.RouteSheetSnapshot ?? new EmergentRouteSheetSnapshot();
+        AppendLine(sb, "EmergentTitulo", snap.Titulo);
+        AppendLine(sb, "MercanciasResumen", snap.MercanciasResumen);
+        AppendLine(sb, "MonedaPago", snap.MonedaPago);
+        foreach (var leg in snap.Paradas ?? [])
+        {
+            AppendLine(sb, "Parada", $"{leg.Origen} → {leg.Destino}");
+            AppendLine(sb, "ParadaDetalle", $"{leg.Origen} {leg.Destino} {leg.MonedaPago}");
+        }
+
+        if (p is not null)
+        {
+            AppendLine(sb, "BaseProductName", p.Name);
+            AppendLine(sb, "BaseProductCategory", p.Category);
+            AppendLine(sb, "BaseProductModel", p.Model);
+            AppendLine(sb, "BaseProductShortDescription", p.ShortDescription);
+        }
+
+        if (s is not null)
+        {
+            AppendLine(sb, "BaseServiceCategory", s.Category);
+            AppendLine(sb, "BaseServiceTipo", s.TipoServicio);
+            AppendLine(sb, "BaseServiceDescripcion", s.Descripcion);
+        }
+
+        AppendLine(sb, "OfferQa", OfferQaJson.ToJsonb(e.OfferQa));
+        AppendFoldedLine(
+            sb,
+            store.Name,
+            snap.Titulo,
+            snap.MercanciasResumen,
+            p?.Name,
+            p?.Category,
+            s?.TipoServicio,
+            s?.Category);
+        sb.AppendLine("EmergentRoutePublication: hoja de ruta publicada");
         return Normalize(sb.ToString());
     }
 

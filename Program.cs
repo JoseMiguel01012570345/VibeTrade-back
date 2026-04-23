@@ -14,6 +14,7 @@ using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Search;
+using VibeTrade.Backend.Features.EmergentOffers;
 using VibeTrade.Backend.Features.SavedOffers;
 using Microsoft.Extensions.Hosting;
 using VibeTrade.Backend.Infrastructure;
@@ -52,6 +53,7 @@ builder.Services.AddScoped<IMarketCatalogStoreSearchService, MarketCatalogStoreS
 builder.Services.AddScoped<IBootstrapService, BootstrapService>();
 builder.Services.AddScoped<IGuestBootstrapService, GuestBootstrapService>();
 builder.Services.AddScoped<ISavedOffersService, SavedOffersService>();
+builder.Services.AddScoped<IEmergentOfferCarrierSubscriptionService, EmergentOfferCarrierSubscriptionService>();
 builder.Services.AddScoped<IRecommendationService, RecommendationService>();
 builder.Services.AddScoped<IRecommendationElasticsearchQuery, RecommendationElasticsearchQuery>();
 builder.Services.AddScoped<RecommendationFeedV2>();

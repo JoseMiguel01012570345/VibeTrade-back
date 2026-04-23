@@ -49,6 +49,7 @@ public sealed class RecommendationElasticsearchQuery(
                         {
                             CatalogSearchKinds.Product,
                             CatalogSearchKinds.Service,
+                            CatalogSearchKinds.Emergent,
                         }))));
                 })), cancellationToken);
         }

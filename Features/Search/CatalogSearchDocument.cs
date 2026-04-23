@@ -2,7 +2,7 @@ using Elastic.Clients.Elasticsearch;
 
 namespace VibeTrade.Backend.Features.Search;
 
-/// <summary>Documento unificado en Elasticsearch: tienda, producto o servicio.</summary>
+/// <summary>Documento unificado en Elasticsearch: tienda, producto, servicio u oferta emergente (<c>emo_*</c>).</summary>
 public sealed class CatalogSearchDocument
 {
     /// <summary>Nombre JSON del campo <see cref="VtCatalogSk"/>; debe mapearse siempre como <c>keyword</c> (sort / wildcard).</summary>
@@ -14,12 +14,12 @@ public sealed class CatalogSearchDocument
     /// </remarks>
     public const string ElasticsearchVtGeoPointField = "vtGeoPoint";
 
-    /// <summary><c>store</c>, <c>product</c> o <c>service</c>.</summary>
+    /// <summary><c>store</c>, <c>product</c>, <c>service</c> o <c>emergent</c>.</summary>
     public string Kind { get; set; } = "";
 
     public string StoreId { get; set; } = "";
 
-    /// <summary>Id de oferta (producto/servicio); vacío para <see cref="Kind"/> tienda.</summary>
+    /// <summary>Id de oferta: producto/servicio, o publicación emergente (<c>emo_*</c>); vacío para <see cref="Kind"/> tienda.</summary>
     public string OfferId { get; set; } = "";
 
     /// <summary>Título principal para ordenar y mostrar (nombre tienda / producto / servicio).</summary>

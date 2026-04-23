@@ -7,6 +7,7 @@ using Elastic.Clients.Elasticsearch.Mapping;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Search;
 
@@ -292,6 +293,73 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
                 Index = _opt.IndexName,
                 Id = CatalogSearchIds.Service(s.Id),
             });
+        }
+
+        var emergents = await db.EmergentOffers.AsNoTracking()
+            .Where(e => e.RetractedAtUtc == null)
+            .Where(e =>
+                db.StoreProducts.Any(p => p.Id == e.OfferId && p.StoreId == storeId && p.Published) ||
+                db.StoreServices.Any(sv =>
+                    sv.Id == e.OfferId
+                    && sv.StoreId == storeId
+                    && (sv.Published == null || sv.Published == true)) ||
+                db.Stores.Any(st => st.Id == storeId && st.OwnerUserId == e.PublisherUserId))
+            .ToListAsync(cancellationToken);
+
+        if (emergents.Count > 0)
+        {
+            var emBaseIds = emergents
+                .Select(e => e.OfferId)
+                .Where(id => !string.IsNullOrEmpty(id))
+                .Distinct()
+                .ToList();
+            var emProductsById = emBaseIds.Count == 0
+                ? new Dictionary<string, StoreProductRow>(StringComparer.Ordinal)
+                : await db.StoreProducts.AsNoTracking()
+                    .Where(p => emBaseIds.Contains(p.Id))
+                    .ToDictionaryAsync(p => p.Id, cancellationToken);
+            var emServicesById = emBaseIds.Count == 0
+                ? new Dictionary<string, StoreServiceRow>(StringComparer.Ordinal)
+                : await db.StoreServices.AsNoTracking()
+                    .Where(sv => emBaseIds.Contains(sv.Id))
+                    .ToDictionaryAsync(sv => sv.Id, cancellationToken);
+
+            foreach (var e in emergents)
+            {
+                StoreProductRow? emP = null;
+                StoreServiceRow? emS = null;
+                if (!string.IsNullOrEmpty(e.OfferId))
+                {
+                    emProductsById.TryGetValue(e.OfferId, out emP);
+                    if (emP is null)
+                        emServicesById.TryGetValue(e.OfferId, out emS);
+                }
+
+                if (emP is not null)
+                {
+                    if (!string.Equals(emP.StoreId, storeId, StringComparison.Ordinal))
+                        continue;
+                }
+                else if (emS is not null)
+                {
+                    if (!string.Equals(emS.StoreId, storeId, StringComparison.Ordinal))
+                        continue;
+                }
+                else if (!string.Equals(store.OwnerUserId, e.PublisherUserId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var emDoc = CatalogSearchDocumentFactory.FromEmergent(e, store, emP, emS, pubProducts, pubServices);
+                if (emDoc is null)
+                    continue;
+                await AttachVectorAsync(emDoc, emDoc.SearchText, cancellationToken);
+                ops.Add(new BulkIndexOperation<CatalogSearchDocument>(emDoc)
+                {
+                    Index = _opt.IndexName,
+                    Id = CatalogSearchIds.Emergent(e.Id),
+                });
+            }
         }
 
         if (ops.Count == 0)

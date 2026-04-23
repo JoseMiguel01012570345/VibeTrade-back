@@ -3,10 +3,14 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Search;
 
 namespace VibeTrade.Backend.Features.Chat;
 
-public sealed class RouteSheetChatService(AppDbContext db) : IRouteSheetChatService
+public sealed class RouteSheetChatService(
+    AppDbContext db,
+    IStoreSearchIndexWriter storeSearchIndex,
+    IChatService chat) : IRouteSheetChatService
 {
     public const string EmergentKindRouteSheet = EmergentRouteOfferRanking.EmergentKindRouteSheet;
 
@@ -55,6 +59,7 @@ public sealed class RouteSheetChatService(AppDbContext db) : IRouteSheetChatServ
         var row = await db.ChatRouteSheets.FirstOrDefaultAsync(
             x => x.ThreadId == threadId && x.RouteSheetId == rsId,
             cancellationToken);
+        var wasExistingSheet = row is not null;
         var now = DateTimeOffset.UtcNow;
         if (row is null)
         {
@@ -83,7 +88,25 @@ public sealed class RouteSheetChatService(AppDbContext db) : IRouteSheetChatServ
         if (published)
             await EnsureTradeAgreementLinkForPublishedRouteAsync(threadId, rsId, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+
+        if (wasExistingSheet)
+        {
+            var notice = BuildRouteSheetEditedNoticeText(payload);
+            await chat.PostSystemThreadNoticeAsync(userId.Trim(), threadId, notice, cancellationToken);
+        }
+
+        await ReindexCatalogStoresForThreadOfferAsync(userId, t.OfferId, cancellationToken);
         return true;
+    }
+
+    private static string BuildRouteSheetEditedNoticeText(RouteSheetPayload payload)
+    {
+        var title = (payload.Titulo ?? "").Trim();
+        if (title.Length > 120)
+            title = title[..120] + "…";
+        return title.Length > 0
+            ? $"Se actualizó la hoja de ruta «{title}»."
+            : "Se actualizó la hoja de ruta.";
     }
 
     /// <summary>
@@ -139,7 +162,49 @@ public sealed class RouteSheetChatService(AppDbContext db) : IRouteSheetChatServ
         row.Payload = p;
         await RetractEmergentAsync(threadId, rsId, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+        await ReindexCatalogStoresForThreadOfferAsync(userId, t.OfferId, cancellationToken);
         return true;
+    }
+
+    private async Task ReindexCatalogStoresForThreadOfferAsync(
+        string publisherUserId,
+        string threadOfferId,
+        CancellationToken cancellationToken)
+    {
+        var storeIds = new HashSet<string>(StringComparer.Ordinal);
+        var offerId = (threadOfferId ?? "").Trim();
+        if (offerId.Length > 0)
+        {
+            var p = await db.StoreProducts.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == offerId && x.Published, cancellationToken);
+            if (p is not null)
+                storeIds.Add(p.StoreId);
+            var sv = p is null
+                ? await db.StoreServices.AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == offerId && (x.Published == null || x.Published == true),
+                        cancellationToken)
+                : null;
+            if (sv is not null)
+                storeIds.Add(sv.StoreId);
+        }
+
+        if (storeIds.Count == 0)
+        {
+            var publisher = (publisherUserId ?? "").Trim();
+            if (publisher.Length == 0)
+                return;
+            var orphanStore = await db.Stores.AsNoTracking()
+                .Where(x => x.OwnerUserId == publisher)
+                .OrderBy(x => x.Id)
+                .Select(x => x.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrEmpty(orphanStore))
+                storeIds.Add(orphanStore);
+        }
+
+        if (storeIds.Count > 0)
+            await storeSearchIndex.UpsertStoresAsync(storeIds.ToList(), cancellationToken);
     }
 
     private async Task SyncEmergentOfferAsync(

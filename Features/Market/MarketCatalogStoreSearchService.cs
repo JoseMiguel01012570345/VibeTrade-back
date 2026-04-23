@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Search;
 
 namespace VibeTrade.Backend.Features.Market;
@@ -351,7 +352,13 @@ public sealed class MarketCatalogStoreSearchService(
     private static IReadOnlyList<string> ParseKindsParam(string? kinds)
     {
         if (string.IsNullOrWhiteSpace(kinds))
-            return new[] { CatalogSearchKinds.Store, CatalogSearchKinds.Product, CatalogSearchKinds.Service };
+            return
+            [
+                CatalogSearchKinds.Store,
+                CatalogSearchKinds.Product,
+                CatalogSearchKinds.Service,
+                CatalogSearchKinds.Emergent,
+            ];
 
         var parts = kinds
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -362,7 +369,10 @@ public sealed class MarketCatalogStoreSearchService(
         var ok = new List<string>(3);
         foreach (var p in parts)
         {
-            if (p == CatalogSearchKinds.Store || p == CatalogSearchKinds.Product || p == CatalogSearchKinds.Service)
+            if (p is CatalogSearchKinds.Store
+                or CatalogSearchKinds.Product
+                or CatalogSearchKinds.Service
+                or CatalogSearchKinds.Emergent)
                 ok.Add(p);
         }
 
@@ -454,6 +464,28 @@ public sealed class MarketCatalogStoreSearchService(
             .Distinct()
             .ToList();
 
+        var emergentPublicationIds = hits
+            .Where(h => h.Kind == CatalogSearchKinds.Emergent && !string.IsNullOrEmpty(h.OfferId))
+            .Select(h => h.OfferId!)
+            .Distinct()
+            .ToList();
+        var emergentsById = emergentPublicationIds.Count == 0
+            ? new Dictionary<string, EmergentOfferRow>(StringComparer.Ordinal)
+            : await db.EmergentOffers.AsNoTracking()
+                .Where(e => emergentPublicationIds.Contains(e.Id) && e.RetractedAtUtc == null)
+                .ToDictionaryAsync(e => e.Id, cancellationToken);
+
+        foreach (var em in emergentsById.Values)
+        {
+            var oid = (em.OfferId ?? "").Trim();
+            if (oid.Length == 0)
+                continue;
+            if (!productIds.Contains(oid, StringComparer.Ordinal))
+                productIds.Add(oid);
+            if (!serviceIds.Contains(oid, StringComparer.Ordinal))
+                serviceIds.Add(oid);
+        }
+
         var (publishedProductCountByStore, publishedServiceCountByStore, productsById, servicesById) =
             await LoadPublishedCountsForStoreIdsAsync(storeIds, productIds, serviceIds, cancellationToken);
 
@@ -501,6 +533,29 @@ public sealed class MarketCatalogStoreSearchService(
                     CatalogSearchKinds.Service,
                     storeBadge,
                     BuildServiceOfferJson(sv),
+                    pp,
+                    ps,
+                    hit.DistanceKm));
+                continue;
+            }
+
+            if (hit.Kind == CatalogSearchKinds.Emergent
+                && hit.OfferId is { } emoId
+                && emergentsById.TryGetValue(emoId, out var emRow))
+            {
+                productsById.TryGetValue(emRow.OfferId, out var emPr);
+                servicesById.TryGetValue(emRow.OfferId, out var emSv);
+                if (emPr is not null && !string.Equals(emPr.StoreId, row.Id, StringComparison.Ordinal))
+                    continue;
+                if (emPr is null && emSv is not null
+                                 && !string.Equals(emSv.StoreId, row.Id, StringComparison.Ordinal))
+                    continue;
+
+                var orphanFallback = emPr is null && emSv is null ? row.Id : null;
+                items.Add(new CatalogSearchItem(
+                    CatalogSearchKinds.Emergent,
+                    storeBadge,
+                    RecommendationBatchOfferLoader.ToEmergentRoutePublicationJson(emRow, emPr, emSv, orphanFallback),
                     pp,
                     ps,
                     hit.DistanceKm));

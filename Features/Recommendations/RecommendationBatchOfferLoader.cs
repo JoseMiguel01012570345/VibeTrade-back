@@ -229,7 +229,7 @@ internal static class RecommendationBatchOfferLoader
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    private static JsonObject ToEmergentRoutePublicationJson(
+    internal static JsonObject ToEmergentRoutePublicationJson(
         EmergentOfferRow e,
         StoreProductRow? p,
         StoreServiceRow? s,

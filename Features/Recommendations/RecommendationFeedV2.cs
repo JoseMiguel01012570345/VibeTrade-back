@@ -278,16 +278,6 @@ public sealed class RecommendationFeedV2(
         CancellationToken cancellationToken)
     {
         var saved = ParseSavedOfferIds(viewer.SavedOfferIdsJson).ToHashSet(StringComparer.Ordinal);
-        var hasSignals =
-            userEvents.Count > 0
-            || saved.Count > 0
-            || contactIds.Count > 0;
-
-        if (!hasSignals)
-        {
-            var ids = await RandomSeedFromCatalogAsync(viewerUserId, MaxSeedOffers, cancellationToken);
-            return ids.Select(id => new SeedOffer(id, SeedKind.Random, RandomSeedOrderWeight)).ToList();
-        }
 
         var userOrdered = await BuildUserOfferOrderedListAsync(userEvents, saved, viewerUserId, cancellationToken);
         var contactOrdered = await BuildContactOfferOrderedListAsync(contactEvents, viewerUserId, cancellationToken);
@@ -527,7 +517,24 @@ public sealed class RecommendationFeedV2(
         if (offerIds.Count == 0)
             return set;
 
-        foreach (var chunk in Chunk(offerIds.Distinct(StringComparer.Ordinal), IdChunkSize))
+        var idList = offerIds.Distinct(StringComparer.Ordinal).ToList();
+        var emergentIds = idList.Where(RecommendationBatchOfferLoader.IsEmergentPublicationId).ToList();
+        var catalogIds = idList.Where(id => !RecommendationBatchOfferLoader.IsEmergentPublicationId(id)).ToList();
+
+        if (emergentIds.Count > 0)
+        {
+            var emOk = await db.EmergentOffers.AsNoTracking()
+                .Where(e =>
+                    emergentIds.Contains(e.Id)
+                    && e.RetractedAtUtc == null
+                    && e.PublisherUserId != viewerUserId)
+                .Select(e => e.Id)
+                .ToListAsync(cancellationToken);
+            foreach (var id in emOk)
+                set.Add(id);
+        }
+
+        foreach (var chunk in Chunk(catalogIds, IdChunkSize))
         {
             var c = chunk.ToList();
             var pIds = await db.StoreProducts.AsNoTracking()
