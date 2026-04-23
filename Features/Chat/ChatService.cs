@@ -211,6 +211,40 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         return (s.StoreId, owner2);
     }
 
+    /// <summary>
+    /// Compradores solo pueden crear un hilo nuevo si el producto/servicio de catálogo está publicado.
+    /// Publicaciones <c>emo_*</c> se resuelven a la oferta base del hilo.
+    /// </summary>
+    private async Task<bool> OfferIsListedForBuyerChatAsync(
+        string offerId,
+        CancellationToken cancellationToken)
+    {
+        var oid = (offerId ?? "").Trim();
+        if (oid.Length < 2)
+            return false;
+
+        if (RecommendationBatchOfferLoader.IsEmergentPublicationId(oid))
+        {
+            var em = await db.EmergentOffers.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == oid && x.RetractedAtUtc == null, cancellationToken);
+            if (em is null)
+                return false;
+            return await OfferIsListedForBuyerChatAsync(em.OfferId, cancellationToken);
+        }
+
+        var p = await db.StoreProducts.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
+        if (p is not null)
+            return p.Published;
+
+        var s = await db.StoreServices.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
+        if (s is not null)
+            return s.Published != false;
+
+        return false;
+    }
+
     private static ChatThreadDto MapThread(
         ChatThreadRow t,
         string? buyerDisplayName = null,
@@ -296,6 +330,9 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
 
             return await MapThreadWithBuyerLabelAsync(existing, cancellationToken);
         }
+
+        if (!await OfferIsListedForBuyerChatAsync(oid, cancellationToken))
+            return null;
 
         var id = "cth_" + Guid.NewGuid().ToString("N")[..16];
         var now = DateTimeOffset.UtcNow;

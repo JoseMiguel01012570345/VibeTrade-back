@@ -82,6 +82,18 @@ public sealed class SavedOffersService(AppDbContext db) : ISavedOffersService
 
     private async Task<string?> GetOwnerUserIdForOfferIdAsync(string offerId, CancellationToken cancellationToken)
     {
+        // Publicaciones de hoja de ruta (`emo_*`): el "dueño" para guardados es quien publicó la ruta.
+        if (offerId.StartsWith("emo_", StringComparison.Ordinal))
+        {
+            var publisher = await db.EmergentOffers.AsNoTracking()
+                .Where(e => e.Id == offerId && e.RetractedAtUtc == null)
+                .Select(e => e.PublisherUserId)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (!string.IsNullOrEmpty(publisher))
+                return publisher;
+            return null;
+        }
+
         var storeFromProduct = await db.StoreProducts.AsNoTracking()
             .Where(p => p.Id == offerId)
             .Select(p => p.StoreId)
