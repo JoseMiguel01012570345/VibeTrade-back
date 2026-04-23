@@ -46,6 +46,9 @@ public sealed class RouteStopPayload
     public string? Lugar { get; set; }
 
     public string? VentanaHoraria { get; set; }
+
+    /// <summary>Moneda del precio de este tramo (ej. USD, CUP); mismo catálogo que <c>GET /market/currencies</c>.</summary>
+    public string? MonedaPago { get; set; }
 }
 
 /// <summary>Hoja de ruta; mismo contrato que <c>RouteSheet</c> en el cliente (JSON camelCase).</summary>
@@ -68,6 +71,9 @@ public sealed class RouteSheetPayload
     public List<RouteStopPayload> Paradas { get; set; } = new();
 
     public string? NotasGenerales { get; set; }
+
+    /// <summary>Resumen opcional: si todos los tramos usan la misma moneda, un solo código; si no, códigos unidos. Por tramo: <see cref="RouteStopPayload.MonedaPago"/>.</summary>
+    public string? MonedaPago { get; set; }
 
     public bool? PublicadaPlataforma { get; set; }
 

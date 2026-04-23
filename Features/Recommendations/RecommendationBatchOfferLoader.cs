@@ -254,6 +254,8 @@ internal static class RecommendationBatchOfferLoader
         baseNode["emergentThreadId"] = e.ThreadId;
         baseNode["emergentRouteSheetId"] = e.RouteSheetId;
         baseNode["isEmergentRoutePublication"] = true;
+        if (!string.IsNullOrWhiteSpace(snap.MonedaPago))
+            baseNode["emergentMonedaPago"] = snap.MonedaPago.Trim();
         if (!string.IsNullOrWhiteSpace(snap.Titulo))
             baseNode["title"] = snap.Titulo.Trim();
         var routeLine = RouteSummaryLine(snap);
@@ -268,6 +270,27 @@ internal static class RecommendationBatchOfferLoader
             tArr.Add("Hoja de ruta (publicada)");
         else
             baseNode["tags"] = new JsonArray { "Hoja de ruta (publicada)" };
+
+        var paradasSnap = snap.Paradas ?? [];
+        if (paradasSnap.Count > 0)
+        {
+            var paradasNode = new JsonArray();
+            foreach (var leg in paradasSnap)
+            {
+                var legNode = new JsonObject
+                {
+                    ["origen"] = leg.Origen?.Trim() ?? "",
+                    ["destino"] = leg.Destino?.Trim() ?? ""
+                };
+                if (!string.IsNullOrWhiteSpace(leg.OrigenLat)) legNode["origenLat"] = leg.OrigenLat!.Trim();
+                if (!string.IsNullOrWhiteSpace(leg.OrigenLng)) legNode["origenLng"] = leg.OrigenLng!.Trim();
+                if (!string.IsNullOrWhiteSpace(leg.DestinoLat)) legNode["destinoLat"] = leg.DestinoLat!.Trim();
+                if (!string.IsNullOrWhiteSpace(leg.DestinoLng)) legNode["destinoLng"] = leg.DestinoLng!.Trim();
+                if (!string.IsNullOrWhiteSpace(leg.MonedaPago)) legNode["monedaPago"] = leg.MonedaPago.Trim();
+                paradasNode.Add(legNode);
+            }
+            baseNode["emergentRouteParadas"] = paradasNode;
+        }
 
         baseNode["qa"] = OfferQaJson.ToJsonNode(e.OfferQa);
         return baseNode;

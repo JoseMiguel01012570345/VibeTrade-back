@@ -297,6 +297,34 @@ public sealed class ChatController(
         return Ok(updated);
     }
 
+    public sealed record TradeAgreementRouteLinkBody(string? RouteSheetId);
+
+    /// <summary>Vincula o desvincula una hoja de ruta del acuerdo (solo vendedor; persiste en BD).</summary>
+    [HttpPatch("threads/{threadId}/trade-agreements/{agreementId}/route-link")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(TradeAgreementApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PatchTradeAgreementRouteLink(
+        string threadId,
+        string agreementId,
+        [FromBody] TradeAgreementRouteLinkBody? body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var updated = await tradeAgreements.SetRouteSheetLinkAsync(
+            userId,
+            threadId,
+            agreementId,
+            body?.RouteSheetId,
+            cancellationToken);
+        if (updated is null)
+            return NotFound(new { error = "not_found", message = "No se pudo actualizar el vínculo con la hoja de ruta." });
+        return Ok(updated);
+    }
+
     public sealed record TradeAgreementRespondBody(bool Accept);
 
     /// <summary>Acepta o rechaza el acuerdo (solo comprador).</summary>

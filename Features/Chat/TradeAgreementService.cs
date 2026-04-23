@@ -223,6 +223,65 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
         return true;
     }
 
+    public async Task<TradeAgreementApiResponse?> SetRouteSheetLinkAsync(
+        string sellerUserId,
+        string threadId,
+        string agreementId,
+        string? routeSheetId,
+        CancellationToken cancellationToken = default)
+    {
+        var t = await db.ChatThreads
+            .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
+        if (t is null
+            || t.DeletedAtUtc is not null
+            || !ChatService.UserCanSeeThread(sellerUserId, t)
+            || sellerUserId != t.SellerUserId)
+            return null;
+
+        var ag = await db.TradeAgreements
+            .FirstOrDefaultAsync(
+                x => x.Id == agreementId
+                     && x.ThreadId == threadId
+                     && x.DeletedAtUtc == null
+                     && x.IssuedByStoreId == t.StoreId,
+                cancellationToken);
+        if (ag is null)
+            return null;
+
+        var incoming = (routeSheetId ?? "").Trim();
+        if (string.IsNullOrEmpty(incoming))
+        {
+            if (string.IsNullOrWhiteSpace(ag.RouteSheetId))
+                return await GetTrackedResponseAsync(ag.Id, cancellationToken);
+
+            var prevId = ag.RouteSheetId!.Trim();
+            var prevRow = await db.ChatRouteSheets.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.ThreadId == threadId
+                         && x.RouteSheetId == prevId
+                         && x.DeletedAtUtc == null,
+                    cancellationToken);
+            if (prevRow?.PublishedToPlatform == true)
+                return null;
+            ag.RouteSheetId = null;
+        }
+        else
+        {
+            var okRow = await db.ChatRouteSheets.AsNoTracking()
+                .AnyAsync(
+                    x => x.ThreadId == threadId
+                         && x.RouteSheetId == incoming
+                         && x.DeletedAtUtc == null,
+                    cancellationToken);
+            if (!okRow)
+                return null;
+            ag.RouteSheetId = incoming;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return await GetTrackedResponseAsync(ag.Id, cancellationToken);
+    }
+
     private async Task<TradeAgreementApiResponse?> GetTrackedResponseAsync(
         string agreementId,
         CancellationToken cancellationToken)
