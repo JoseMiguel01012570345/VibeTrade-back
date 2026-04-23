@@ -221,6 +221,48 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         }
     }
 
+    public async Task NotifyRouteTramoSubscriptionAcceptedAsync(
+        string carrierUserId,
+        string threadId,
+        string messagePreview,
+        string deciderLabel,
+        int deciderTrust,
+        string deciderUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        var cid = (carrierUserId ?? "").Trim();
+        if (tid.Length < 4 || cid.Length < 2)
+            return;
+
+        var preview = messagePreview.Length > 500 ? messagePreview[..500] + "…" : messagePreview;
+        var now = DateTimeOffset.UtcNow;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = cid,
+            ThreadId = tid,
+            MessageId = null,
+            OfferId = null,
+            MessagePreview = preview,
+            AuthorStoreName = (deciderLabel ?? "").Trim().Length > 0 ? deciderLabel.Trim() : "Participante",
+            AuthorTrustScore = deciderTrust,
+            SenderUserId = (deciderUserId ?? "").Trim(),
+            CreatedAtUtc = now,
+            ReadAtUtc = null,
+            Kind = "route_tramo_subscribe_accepted",
+            MetaJson = null,
+        });
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        await hub.Clients.Group(HubUserGroup(cid)).SendAsync(
+            "notificationCreated",
+            new { kind = "route_tramo_subscribe_accepted", threadId = tid },
+            cancellationToken);
+    }
+
     public Task BroadcastOfferCommentsUpdatedAsync(string offerId, CancellationToken cancellationToken = default)
     {
         var oid = (offerId ?? "").Trim();

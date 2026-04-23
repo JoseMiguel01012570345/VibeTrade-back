@@ -17,7 +17,8 @@ public sealed class ChatController(
     IAuthService auth,
     IChatService chat,
     ITradeAgreementService tradeAgreements,
-    IRouteSheetChatService routeSheets)
+    IRouteSheetChatService routeSheets,
+    IRouteTramoSubscriptionService routeTramoSubscriptions)
     : ControllerBase
 {
     public sealed record CreateThreadBody(string OfferId, bool? PurchaseIntent);
@@ -200,6 +201,58 @@ public sealed class ChatController(
         if (list is null)
             return NotFound();
         return Ok(list);
+    }
+
+    /// <summary>
+    /// Suscripciones a tramos registradas en servidor para hojas publicadas en este hilo (visor en chat).
+    /// </summary>
+    [HttpGet("threads/{threadId}/route-tramo-subscriptions")]
+    [ProducesResponseType(typeof(IReadOnlyList<RouteTramoSubscriptionItemDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetRouteTramoSubscriptions(string threadId, CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var list = await routeTramoSubscriptions.ListPublishedForThreadAsync(userId, threadId, cancellationToken);
+        if (list is null)
+            return NotFound();
+        return Ok(list);
+    }
+
+    public sealed record AcceptRouteTramoSubscriptionBody(string RouteSheetId, string CarrierUserId);
+
+    /// <summary>
+    /// Comprador o vendedor: confirma las suscripciones pendientes del transportista en la hoja publicada y notifica al carrier.
+    /// </summary>
+    [HttpPost("threads/{threadId}/route-tramo-subscriptions/accept")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostAcceptRouteTramoSubscription(
+        string threadId,
+        [FromBody] AcceptRouteTramoSubscriptionBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        if (body is null
+            || string.IsNullOrWhiteSpace(body.RouteSheetId)
+            || string.IsNullOrWhiteSpace(body.CarrierUserId))
+            return BadRequest(new { error = "invalid_body" });
+
+        var n = await routeTramoSubscriptions.AcceptCarrierPendingOnSheetAsync(
+            userId,
+            threadId,
+            body.RouteSheetId.Trim(),
+            body.CarrierUserId.Trim(),
+            cancellationToken);
+        if (n is null)
+            return NotFound(new { error = "not_found", message = "No hay suscripciones que confirmar." });
+        return Ok(new { acceptedCount = n.Value });
     }
 
     /// <summary>Crea o actualiza una hoja de ruta en el hilo.</summary>

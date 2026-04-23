@@ -10,7 +10,8 @@ namespace VibeTrade.Backend.Features.EmergentOffers;
 
 public sealed class EmergentRouteTramoSubscriptionRequestService(
     AppDbContext db,
-    IChatService chat) : IEmergentRouteTramoSubscriptionRequestService
+    IChatService chat,
+    IRouteTramoSubscriptionService routeTramoSubscriptions) : IEmergentRouteTramoSubscriptionRequestService
 {
     public const string ErrInvalidEmergent = "invalid_emergent_offer";
     public const string ErrInvalidStop = "invalid_stop";
@@ -98,6 +99,16 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
         var orden = stop.Orden;
         var preview =
             $"{authorLabel} solicitó el tramo {orden} con el servicio «{svcLabel}». Pendiente de validación.";
+
+        await routeTramoSubscriptions.RecordSubscriptionRequestAsync(
+            em.ThreadId,
+            em.RouteSheetId,
+            sid,
+            orden,
+            uid,
+            svcId,
+            svcLabel,
+            cancellationToken);
 
         var meta = JsonSerializer.Serialize(
             new RouteTramoSubscribeMeta(em.RouteSheetId, sid, uid),

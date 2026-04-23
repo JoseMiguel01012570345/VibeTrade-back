@@ -66,6 +66,7 @@ builder.Services.AddScoped<IUserContactsService, UserContactsService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IRouteSheetChatService, RouteSheetChatService>();
+builder.Services.AddScoped<IRouteTramoSubscriptionService, RouteTramoSubscriptionService>();
 builder.Services.AddScoped<ITradeAgreementService, TradeAgreementService>();
 builder.Services.AddMemoryCache();
 

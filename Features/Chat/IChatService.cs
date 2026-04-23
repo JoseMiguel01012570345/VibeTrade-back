@@ -104,6 +104,16 @@ public interface IChatService
         string? metaJson,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Transportista: su solicitud de tramo fue confirmada por comprador o vendedor (enlace al chat).</summary>
+    Task NotifyRouteTramoSubscriptionAcceptedAsync(
+        string carrierUserId,
+        string threadId,
+        string messagePreview,
+        string deciderLabel,
+        int deciderTrust,
+        string deciderUserId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>SignalR a clientes suscritos al grupo <c>offer:{offerId}</c> (ficha abierta).</summary>
     Task BroadcastOfferCommentsUpdatedAsync(string offerId, CancellationToken cancellationToken = default);
 

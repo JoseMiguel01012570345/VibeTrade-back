@@ -27,6 +27,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<TradeAgreementMerchandiseMetaRow> TradeAgreementMerchandiseMetas => Set<TradeAgreementMerchandiseMetaRow>();
     public DbSet<TradeAgreementServiceItemRow> TradeAgreementServiceItems => Set<TradeAgreementServiceItemRow>();
     public DbSet<ChatNotificationRow> ChatNotifications => Set<ChatNotificationRow>();
+    public DbSet<RouteTramoSubscriptionRow> RouteTramoSubscriptions => Set<RouteTramoSubscriptionRow>();
     public DbSet<OfferLikeRow> OfferLikes => Set<OfferLikeRow>();
     public DbSet<OfferQaCommentLikeRow> OfferQaCommentLikes => Set<OfferQaCommentLikeRow>();
 
@@ -256,6 +257,28 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.DeletedAtUtc);
             e.Property(x => x.DeletedByUserId).HasMaxLength(64);
             e.HasIndex(x => x.ThreadId);
+            e.HasOne<ChatThreadRow>()
+                .WithMany()
+                .HasForeignKey(x => x.ThreadId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RouteTramoSubscriptionRow>(e =>
+        {
+            e.ToTable("route_tramo_subscriptions");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(48);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.RouteSheetId).HasMaxLength(64);
+            e.Property(x => x.StopId).HasMaxLength(64);
+            e.Property(x => x.CarrierUserId).HasMaxLength(64);
+            e.Property(x => x.StoreServiceId).HasMaxLength(64);
+            e.Property(x => x.TransportServiceLabel).HasMaxLength(512);
+            e.Property(x => x.Status).HasMaxLength(24);
+            e.Property(x => x.CreatedAtUtc);
+            e.Property(x => x.UpdatedAtUtc);
+            e.HasIndex(x => x.ThreadId);
+            e.HasIndex(x => new { x.ThreadId, x.RouteSheetId, x.StopId, x.CarrierUserId });
             e.HasOne<ChatThreadRow>()
                 .WithMany()
                 .HasForeignKey(x => x.ThreadId)
