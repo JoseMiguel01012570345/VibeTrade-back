@@ -150,8 +150,10 @@ public sealed class RecommendationFeedV2(
         var all = new List<string>(cap);
         var randomQ = new Queue<string>();
 
+        // Incluir publicaciones emergentes en el relleno aleatorio (~10% vía <see cref="SampleRandomOfferIdsAsync"/>);
+        // `seen` evita duplicar ids ya tomados de emergentQ / otros segmentos.
         await RefillRandomQueueAsync(
-            viewerUserId, seen, randomQ, Math.Max(poolTarget, cap * 4), noEmergentInSample: true, cancellationToken);
+            viewerUserId, seen, randomQ, Math.Max(poolTarget, cap * 4), noEmergentInSample: false, cancellationToken);
 
         IReadOnlyList<Queue<string>> seg1 = [userQ, contactQ, emergentQ, randomQ];
         IReadOnlyList<Queue<string>> seg2 = [contactQ, emergentQ, randomQ];
@@ -159,13 +161,13 @@ public sealed class RecommendationFeedV2(
         IReadOnlyList<Queue<string>> seg4 = [randomQ];
 
         await AppendSegmentDrainingOrderAsync(
-            all, q1, seen, seg1, viewerUserId, randomQ, poolTarget, noEmergentInRandom: true, cancellationToken);
+            all, q1, seen, seg1, viewerUserId, randomQ, poolTarget, noEmergentInRandom: false, cancellationToken);
         await AppendSegmentDrainingOrderAsync(
-            all, q2, seen, seg2, viewerUserId, randomQ, poolTarget, noEmergentInRandom: true, cancellationToken);
+            all, q2, seen, seg2, viewerUserId, randomQ, poolTarget, noEmergentInRandom: false, cancellationToken);
         await AppendSegmentDrainingOrderAsync(
-            all, q3, seen, seg3, viewerUserId, randomQ, poolTarget, noEmergentInRandom: true, cancellationToken);
+            all, q3, seen, seg3, viewerUserId, randomQ, poolTarget, noEmergentInRandom: false, cancellationToken);
         await AppendSegmentDrainingOrderAsync(
-            all, q4, seen, seg4, viewerUserId, randomQ, poolTarget, noEmergentInRandom: true, cancellationToken);
+            all, q4, seen, seg4, viewerUserId, randomQ, poolTarget, noEmergentInRandom: false, cancellationToken);
         return all;
     }
 
@@ -323,7 +325,7 @@ public sealed class RecommendationFeedV2(
         if (needRandom > 0)
         {
             var randomIds = await SampleRandomOfferIdsAsync(
-                viewerUserId, needRandom, picked, includeEmergentInSample: false, cancellationToken);
+                viewerUserId, needRandom, picked, includeEmergentInSample: true, cancellationToken);
             AddMany(randomIds.Select(id => (id, RandomSeedOrderWeight)).ToList(), SeedKind.Random, needRandom);
         }
         return result;

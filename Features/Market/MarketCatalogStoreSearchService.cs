@@ -15,6 +15,24 @@ public sealed class MarketCatalogStoreSearchService(
     AppDbContext db,
     ILogger<MarketCatalogStoreSearchService> logger) : IMarketCatalogStoreSearchService
 {
+    /// <summary>
+    /// Evita anidar <see cref="JsonObject"/> en el DTO de respuesta: en algunos caminos STJ omitía o aplanaba propiedades
+    /// (<c>emergentRouteParadas</c>, flags) y el cliente perdía tramos para el mapa.
+    /// </summary>
+    private static JsonElement? JsonObjectToJsonElement(JsonObject? jo)
+    {
+        if (jo is null) return null;
+        using var doc = JsonDocument.Parse(jo.ToJsonString());
+        return doc.RootElement.Clone();
+    }
+
+    private static string OfferIdForDedupeKey(JsonElement? offer)
+    {
+        if (offer is not { ValueKind: JsonValueKind.Object } o) return "";
+        if (!o.TryGetProperty("id", out var idNode) || idNode.ValueKind != JsonValueKind.String) return "";
+        return idNode.GetString() ?? "";
+    }
+
     private sealed record StoreSearchContext(
         int Take,
         int Skip,
@@ -417,11 +435,12 @@ public sealed class MarketCatalogStoreSearchService(
             var batchItems = await BuildCatalogSearchItemsFromElasticsearchHitsAsync(es.Hits, ctx, cancellationToken);
             foreach (var it in batchItems)
             {
+                var offerId = OfferIdForDedupeKey(it.Offer);
                 var key = it.Kind == CatalogSearchKinds.Store
                     ? $"store:{it.Store.Id}"
-                    : it.Offer is null
+                    : string.IsNullOrEmpty(offerId)
                         ? $"x:{it.Store.Id}"
-                        : $"{it.Kind}:{it.Offer["id"]}";
+                        : $"{it.Kind}:{offerId}";
 
                 if (!seenKeys.Add(key))
                     continue;
@@ -519,7 +538,7 @@ public sealed class MarketCatalogStoreSearchService(
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Product,
                     storeBadge,
-                    BuildProductOfferJson(pr),
+                    JsonObjectToJsonElement(BuildProductOfferJson(pr)),
                     pp,
                     ps,
                     hit.DistanceKm));
@@ -532,7 +551,7 @@ public sealed class MarketCatalogStoreSearchService(
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Service,
                     storeBadge,
-                    BuildServiceOfferJson(sv),
+                    JsonObjectToJsonElement(BuildServiceOfferJson(sv)),
                     pp,
                     ps,
                     hit.DistanceKm));
@@ -555,7 +574,7 @@ public sealed class MarketCatalogStoreSearchService(
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Emergent,
                     storeBadge,
-                    RecommendationBatchOfferLoader.ToEmergentRoutePublicationJson(emRow, emPr, emSv, orphanFallback),
+                    JsonObjectToJsonElement(RecommendationBatchOfferLoader.ToEmergentRoutePublicationJson(emRow, emPr, emSv, orphanFallback)),
                     pp,
                     ps,
                     hit.DistanceKm));

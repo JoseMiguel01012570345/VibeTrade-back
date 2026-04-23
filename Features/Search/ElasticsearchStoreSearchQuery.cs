@@ -164,7 +164,9 @@ public sealed class ElasticsearchStoreSearchQuery(
         {
             var filters = new List<Action<QueryDescriptor<CatalogSearchDocument>>>(4);
 
-            if (kinds.Count is > 0 and < 3)
+            // Tienda, producto, servicio y emergente (hoja de ruta): filtrar salvo que vengan los cuatro.
+            const int catalogKindCount = 4;
+            if (kinds.Count > 0 && kinds.Count < catalogKindCount)
             {
                 filters.Add(f => f.Terms(t => t
                     .Field(fd => fd.Kind)

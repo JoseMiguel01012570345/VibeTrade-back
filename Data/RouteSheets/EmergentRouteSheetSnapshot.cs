@@ -16,6 +16,9 @@ public sealed class EmergentRouteLegSnapshot
     public string? DestinoLng { get; set; }
 
     public string MonedaPago { get; set; } = "";
+
+    /// <summary>Precio / tarifa del transportista en este tramo (texto libre en la hoja).</summary>
+    public string PrecioTransportista { get; set; } = "";
 }
 
 public sealed class EmergentRouteSheetSnapshot
@@ -41,6 +44,7 @@ public sealed class EmergentRouteSheetSnapshot
                 DestinoLat = p.DestinoLat,
                 DestinoLng = p.DestinoLng,
                 MonedaPago = p.MonedaPago?.Trim() ?? "",
+                PrecioTransportista = p.PrecioTransportista?.Trim() ?? "",
             })
             .ToList();
         return new EmergentRouteSheetSnapshot

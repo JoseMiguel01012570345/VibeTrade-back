@@ -89,7 +89,8 @@ internal static class CatalogSearchEmbeddingText
         foreach (var leg in snap.Paradas ?? [])
         {
             AppendLine(sb, "Parada", $"{leg.Origen} → {leg.Destino}");
-            AppendLine(sb, "ParadaDetalle", $"{leg.Origen} {leg.Destino} {leg.MonedaPago}");
+            AppendLine(sb, "ParadaPrecio", leg.PrecioTransportista);
+            AppendLine(sb, "ParadaDetalle", $"{leg.Origen} {leg.Destino} {leg.PrecioTransportista} {leg.MonedaPago}");
         }
 
         if (p is not null)

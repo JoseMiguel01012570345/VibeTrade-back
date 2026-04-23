@@ -1,4 +1,4 @@
-using System.Text.Json.Nodes;
+using System.Text.Json;
 
 namespace VibeTrade.Backend.Features.Market;
 
@@ -7,7 +7,7 @@ public sealed record CatalogSearchStoreLocation(double Lat, double Lng);
 
 /// <summary>
 /// Ficha de tienda en búsqueda. Tipo explícito para que System.Text.Json serialice siempre <see cref="WebsiteUrl"/> y demás campos.
-/// (Anidar <see cref="JsonObject"/> en el record del ítem podía omitir o deformar propiedades en el cliente.)
+/// (Anidar nodos JSON mutables en el ítem deformaba el payload; <see cref="CatalogSearchItem.Offer"/> usa <see cref="JsonElement"/> para anidar la oferta como objeto JSON completo.)
 /// </summary>
 public sealed record CatalogSearchStoreBadge(
     string Id,
@@ -25,7 +25,7 @@ public sealed record CatalogSearchStoreBadge(
 public sealed record CatalogSearchItem(
     string Kind,
     CatalogSearchStoreBadge Store,
-    JsonObject? Offer,
+    JsonElement? Offer,
     long? PublishedProducts,
     long? PublishedServices,
     double? DistanceKm);

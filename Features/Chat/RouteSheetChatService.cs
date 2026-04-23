@@ -175,18 +175,20 @@ public sealed class RouteSheetChatService(
         var offerId = (threadOfferId ?? "").Trim();
         if (offerId.Length > 0)
         {
+            // Índice ES: las publicaciones emergentes se cuelgan del árbol de la tienda del ítem del hilo.
+            // No exigir «published»: si no, caemos al fallback «primera tienda del publicador» y otra tienda
+            // correcta nunca recibe el bulk → el documento <c>emo_*</c> no se indexa.
             var p = await db.StoreProducts.AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == offerId && x.Published, cancellationToken);
+                .FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
             if (p is not null)
                 storeIds.Add(p.StoreId);
-            var sv = p is null
-                ? await db.StoreServices.AsNoTracking()
-                    .FirstOrDefaultAsync(
-                        x => x.Id == offerId && (x.Published == null || x.Published == true),
-                        cancellationToken)
-                : null;
-            if (sv is not null)
-                storeIds.Add(sv.StoreId);
+            else
+            {
+                var sv = await db.StoreServices.AsNoTracking()
+                    .FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
+                if (sv is not null)
+                    storeIds.Add(sv.StoreId);
+            }
         }
 
         if (storeIds.Count == 0)

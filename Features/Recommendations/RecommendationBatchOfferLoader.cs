@@ -287,6 +287,8 @@ internal static class RecommendationBatchOfferLoader
                 if (!string.IsNullOrWhiteSpace(leg.DestinoLat)) legNode["destinoLat"] = leg.DestinoLat!.Trim();
                 if (!string.IsNullOrWhiteSpace(leg.DestinoLng)) legNode["destinoLng"] = leg.DestinoLng!.Trim();
                 if (!string.IsNullOrWhiteSpace(leg.MonedaPago)) legNode["monedaPago"] = leg.MonedaPago.Trim();
+                if (!string.IsNullOrWhiteSpace(leg.PrecioTransportista))
+                    legNode["precioTransportista"] = leg.PrecioTransportista.Trim();
                 paradasNode.Add(legNode);
             }
             baseNode["emergentRouteParadas"] = paradasNode;

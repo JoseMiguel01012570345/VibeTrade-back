@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Recommendations;
 
 namespace VibeTrade.Backend.Features.Search;
 
@@ -295,14 +296,15 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
             });
         }
 
+        // Hojas de ruta publicadas (<c>emo_*</c>): mismo criterio que el JSON de oferta (base puede estar despublicada).
         var emergents = await db.EmergentOffers.AsNoTracking()
-            .Where(e => e.RetractedAtUtc == null)
             .Where(e =>
-                db.StoreProducts.Any(p => p.Id == e.OfferId && p.StoreId == storeId && p.Published) ||
-                db.StoreServices.Any(sv =>
-                    sv.Id == e.OfferId
-                    && sv.StoreId == storeId
-                    && (sv.Published == null || sv.Published == true)) ||
+                e.RetractedAtUtc == null
+                && (string.IsNullOrEmpty(e.Kind)
+                    || e.Kind == EmergentRouteOfferRanking.EmergentKindRouteSheet))
+            .Where(e =>
+                db.StoreProducts.Any(p => p.Id == e.OfferId && p.StoreId == storeId) ||
+                db.StoreServices.Any(sv => sv.Id == e.OfferId && sv.StoreId == storeId) ||
                 db.Stores.Any(st => st.Id == storeId && st.OwnerUserId == e.PublisherUserId))
             .ToListAsync(cancellationToken);
 

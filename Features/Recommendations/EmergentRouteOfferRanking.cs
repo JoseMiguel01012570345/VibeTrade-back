@@ -34,8 +34,8 @@ public static class EmergentRouteOfferRanking
             .Select(e => e.Id)
             .Take(256)
             .ToListAsync(cancellationToken);
-
-        if (emergentOrdered.Count == 0)
+        
+       if (emergentOrdered.Count == 0)
             return [];
 
         Shuffle(emergentOrdered, Random.Shared);
@@ -49,7 +49,6 @@ public static class EmergentRouteOfferRanking
                 continue;
             result.Add(id);
         }
-
         return result;
     }
 
