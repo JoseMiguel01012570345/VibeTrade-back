@@ -3,6 +3,12 @@ namespace VibeTrade.Backend.Data.RouteSheets;
 /// <summary>Resumen tipado de una hoja publicada para señales de recomendación (sin duplicar el payload completo).</summary>
 public sealed class EmergentRouteLegSnapshot
 {
+    /// <summary>Coincide con <see cref="RouteStopPayload.Id"/> en la hoja persistida (validación de suscripción a tramo).</summary>
+    public string StopId { get; set; } = "";
+
+    /// <summary>Orden del tramo en la hoja (1-based típico); necesario para rehidratar <see cref="StopId"/> desde la hoja viva si el snapshot es viejo.</summary>
+    public int Orden { get; set; }
+
     public string Origen { get; set; } = "";
 
     public string Destino { get; set; } = "";
@@ -37,6 +43,8 @@ public sealed class EmergentRouteSheetSnapshot
         var paradas = (sheet.Paradas ?? [])
             .Select(p => new EmergentRouteLegSnapshot
             {
+                StopId = (p.Id ?? "").Trim(),
+                Orden = p.Orden,
                 Origen = p.Origen ?? "",
                 Destino = p.Destino ?? "",
                 OrigenLat = p.OrigenLat,

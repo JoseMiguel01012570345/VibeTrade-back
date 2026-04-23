@@ -33,7 +33,10 @@ public sealed class ChatNotificationRow
     public DateTimeOffset? ReadAtUtc { get; set; }
 
     /// <summary>
-    /// <c>offer_comment</c>, <c>offer_like</c>, <c>qa_comment_like</c>; nulo en avisos de chat por hilo.
+    /// <c>offer_comment</c>, <c>offer_like</c>, <c>qa_comment_like</c>, <c>route_tramo_subscribe</c>; nulo en avisos de chat por hilo.
     /// </summary>
     public string? Kind { get; set; }
+
+    /// <summary>JSON opcional (p. ej. deep link a panel de suscriptores en chat).</summary>
+    public string? MetaJson { get; set; }
 }

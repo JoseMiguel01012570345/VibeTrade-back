@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Search;
 
@@ -494,6 +495,13 @@ public sealed class MarketCatalogStoreSearchService(
                 .Where(e => emergentPublicationIds.Contains(e.Id) && e.RetractedAtUtc == null)
                 .ToDictionaryAsync(e => e.Id, cancellationToken);
 
+        var emergentLiveSheetsByKey = emergentPublicationIds.Count == 0
+            ? new Dictionary<string, RouteSheetPayload>(StringComparer.Ordinal)
+            : await RecommendationBatchOfferLoader.LoadLiveRouteSheetsForEmergentsAsync(
+                db,
+                emergentsById.Values.ToList(),
+                cancellationToken);
+
         foreach (var em in emergentsById.Values)
         {
             var oid = (em.OfferId ?? "").Trim();
@@ -571,10 +579,18 @@ public sealed class MarketCatalogStoreSearchService(
                     continue;
 
                 var orphanFallback = emPr is null && emSv is null ? row.Id : null;
+                emergentLiveSheetsByKey.TryGetValue(
+                    RecommendationBatchOfferLoader.EmergentOfferRouteSheetKey(emRow.ThreadId, emRow.RouteSheetId),
+                    out var liveRoutePayload);
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Emergent,
                     storeBadge,
-                    JsonObjectToJsonElement(RecommendationBatchOfferLoader.ToEmergentRoutePublicationJson(emRow, emPr, emSv, orphanFallback)),
+                    JsonObjectToJsonElement(RecommendationBatchOfferLoader.ToEmergentRoutePublicationJson(
+                        emRow,
+                        emPr,
+                        emSv,
+                        orphanFallback,
+                        liveRoutePayload)),
                     pp,
                     ps,
                     hit.DistanceKm));

@@ -196,20 +196,23 @@ internal static class RecommendationBatchOfferLoader
                 continue;
             if (emById.TryGetValue(id, out var em))
             {
+                JsonObject emergentNode;
                 if (byP.TryGetValue(em.OfferId, out var p))
-                    offers[id] = ToEmergentRoutePublicationJson(em, p, null, null);
+                    emergentNode = ToEmergentRoutePublicationJson(em, p, null, null);
                 else if (byS.TryGetValue(em.OfferId, out var s))
-                    offers[id] = ToEmergentRoutePublicationJson(em, null, s, null);
+                    emergentNode = ToEmergentRoutePublicationJson(em, null, s, null);
                 else
                 {
                     var fallbackStoreId = await TryResolveStoreIdForEmergentOrphanAsync(db, em, cancellationToken);
-                    offers[id] = ToEmergentRoutePublicationJson(em, null, null, fallbackStoreId);
+                    emergentNode = ToEmergentRoutePublicationJson(em, null, null, fallbackStoreId);
                 }
 
+                await EnrichEmergentParadasStopIdsFromLiveSheetAsync(db, em, emergentNode, cancellationToken);
+                offers[id] = emergentNode;
                 continue;
             }
-            if (byCatalog.TryGetValue(id, out var node))
-                offers[id] = node;
+            if (byCatalog.TryGetValue(id, out var catalogNode))
+                offers[id] = catalogNode;
         }
 
         return offers;
@@ -227,6 +230,59 @@ internal static class RecommendationBatchOfferLoader
             .OrderBy(x => x.Id)
             .Select(x => x.Id)
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>Clave estable para emparejar filas de <see cref="ChatRouteSheetRow"/> con una publicación emergente.</summary>
+    public static string EmergentOfferRouteSheetKey(string threadId, string routeSheetId) =>
+        string.Concat((threadId ?? "").Trim(), "\u001f", (routeSheetId ?? "").Trim());
+
+    /// <summary>Carga hojas de ruta vivas (chat) para enriquecer tramos en búsqueda / feed sin N consultas por oferta.</summary>
+    public static async Task<Dictionary<string, RouteSheetPayload>> LoadLiveRouteSheetsForEmergentsAsync(
+        AppDbContext db,
+        IReadOnlyCollection<EmergentOfferRow> emergents,
+        CancellationToken cancellationToken)
+    {
+        if (emergents.Count == 0)
+            return new Dictionary<string, RouteSheetPayload>(StringComparer.Ordinal);
+
+        var wanted = emergents
+            .Select(em => (ThreadId: (em.ThreadId ?? "").Trim(), RouteSheetId: (em.RouteSheetId ?? "").Trim()))
+            .Where(p => p.ThreadId.Length > 0 && p.RouteSheetId.Length > 0)
+            .ToHashSet();
+        if (wanted.Count == 0)
+            return new Dictionary<string, RouteSheetPayload>(StringComparer.Ordinal);
+
+        var threadIds = wanted.Select(p => p.ThreadId).Distinct().ToList();
+        var rows = await db.ChatRouteSheets.AsNoTracking()
+            .Where(x => x.DeletedAtUtc == null && threadIds.Contains(x.ThreadId))
+            .ToListAsync(cancellationToken);
+
+        var map = new Dictionary<string, RouteSheetPayload>(StringComparer.Ordinal);
+        foreach (var r in rows)
+        {
+            var tid = (r.ThreadId ?? "").Trim();
+            var sid = (r.RouteSheetId ?? "").Trim();
+            if (!wanted.Contains((tid, sid)))
+                continue;
+            var k = EmergentOfferRouteSheetKey(tid, sid);
+            if (!map.ContainsKey(k))
+                map[k] = r.Payload;
+        }
+
+        return map;
+    }
+
+    internal static JsonObject ToEmergentRoutePublicationJson(
+        EmergentOfferRow e,
+        StoreProductRow? p,
+        StoreServiceRow? s,
+        string? fallbackStoreId,
+        RouteSheetPayload? liveRoutePayload)
+    {
+        var node = ToEmergentRoutePublicationJson(e, p, s, fallbackStoreId);
+        if (liveRoutePayload is not null)
+            ApplyLiveParadaStopIdsFromPayload(node, liveRoutePayload);
+        return node;
     }
 
     internal static JsonObject ToEmergentRoutePublicationJson(
@@ -275,13 +331,20 @@ internal static class RecommendationBatchOfferLoader
         if (paradasSnap.Count > 0)
         {
             var paradasNode = new JsonArray();
+            var idx = 0;
             foreach (var leg in paradasSnap)
             {
+                idx++;
+                var orden = leg.Orden > 0 ? leg.Orden : idx;
                 var legNode = new JsonObject
                 {
                     ["origen"] = leg.Origen?.Trim() ?? "",
-                    ["destino"] = leg.Destino?.Trim() ?? ""
+                    ["destino"] = leg.Destino?.Trim() ?? "",
+                    ["orden"] = orden,
                 };
+                var sid = (leg.StopId ?? "").Trim();
+                if (sid.Length > 0)
+                    legNode["stopId"] = sid;
                 if (!string.IsNullOrWhiteSpace(leg.OrigenLat)) legNode["origenLat"] = leg.OrigenLat!.Trim();
                 if (!string.IsNullOrWhiteSpace(leg.OrigenLng)) legNode["origenLng"] = leg.OrigenLng!.Trim();
                 if (!string.IsNullOrWhiteSpace(leg.DestinoLat)) legNode["destinoLat"] = leg.DestinoLat!.Trim();
@@ -296,6 +359,62 @@ internal static class RecommendationBatchOfferLoader
 
         baseNode["qa"] = OfferQaJson.ToJsonNode(e.OfferQa);
         return baseNode;
+    }
+
+    /// <summary>
+    /// Rehidrata <c>stopId</c> en <c>emergentRouteParadas</c> desde la hoja viva en chat, para snapshots antiguos
+    /// sin <see cref="EmergentRouteLegSnapshot.StopId"/> y para que el cliente nunca envíe ids sintéticos al suscribirse.
+    /// </summary>
+    private static async Task EnrichEmergentParadasStopIdsFromLiveSheetAsync(
+        AppDbContext db,
+        EmergentOfferRow em,
+        JsonObject offerJson,
+        CancellationToken cancellationToken)
+    {
+        if (offerJson["emergentRouteParadas"] is not JsonArray arr || arr.Count == 0)
+            return;
+
+        var sheetRow = await db.ChatRouteSheets.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == em.ThreadId
+                    && x.RouteSheetId == em.RouteSheetId
+                    && x.DeletedAtUtc == null,
+                cancellationToken);
+        if (sheetRow is null)
+            return;
+
+        ApplyLiveParadaStopIdsFromPayload(offerJson, sheetRow.Payload);
+    }
+
+    private static void ApplyLiveParadaStopIdsFromPayload(JsonObject offerJson, RouteSheetPayload payload)
+    {
+        if (offerJson["emergentRouteParadas"] is not JsonArray arr || arr.Count == 0)
+            return;
+
+        var live = (payload.Paradas ?? [])
+            .OrderBy(p => p.Orden)
+            .ToList();
+        if (live.Count == 0)
+            return;
+
+        foreach (var el in arr)
+        {
+            if (el is not JsonObject legNode)
+                continue;
+
+            RouteStopPayload? match = null;
+            if (legNode.TryGetPropertyValue("orden", out var ordEl)
+                && ordEl is JsonValue ordVal
+                && ordVal.TryGetValue<int>(out var orden)
+                && orden > 0)
+            {
+                match = live.FirstOrDefault(p => p.Orden == orden);
+            }
+
+            var sid = (match?.Id ?? "").Trim();
+            if (sid.Length > 0)
+                legNode["stopId"] = sid;
+        }
     }
 
     private static string RouteSummaryLine(EmergentRouteSheetSnapshot snap)

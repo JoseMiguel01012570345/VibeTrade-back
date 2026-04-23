@@ -51,7 +51,8 @@ public sealed record ChatNotificationDto(
     string SenderUserId,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? ReadAtUtc,
-    string? Kind = null);
+    string? Kind = null,
+    string? MetaJson = null);
 
 public interface IChatService
 {
@@ -87,6 +88,20 @@ public interface IChatService
         string likerLabel,
         int likerTrust,
         string likerSenderUserId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Comprador y vendedor del hilo: solicitud de suscripción a tramo (publicación emergente).
+    /// <paramref name="metaJson"/> camelCase JSON con <c>routeSheetId</c>, <c>stopId</c>, <c>carrierUserId</c>.
+    /// </summary>
+    Task NotifyRouteTramoSubscriptionRequestAsync(
+        IReadOnlyCollection<string> recipientUserIds,
+        string threadId,
+        string messagePreview,
+        string authorLabel,
+        int authorTrust,
+        string carrierUserId,
+        string? metaJson,
         CancellationToken cancellationToken = default);
 
     /// <summary>SignalR a clientes suscritos al grupo <c>offer:{offerId}</c> (ficha abierta).</summary>

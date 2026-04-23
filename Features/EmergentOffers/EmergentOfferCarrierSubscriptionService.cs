@@ -38,11 +38,12 @@ public sealed class EmergentOfferCarrierSubscriptionService(AppDbContext db) : I
         if (!string.Equals(thread.BuyerUserId, viewerUserId, StringComparison.Ordinal))
             return new EmergentCarrierSubscriptionStatus(true, null, null);
 
+        // `Status` se persiste en minúsculas (`TradeAgreementService`); evitar `string.Equals(..., StringComparison)` aquí: EF Core no lo traduce a SQL.
         var hasAccepted = await db.TradeAgreements.AsNoTracking()
             .AnyAsync(
                 x => x.ThreadId == thread.Id
                     && x.DeletedAtUtc == null
-                    && string.Equals(x.Status, "accepted", StringComparison.OrdinalIgnoreCase),
+                    && x.Status == "accepted",
                 cancellationToken);
 
         if (!hasAccepted)

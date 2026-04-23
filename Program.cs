@@ -54,6 +54,7 @@ builder.Services.AddScoped<IBootstrapService, BootstrapService>();
 builder.Services.AddScoped<IGuestBootstrapService, GuestBootstrapService>();
 builder.Services.AddScoped<ISavedOffersService, SavedOffersService>();
 builder.Services.AddScoped<IEmergentOfferCarrierSubscriptionService, EmergentOfferCarrierSubscriptionService>();
+builder.Services.AddScoped<IEmergentRouteTramoSubscriptionRequestService, EmergentRouteTramoSubscriptionRequestService>();
 builder.Services.AddScoped<IRecommendationService, RecommendationService>();
 builder.Services.AddScoped<IRecommendationElasticsearchQuery, RecommendationElasticsearchQuery>();
 builder.Services.AddScoped<RecommendationFeedV2>();
