@@ -9,15 +9,19 @@ using VibeTrade.Backend.Features.Search;
 namespace VibeTrade.Backend.Features.Recommendations;
 
 /// <summary>
-/// Recomendaciones V2: palabras ponderadas (oferta vs comentarios + likes), bulks,
-/// consultas Elasticsearch y semilla de hasta 100 ofertas (70/20/10). Sin cargar el catálogo completo en RAM.
-/// El merge final respeta el tope pedido (típicamente el <c>take</c> del lote).
+/// Recomendaciones V2: grafo de contactos y confianza; semilla 50/20/15/15 (usuario, contacto, random, emergente),
+/// puntuación de palabras, Elasticsearch y feed 50/20/15/15 con cadenas de relleno por segmento.
+/// Sin cargar el catálogo entero en RAM.
 /// </summary>
 public sealed class RecommendationFeedV2(
     AppDbContext db,
     IRecommendationElasticsearchQuery elasticsearch)
 {
     public const int MaxSeedOffers = 100;
+    /// <summary>
+    /// Peso de ordenación previa para ofertas de relleno aleatorio (sin señal; el <see cref="BaseSeedWeight" /> mínimo es 0,25).
+    /// </summary>
+    private const double RandomSeedOrderWeight = 0.25d;
     private const int MaxCombinationsBeforeFallback = 10;
 
     /// <summary>
@@ -28,7 +32,7 @@ public sealed class RecommendationFeedV2(
         int take,
         HashSet<string> exclude,
         CancellationToken cancellationToken) =>
-        SampleRandomOfferIdsAsync(viewerUserId, take, exclude, cancellationToken);
+        SampleRandomOfferIdsAsync(viewerUserId, take, exclude, includeEmergentInSample: true, cancellationToken);
     private const double CommentLikeBoostScale = 0.15d;
     private const double CommentWordWeightMultiplier = 0.25d;
     private const int IdChunkSize = 500;
@@ -47,6 +51,7 @@ public sealed class RecommendationFeedV2(
         if (!elasticsearch.IsConfigured)
             return null;
 
+        var cap = Math.Max(1, maxMergedOffers);
         var seed = await SelectSeedOffersAsync(
             viewerUserId,
             viewer,
@@ -59,38 +64,208 @@ public sealed class RecommendationFeedV2(
         if (seed.Count == 0)
             return null;
 
-        var wordScores = await BuildWordScoresAsync(seed, cancellationToken);
-        var nonZero = wordScores.Where(kv => kv.Value > 0d).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
-        if (nonZero.Count == 0)
-            return null;
-
-        var (bulk1, bulk2, bulk3) = PartitionIntoBulks(nonZero);
-        if (bulk1.Count + bulk2.Count + bulk3.Count == 0)
-            return null;
-
         var random = new Random(HashCode.Combine(viewerUserId, DateOnly.FromDateTime(now.UtcDateTime).GetHashCode(), 31));
+        var esTake = Math.Min(2000, Math.Max(24, cap * 5));
+        var poolTarget = Math.Max(50, cap * 2);
 
-        var cap = Math.Clamp(maxMergedOffers, 1, RecommendationService.MaxBatchSize);
-        var q1 = Math.Max(1, (int)Math.Round(0.7d * cap));
-        var q2 = Math.Max(1, (int)Math.Round(0.2d * cap));
-        int q3;
-        if (q1 + q2 >= cap)
+        var userWords = await BuildWordScoresAsync(seed, s => s.Kind is SeedKind.User, cancellationToken);
+        var contactWords = await BuildWordScoresAsync(seed, s => s.Kind is SeedKind.Contact, cancellationToken);
+        var userNonZero = userWords
+            .Where(kv => kv.Value > 0d)
+            .OrderByDescending(kv => kv.Value)
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+        var contactNonZero = contactWords
+            .Where(kv => kv.Value > 0d)
+            .OrderByDescending(kv => kv.Value)
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+
+        var userList = userNonZero.Count > 0
+            ? await CollectBulkHitsAsync(
+                [..userNonZero.Keys], viewerUserId, poolTarget, scoreThreshold, random, esTake, cancellationToken)
+            : [];
+        var contactList = contactNonZero.Count > 0
+            ? await CollectBulkHitsAsync(
+                [..contactNonZero.Keys], viewerUserId, poolTarget, scoreThreshold, random, esTake, cancellationToken)
+            : [];
+
+        var userQ = ToQueueByScoreOrder(userList);
+        var contactQ = ToQueueByScoreOrder(contactList);
+        var seedIdSet = seed.Select(s => s.OfferId).ToHashSet(StringComparer.Ordinal);
+        var emergentOrdered = new List<string>();
+        foreach (var s in seed.Where(x => x.Kind == SeedKind.Emergent))
         {
-            q1 = Math.Max(1, cap - 1);
-            q2 = cap - q1;
-            q3 = 0;
+            if (emergentOrdered.Count < poolTarget)
+                emergentOrdered.Add(s.OfferId);
         }
-        else
-            q3 = cap - q1 - q2;
 
-        var esTake = Math.Min(120, Math.Max(24, cap * 5));
+        var moreEmerg = await EmergentRouteOfferRanking.TakeRandomEmergentOfferIdsAsync(
+            db,
+            viewerUserId,
+            Math.Max(0, poolTarget - emergentOrdered.Count) + 32,
+            seedIdSet,
+            cancellationToken);
+        foreach (var id in moreEmerg)
+        {
+            if (emergentOrdered.Count >= poolTarget)
+                break;
+            emergentOrdered.Add(id);
+        }
 
-        var hits1 = await CollectBulkHitsAsync(bulk1, viewerUserId, q1, scoreThreshold, random, esTake, cancellationToken);
-        var hits2 = await CollectBulkHitsAsync(bulk2, viewerUserId, q2, scoreThreshold, random, esTake, cancellationToken);
-        var hits3 = await CollectBulkHitsAsync(bulk3, viewerUserId, q3, scoreThreshold, random, esTake, cancellationToken);
-
-        var merged = MergeRoundRobin(hits1, hits2, hits3, cap);
+        var emergentQ = ToDistinctQueue(emergentOrdered);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var merged = await BuildFeedFiftyTwentyFifteenFifteenAsync(
+            viewerUserId, cap, userQ, contactQ, emergentQ, seen, poolTarget, cancellationToken);
         return merged.Count > 0 ? merged : null;
+    }
+
+    private static Queue<string> ToQueueByScoreOrder(IReadOnlyList<(string OfferId, double Score)> hits) =>
+        new(hits.Select(h => h.OfferId));
+
+    /// <summary>Quita duplicados conservando el primer orden.</summary>
+    private static Queue<string> ToDistinctQueue(IEnumerable<string> ids)
+    {
+        var se = new HashSet<string>(StringComparer.Ordinal);
+        var q = new Queue<string>();
+        foreach (var id in ids)
+        {
+            if (string.IsNullOrWhiteSpace(id) || !se.Add(id))
+                continue;
+            q.Enqueue(id);
+        }
+
+        return q;
+    }
+
+    private async Task<List<string>> BuildFeedFiftyTwentyFifteenFifteenAsync(
+        string viewerUserId,
+        int cap,
+        Queue<string> userQ,
+        Queue<string> contactQ,
+        Queue<string> emergentQ,
+        HashSet<string> seen,
+        int poolTarget,
+        CancellationToken cancellationToken)
+    {
+        var (q1, q2, q3, q4) = QuotasFiftyTwentyFifteenFifteen(cap);
+        var all = new List<string>(cap);
+        var randomQ = new Queue<string>();
+
+        await RefillRandomQueueAsync(
+            viewerUserId, seen, randomQ, Math.Max(poolTarget, cap * 4), noEmergentInSample: true, cancellationToken);
+
+        IReadOnlyList<Queue<string>> seg1 = [userQ, contactQ, emergentQ, randomQ];
+        IReadOnlyList<Queue<string>> seg2 = [contactQ, emergentQ, randomQ];
+        IReadOnlyList<Queue<string>> seg3 = [emergentQ, randomQ];
+        IReadOnlyList<Queue<string>> seg4 = [randomQ];
+
+        await AppendSegmentDrainingOrderAsync(
+            all, q1, seen, seg1, viewerUserId, randomQ, poolTarget, noEmergentInRandom: true, cancellationToken);
+        await AppendSegmentDrainingOrderAsync(
+            all, q2, seen, seg2, viewerUserId, randomQ, poolTarget, noEmergentInRandom: true, cancellationToken);
+        await AppendSegmentDrainingOrderAsync(
+            all, q3, seen, seg3, viewerUserId, randomQ, poolTarget, noEmergentInRandom: true, cancellationToken);
+        await AppendSegmentDrainingOrderAsync(
+            all, q4, seen, seg4, viewerUserId, randomQ, poolTarget, noEmergentInRandom: true, cancellationToken);
+        return all;
+    }
+
+    private static (int Q1, int Q2, int Q3, int Q4) QuotasFiftyTwentyFifteenFifteen(int cap)
+    {
+        if (cap <= 0)
+            return (0, 0, 0, 0);
+        var q1 = (int)(cap * 0.5d);
+        var q2 = (int)(cap * 0.2d);
+        var q3 = (int)(cap * 0.15d);
+        var q4 = cap - q1 - q2 - q3;
+        return (q1, q2, q3, q4);
+    }
+
+    private async Task AppendSegmentDrainingOrderAsync(
+        List<string> all,
+        int segmentLen,
+        HashSet<string> seen,
+        IReadOnlyList<Queue<string>> sourceOrder,
+        string viewerUserId,
+        Queue<string> randomQ,
+        int poolTarget,
+        bool noEmergentInRandom,
+        CancellationToken cancellationToken)
+    {
+        if (segmentLen <= 0)
+            return;
+        var target = all.Count + segmentLen;
+        var stall = 0;
+        while (all.Count < target)
+        {
+            var countBeforePass = all.Count;
+            var randomBeforePass = randomQ.Count;
+            foreach (var q in sourceOrder)
+            {
+                while (all.Count < target)
+                {
+                    if (!TakeOneNotSeen(q, all, seen))
+                        break;
+                }
+                if (all.Count >= target)
+                    return;
+            }
+            if (all.Count > countBeforePass)
+            {
+                stall = 0;
+                continue;
+            }
+            await RefillRandomQueueAsync(
+                viewerUserId, seen, randomQ, randomQ.Count + poolTarget, noEmergentInRandom, cancellationToken);
+            if (randomQ.Count == randomBeforePass)
+            {
+                stall++;
+                if (stall > 12)
+                    return;
+            }
+            else
+                stall = 0;
+        }
+    }
+
+    private static bool TakeOneNotSeen(Queue<string> q, List<string> dest, HashSet<string> seen)
+    {
+        while (q.Count > 0)
+        {
+            var x = q.Dequeue();
+            if (string.IsNullOrWhiteSpace(x))
+                continue;
+            if (seen.Add(x))
+            {
+                dest.Add(x);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private async Task RefillRandomQueueAsync(
+        string viewerUserId,
+        HashSet<string> seen,
+        Queue<string> randomQ,
+        int atLeast,
+        bool noEmergentInSample,
+        CancellationToken cancellationToken)
+    {
+        if (randomQ.Count >= atLeast)
+            return;
+        var exclude = new HashSet<string>(seen, StringComparer.Ordinal);
+        foreach (var id in randomQ.ToArray())
+            exclude.Add(id);
+        var need = Math.Max(32, atLeast - randomQ.Count);
+        var batch = await SampleRandomOfferIdsAsync(
+            viewerUserId, need, exclude, includeEmergentInSample: !noEmergentInSample, cancellationToken);
+        foreach (var id in batch)
+        {
+            if (string.IsNullOrWhiteSpace(id) || exclude.Contains(id))
+                continue;
+            exclude.Add(id);
+            randomQ.Enqueue(id);
+        }
     }
 
     private async Task<List<SeedOffer>> SelectSeedOffersAsync(
@@ -111,7 +286,7 @@ public sealed class RecommendationFeedV2(
         if (!hasSignals)
         {
             var ids = await RandomSeedFromCatalogAsync(viewerUserId, MaxSeedOffers, cancellationToken);
-            return ids.Select(id => new SeedOffer(id, SeedKind.Random, 0.35d)).ToList();
+            return ids.Select(id => new SeedOffer(id, SeedKind.Random, RandomSeedOrderWeight)).ToList();
         }
 
         var userOrdered = await BuildUserOfferOrderedListAsync(userEvents, saved, viewerUserId, cancellationToken);
@@ -135,17 +310,32 @@ public sealed class RecommendationFeedV2(
             }
         }
 
-        var nUser = (int)Math.Round(0.7d * MaxSeedOffers);
-        var nContact = (int)Math.Round(0.2d * MaxSeedOffers);
-        var nRand = MaxSeedOffers - nUser - nContact;
+        const int nUser = 50;
+        const int nContact = 20;
+        const int nEmergent = 15;
 
         AddMany(userOrdered, SeedKind.User, nUser);
         AddMany(contactOrdered, SeedKind.Contact, nContact);
 
-        var needRandom = Math.Max(0, nRand + (nUser + nContact - result.Count));
-        var randomIds = await SampleRandomOfferIdsAsync(viewerUserId, needRandom, picked, cancellationToken);
-        AddMany(randomIds.Select(id => (id, 0.35d)).ToList(), SeedKind.Random, needRandom);
-    
+        var emergentIds = await EmergentRouteOfferRanking.TakeRandomEmergentOfferIdsAsync(
+            db, viewerUserId, nEmergent, picked, cancellationToken);
+        foreach (var id in emergentIds)
+        {
+            if (result.Count >= MaxSeedOffers)
+                break;
+            if (!picked.Add(id))
+                continue;
+            result.Add(new SeedOffer(id, SeedKind.Emergent, RandomSeedOrderWeight));
+        }
+
+        // Tramo 15 % random + compensación de huecos: catálogo sin mezclar emergentes aquí.
+        var needRandom = Math.Max(0, MaxSeedOffers - result.Count);
+        if (needRandom > 0)
+        {
+            var randomIds = await SampleRandomOfferIdsAsync(
+                viewerUserId, needRandom, picked, includeEmergentInSample: false, cancellationToken);
+            AddMany(randomIds.Select(id => (id, RandomSeedOrderWeight)).ToList(), SeedKind.Random, needRandom);
+        }
         return result;
     }
 
@@ -238,12 +428,14 @@ public sealed class RecommendationFeedV2(
         string viewerUserId,
         int take,
         CancellationToken cancellationToken) =>
-        SampleRandomOfferIdsAsync(viewerUserId, take, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
+        SampleRandomOfferIdsAsync(
+            viewerUserId, take, new HashSet<string>(StringComparer.Ordinal), includeEmergentInSample: true, cancellationToken);
 
     private async Task<List<string>> SampleRandomOfferIdsAsync(
         string viewerUserId,
         int take,
         HashSet<string> exclude,
+        bool includeEmergentInSample,
         CancellationToken cancellationToken)
     {
         if (take <= 0)
@@ -264,15 +456,18 @@ public sealed class RecommendationFeedV2(
             }
         }
 
-        // ~10% de la muestra aleatoria: ofertas emergentes (hoja de ruta), elegibles para el viewer.
-        var emergentQuota = Math.Min(want, Math.Max(1, (int)Math.Ceiling(want * 0.1d)));
-        var fromEmergent = await EmergentRouteOfferRanking.TakeRandomEmergentOfferIdsAsync(
-            db,
-            viewerUserId,
-            emergentQuota,
-            seen,
-            cancellationToken);
-        TryAddRange(fromEmergent);
+        if (includeEmergentInSample)
+        {
+            // ~10% de la muestra: emergentes (hoja de ruta), elegibles para el viewer.
+            var emergentQuota = Math.Min(want, Math.Max(1, (int)Math.Ceiling(want * 0.1d)));
+            var fromEmergent = await EmergentRouteOfferRanking.TakeRandomEmergentOfferIdsAsync(
+                db,
+                viewerUserId,
+                emergentQuota,
+                seen,
+                cancellationToken);
+            TryAddRange(fromEmergent);
+        }
 
         var remaining = want - merged.Count;
         if (remaining <= 0)
@@ -364,10 +559,14 @@ public sealed class RecommendationFeedV2(
 
     private async Task<Dictionary<string, double>> BuildWordScoresAsync(
         IReadOnlyList<SeedOffer> seed,
+        Func<SeedOffer, bool> includeOffer,
         CancellationToken cancellationToken)
     {
-        var ids = seed.Select(s => s.OfferId).Distinct(StringComparer.Ordinal).ToList();
-        var seedWeightByOffer = seed.GroupBy(s => s.OfferId, StringComparer.Ordinal)
+        var filtered = seed.Where(includeOffer).ToList();
+        if (filtered.Count == 0)
+            return new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var ids = filtered.Select(s => s.OfferId).Distinct(StringComparer.Ordinal).ToList();
+        var seedWeightByOffer = filtered.GroupBy(s => s.OfferId, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Max(x => BaseSeedWeight(x)), StringComparer.Ordinal);
 
         var products = await db.StoreProducts.AsNoTracking()
@@ -433,6 +632,7 @@ public sealed class RecommendationFeedV2(
         {
             SeedKind.User => Math.Max(0.4d, s.Weight),
             SeedKind.Contact => Math.Max(0.35d, s.Weight),
+            SeedKind.Emergent => Math.Max(0.25d, s.Weight),
             _ => Math.Max(0.25d, s.Weight),
         };
 
@@ -493,47 +693,6 @@ public sealed class RecommendationFeedV2(
             if (id.Length > 0)
                 target.Add(id);
         }
-    }
-
-    private static (List<string> B1, List<string> B2, List<string> B3) PartitionIntoBulks(
-        IReadOnlyDictionary<string, double> wordScores)
-    {
-        var list = wordScores
-            .Where(kv => kv.Key.Length > 0)
-            .Select(kv => (Word: kv.Key, Score: kv.Value))
-            .OrderByDescending(x => x.Score)
-            .ToList();
-
-        if (list.Count == 0)
-            return ([], [], []);
-
-        var min = list[^1].Score;
-        var max = list[0].Score;
-        var bulkScore = (max - min) / 3d;
-
-        var b1 = new List<string>();
-        var b2 = new List<string>();
-        var b3 = new List<string>();
-
-        if (bulkScore <= 1e-9d)
-        {
-            foreach (var x in list)
-                b1.Add(x.Word);
-            return (b1, b2, b3);
-        }
-
-        foreach (var x in list)
-        {
-            var t = max - x.Score;
-            if (t <= bulkScore)
-                b1.Add(x.Word);
-            else if (t <= 2d * bulkScore)
-                b2.Add(x.Word);
-            else
-                b3.Add(x.Word);
-        }
-
-        return (b1, b2, b3);
     }
 
     private async Task<List<(string OfferId, double Score)>> CollectBulkHitsAsync(
@@ -626,45 +785,6 @@ public sealed class RecommendationFeedV2(
         var idx = Enumerable.Range(0, n).OrderBy(_ => random.Next()).Take(Math.Min(pick, n)).OrderBy(i => i).ToArray();
         var parts = idx.Select(i => words[i]).ToArray();
         return string.Join(' ', parts);
-    }
-
-    private static List<string> MergeRoundRobin(
-        IReadOnlyList<(string OfferId, double Score)> a,
-        IReadOnlyList<(string OfferId, double Score)> b,
-        IReadOnlyList<(string OfferId, double Score)> c,
-        int maxLen)
-    {
-        var qa = new Queue<(string Id, double S)>(a.Select(x => (x.OfferId, x.Score)));
-        var qb = new Queue<(string Id, double S)>(b.Select(x => (x.OfferId, x.Score)));
-        var qc = new Queue<(string Id, double S)>(c.Select(x => (x.OfferId, x.Score)));
-
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var outList = new List<string>(maxLen);
-
-        void TryTake(Queue<(string Id, double S)> q)
-        {
-            while (q.Count > 0)
-            {
-                var x = q.Dequeue();
-                if (seen.Add(x.Id))
-                {
-                    outList.Add(x.Id);
-                    return;
-                }
-            }
-        }
-
-        while (outList.Count < maxLen && (qa.Count > 0 || qb.Count > 0 || qc.Count > 0))
-        {
-            for (var i = 0; i < 7 && outList.Count < maxLen; i++)
-                TryTake(qa);
-            for (var i = 0; i < 2 && outList.Count < maxLen; i++)
-                TryTake(qb);
-            if (outList.Count < maxLen)
-                TryTake(qc);
-        }
-
-        return outList;
     }
 
     private static void AddTokens(Dictionary<string, List<double>> bag, string text, double weight)
@@ -782,5 +902,6 @@ public sealed class RecommendationFeedV2(
         User,
         Contact,
         Random,
+        Emergent,
     }
 }

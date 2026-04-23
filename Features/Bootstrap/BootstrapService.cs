@@ -92,7 +92,7 @@ public sealed class BootstrapService(
             ? RecommendationBatchResponse.Empty(RecommendationService.DefaultBatchSize, RecommendationService.ScoreThreshold)
             : await recommendations.GetBatchAsync(
                 viewerUser.Id,
-                RecommendationService.MaxBatchSize,
+                RecommendationService.DefaultBootstrapTake,
                 cancellationToken);
 
         var bootRecOfferIds = recommendationFeed.OfferIds.Length > 0

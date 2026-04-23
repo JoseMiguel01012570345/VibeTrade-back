@@ -26,7 +26,9 @@ public sealed class RecommendationElasticsearchQuery(
         if (q.Length == 0)
             return Array.Empty<RecommendationElasticsearchHit>();
 
-        var effectiveTake = Math.Clamp(take * 4, take, 400);
+        // take puede ser > 400 (p. ej. esTake del feed); el tope fijo 400 hacía min > max y lanzaba.
+        var maxWindow = Math.Max(400, take);
+        var effectiveTake = Math.Clamp(take * 4, take, maxWindow);
 
         SearchResponse<CatalogSearchDocument> response;
         try

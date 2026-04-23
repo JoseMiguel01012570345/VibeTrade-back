@@ -27,8 +27,6 @@ public sealed class GuestRecommendationService(
     RecommendationFeedV2 feedV2)
     : IGuestRecommendationService
 {
-    private const int IdChunkSize = 500;
-
     public async Task<RecommendationBatchResponse> GetBatchAsync(
         string guestId,
         int take,
@@ -38,7 +36,7 @@ public sealed class GuestRecommendationService(
         if (gid.Length == 0)
             return RecommendationBatchResponse.Empty(RecommendationService.DefaultBatchSize, RecommendationService.ScoreThreshold);
 
-        var batchSize = Math.Clamp(take, 1, RecommendationService.MaxBatchSize);
+        var batchSize = RecommendationService.NormalizeClientTake(take);
         var now = DateTimeOffset.UtcNow;
 
         var guestEvents = guestStore.GetRecent(gid, max: 250);
@@ -89,140 +87,38 @@ public sealed class GuestRecommendationService(
         if (pageIds.Length == 0)
             return RecommendationBatchResponse.Empty(batchSize, RecommendationService.ScoreThreshold);
 
-        var candidates = await LoadCandidatesForOfferIdsAsync(gid, pageIds.ToHashSet(StringComparer.Ordinal), cancellationToken);
+        var candidates = await RecommendationBatchOfferLoader.LoadOfferCandidatesAsync(
+            db, gid, pageIds.ToHashSet(StringComparer.Ordinal), cancellationToken);
         var filtered = pageIds.Where(id => candidates.ContainsKey(id)).ToArray();
         if (filtered.Length == 0)
             return RecommendationBatchResponse.Empty(batchSize, RecommendationService.ScoreThreshold);
 
-        var offers = await BuildOffersJsonForIdsAsync(filtered, cancellationToken);
+        var offers = await RecommendationBatchOfferLoader.BuildOffersJsonInOrderAsync(db, filtered, cancellationToken);
         await offerEngagement.EnrichOffersJsonAsync(offers, "g:" + gid, cancellationToken);
-        var storeBadges = await BuildStoreBadgesJsonAsync(filtered, cancellationToken);
+        var storeBadges = await BuildStoreBadgesFromCandidatesAsync(filtered, candidates, cancellationToken);
         return new RecommendationBatchResponse(filtered, offers, storeBadges, batchSize, RecommendationService.ScoreThreshold);
     }
 
-    private async Task<Dictionary<string, OfferCandidate>> LoadCandidatesForOfferIdsAsync(
-        string viewerUserId,
-        IReadOnlyCollection<string> offerIds,
-        CancellationToken cancellationToken)
-    {
-        var map = new Dictionary<string, OfferCandidate>(StringComparer.Ordinal);
-        if (offerIds.Count == 0)
-            return map;
-
-        var idList = offerIds.ToList();
-        var products = await db.StoreProducts.AsNoTracking()
-            .Include(p => p.Store)
-            .Where(p => idList.Contains(p.Id) && p.Published && p.Store.OwnerUserId != viewerUserId)
-            .ToListAsync(cancellationToken);
-
-        var services = await db.StoreServices.AsNoTracking()
-            .Include(s => s.Store)
-            .Where(s => idList.Contains(s.Id) && (s.Published == null || s.Published == true) && s.Store.OwnerUserId != viewerUserId)
-            .ToListAsync(cancellationToken);
-
-        foreach (var item in products)
-        {
-            map[item.Id] = new OfferCandidate(
-                item.Id,
-                item.StoreId,
-                item.Category ?? "",
-                item.Store.OwnerUserId,
-                item.Store.TrustScore,
-                item.UpdatedAt,
-                item.OfferQa.Count,
-                item.PopularityWeight);
-        }
-
-        foreach (var item in services)
-        {
-            map[item.Id] = new OfferCandidate(
-                item.Id,
-                item.StoreId,
-                item.Category ?? "",
-                item.Store.OwnerUserId,
-                item.Store.TrustScore,
-                item.UpdatedAt,
-                item.OfferQa.Count,
-                item.PopularityWeight);
-        }
-
-        return map;
-    }
-
-    private async Task<JsonObject> BuildStoreBadgesJsonAsync(
+    private async Task<JsonObject> BuildStoreBadgesFromCandidatesAsync(
         IReadOnlyList<string> pageOfferIds,
+        IReadOnlyDictionary<string, OfferCandidate> candidates,
         CancellationToken cancellationToken)
     {
-        if (pageOfferIds.Count == 0)
-            return new JsonObject();
-
-        var storeIds = new HashSet<string>(StringComparer.Ordinal);
-        for (var i = 0; i < pageOfferIds.Count; i += IdChunkSize)
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var oid in pageOfferIds)
         {
-            var slice = pageOfferIds
-                .Skip(i)
-                .Take(IdChunkSize)
-                .Select(id => (id ?? "").Trim())
-                .Where(id => id.Length > 0)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-            if (slice.Count == 0)
-                continue;
-
-            var fromP = await db.StoreProducts.AsNoTracking()
-                .Where(p => slice.Contains(p.Id))
-                .Select(p => p.StoreId)
-                .ToListAsync(cancellationToken);
-            foreach (var sid in fromP)
-                storeIds.Add(sid);
-
-            var fromS = await db.StoreServices.AsNoTracking()
-                .Where(s => slice.Contains(s.Id))
-                .Select(s => s.StoreId)
-                .ToListAsync(cancellationToken);
-            foreach (var sid in fromS)
-                storeIds.Add(sid);
+            if (candidates.TryGetValue(oid, out var c))
+                ids.Add(c.StoreId);
         }
-
-        if (storeIds.Count == 0)
+        if (ids.Count == 0)
             return new JsonObject();
 
         var rows = await db.Stores.AsNoTracking()
-            .Where(s => storeIds.Contains(s.Id))
+            .Where(s => ids.Contains(s.Id))
             .ToListAsync(cancellationToken);
         var o = new JsonObject();
         foreach (var row in rows)
             o[row.Id] = MarketCatalogStoreBadgeJson.FromStoreRow(row);
         return o;
-    }
-
-    private async Task<JsonObject> BuildOffersJsonForIdsAsync(
-        IReadOnlyList<string> idsInOrder,
-        CancellationToken cancellationToken)
-    {
-        if (idsInOrder.Count == 0)
-            return new JsonObject();
-
-        var idSet = idsInOrder.ToHashSet(StringComparer.Ordinal);
-        var products = await db.StoreProducts.AsNoTracking()
-            .Where(p => idSet.Contains(p.Id))
-            .ToListAsync(cancellationToken);
-        var services = await db.StoreServices.AsNoTracking()
-            .Where(s => idSet.Contains(s.Id))
-            .ToListAsync(cancellationToken);
-
-        var byId = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
-        foreach (var p in products)
-            byId[p.Id] = MarketCatalogOfferJsonBuilder.ProductRowToOfferJson(p);
-        foreach (var s in services)
-            byId[s.Id] = MarketCatalogOfferJsonBuilder.ServiceRowToOfferJson(s);
-
-        var offers = new JsonObject();
-        foreach (var id in idsInOrder)
-        {
-            if (byId.TryGetValue(id, out var node))
-                offers[id] = node;
-        }
-        return offers;
     }
 }

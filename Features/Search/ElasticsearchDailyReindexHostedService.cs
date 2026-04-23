@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 namespace VibeTrade.Backend.Features.Search;
 
 /// <summary>
-/// Reindexa el catálogo en Elasticsearch una vez al día a las 00:00 UTC.
+/// Reindexa el catálogo en Elasticsearch una vez al día a las 00:00 UTC (12:00 AM UTC, convención del spec de producto).
 /// </summary>
 public sealed class ElasticsearchDailyReindexHostedService(
     IServiceScopeFactory scopeFactory,

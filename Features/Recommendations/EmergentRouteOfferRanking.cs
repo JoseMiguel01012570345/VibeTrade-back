@@ -4,15 +4,16 @@ using VibeTrade.Backend.Data;
 namespace VibeTrade.Backend.Features.Recommendations;
 
 /// <summary>
-/// Ofertas emergentes (p. ej. hoja de ruta en <c>emergent_offers</c>) para muestreos aleatorios acotados del feed.
+/// Ofertas emergentes (hoja de ruta publicada en <c>emergent_offers</c>) para muestreos del feed.
+/// El id devuelto es <see cref="Data.Entities.EmergentOfferRow.Id" /> (prefijo <c>emo_</c>), no el producto/servicio del hilo.
 /// </summary>
 public static class EmergentRouteOfferRanking
 {
     public const string EmergentKindRouteSheet = "route_sheet";
 
     /// <summary>
-    /// Hasta <paramref name="take"/> ids de ofertas emergentes activas, elegibles para el viewer y no presentes en <paramref name="exclude"/>.
-    /// Usado en muestreos aleatorios del feed (<see cref="RecommendationFeedV2.SampleRandomPublishedOfferIdsAsync"/>).
+    /// Hasta <paramref name="take"/> ids de publicaciones emergentes activas, no publicadas por el viewer,
+    /// no presentes en <paramref name="exclude"/>.
     /// </summary>
     public static async Task<List<string>> TakeRandomEmergentOfferIdsAsync(
         AppDbContext db,
@@ -26,26 +27,30 @@ public static class EmergentRouteOfferRanking
 
         var viewer = (viewerUserId ?? "").Trim();
         var emergentOrdered = await db.EmergentOffers.AsNoTracking()
-            .Where(e => e.Kind == EmergentKindRouteSheet && e.RetractedAtUtc == null)
+            .Where(e => e.Kind == EmergentKindRouteSheet
+                        && e.RetractedAtUtc == null
+                        && e.PublisherUserId != viewer)
             .OrderByDescending(e => e.PublishedAtUtc)
-            .Select(e => e.OfferId)
+            .Select(e => e.Id)
             .Take(256)
             .ToListAsync(cancellationToken);
 
         if (emergentOrdered.Count == 0)
             return [];
 
-        var eligible = await FilterEligibleOfferIdsForViewerAsync(db, emergentOrdered, viewer, cancellationToken);
-        var pool = emergentOrdered
-            .Where(id => eligible.Contains(id) && !exclude.Contains(id))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        Shuffle(emergentOrdered, Random.Shared);
+        var chosen = new HashSet<string>(exclude, StringComparer.Ordinal);
+        var result = new List<string>(Math.Min(take, emergentOrdered.Count));
+        foreach (var id in emergentOrdered)
+        {
+            if (result.Count >= take)
+                break;
+            if (!chosen.Add(id))
+                continue;
+            result.Add(id);
+        }
 
-        if (pool.Count == 0)
-            return [];
-
-        Shuffle(pool, Random.Shared);
-        return pool.Take(Math.Min(take, pool.Count)).ToList();
+        return result;
     }
 
     private static void Shuffle<T>(IList<T> list, Random rng)
@@ -55,38 +60,5 @@ public static class EmergentRouteOfferRanking
             var j = rng.Next(i + 1);
             (list[i], list[j]) = (list[j], list[i]);
         }
-    }
-
-    private static async Task<HashSet<string>> FilterEligibleOfferIdsForViewerAsync(
-        AppDbContext db,
-        IReadOnlyList<string> offerIds,
-        string viewerUserId,
-        CancellationToken cancellationToken)
-    {
-        var set = new HashSet<string>(StringComparer.Ordinal);
-        if (offerIds.Count == 0)
-            return set;
-
-        var distinct = offerIds.Distinct(StringComparer.Ordinal).ToList();
-        const int chunkSize = 500;
-        for (var i = 0; i < distinct.Count; i += chunkSize)
-        {
-            var c = distinct.Skip(i).Take(chunkSize).ToList();
-            var pIds = await db.StoreProducts.AsNoTracking()
-                .Where(p => c.Contains(p.Id) && p.Published && p.Store.OwnerUserId != viewerUserId)
-                .Select(p => p.Id)
-                .ToListAsync(cancellationToken);
-            foreach (var id in pIds)
-                set.Add(id);
-
-            var sIds = await db.StoreServices.AsNoTracking()
-                .Where(s => c.Contains(s.Id) && (s.Published == null || s.Published == true) && s.Store.OwnerUserId != viewerUserId)
-                .Select(s => s.Id)
-                .ToListAsync(cancellationToken);
-            foreach (var id in sIds)
-                set.Add(id);
-        }
-
-        return set;
     }
 }

@@ -13,10 +13,15 @@ public sealed class RecommendationService(
     IOfferPopularityWeightService popularityWeight,
     RecommendationFeedV2 feedV2) : IRecommendationService
 {
+    /// <summary>Valor por omisión de <c>take</c> en la API cuando el cliente no lo envía.</summary>
     public const int DefaultBatchSize = 20;
-    /// <summary>Tope de <c>take</c> en API / bootstrap; el cliente pide 140 y parte en lotes de 20.</summary>
-    public const int MaxBatchSize = 140;
+    /// <summary>Prefetch de recomendaciones en bootstrap; la API no limita el <c>take</c> a este valor.</summary>
+    public const int DefaultBootstrapTake = 140;
     public const double ScoreThreshold = 0.35d;
+
+    /// <summary>API: el tamaño de lote sigue al <c>take</c> del cliente (valores &lt; 1 se sustituyen por <see cref="DefaultBatchSize" />).</summary>
+    public static int NormalizeClientTake(int take) =>
+        take < 1 ? DefaultBatchSize : take;
 
     public async Task<RecommendationBatchResponse> GetBatchAsync(
         string viewerUserId,
@@ -32,7 +37,7 @@ public sealed class RecommendationService(
         if (viewer is null)
             return RecommendationBatchResponse.Empty(DefaultBatchSize, ScoreThreshold);
 
-        var batchSize = Math.Clamp(take, 1, MaxBatchSize);
+        var batchSize = NormalizeClientTake(take);
         var (orderedIds, candidates) = await BuildOrderedFeedAsync(viewer, batchSize, cancellationToken);
         var pageIds = orderedIds.Where(id => candidates.ContainsKey(id)).ToArray();
         if (pageIds.Length == 0)
@@ -55,7 +60,7 @@ public sealed class RecommendationService(
         if (viewerId.Length == 0 || pid.Length == 0)
             return;
 
-        if (!await OfferExistsAsync(pid, cancellationToken))
+        if (!await OfferOrEmergentExistsAsync(pid, cancellationToken))
             return;
 
         db.UserOfferInteractions.Add(new UserOfferInteractionRow
@@ -67,7 +72,8 @@ public sealed class RecommendationService(
             CreatedAt = DateTimeOffset.UtcNow,
         });
         await db.SaveChangesAsync(cancellationToken);
-        await popularityWeight.RecomputeAsync(pid, cancellationToken);
+        if (!RecommendationBatchOfferLoader.IsEmergentPublicationId(pid))
+            await popularityWeight.RecomputeAsync(pid, cancellationToken);
     }
 
     private async Task<(string[] OrderedIds, Dictionary<string, OfferCandidate> Candidates)>
@@ -100,58 +106,16 @@ public sealed class RecommendationService(
         if (idList.Length == 0)
             return ([], new Dictionary<string, OfferCandidate>(StringComparer.Ordinal));
 
-        var candidates = await LoadCandidatesForOfferIdsAsync(viewer.Id, idList.ToHashSet(StringComparer.Ordinal), cancellationToken);
+        var candidates = await RecommendationBatchOfferLoader.LoadOfferCandidatesAsync(
+            db, viewer.Id, idList.ToHashSet(StringComparer.Ordinal), cancellationToken);
         return (idList, candidates);
     }
 
-    private async Task<Dictionary<string, OfferCandidate>> LoadCandidatesForOfferIdsAsync(
+    private Task<Dictionary<string, OfferCandidate>> LoadCandidatesForOfferIdsAsync(
         string viewerUserId,
         IReadOnlyCollection<string> offerIds,
-        CancellationToken cancellationToken)
-    {
-        var map = new Dictionary<string, OfferCandidate>(StringComparer.Ordinal);
-        if (offerIds.Count == 0)
-            return map;
-
-        var idList = offerIds.ToList();
-        var products = await db.StoreProducts.AsNoTracking()
-            .Include(p => p.Store)
-            .Where(p => idList.Contains(p.Id) && p.Published && p.Store.OwnerUserId != viewerUserId)
-            .ToListAsync(cancellationToken);
-
-        var services = await db.StoreServices.AsNoTracking()
-            .Include(s => s.Store)
-            .Where(s => idList.Contains(s.Id) && (s.Published == null || s.Published == true) && s.Store.OwnerUserId != viewerUserId)
-            .ToListAsync(cancellationToken);
-
-        foreach (var item in products)
-        {
-            map[item.Id] = new OfferCandidate(
-                item.Id,
-                item.StoreId,
-                item.Category ?? "",
-                item.Store.OwnerUserId,
-                item.Store.TrustScore,
-                item.UpdatedAt,
-                item.OfferQa.Count,
-                item.PopularityWeight);
-        }
-
-        foreach (var item in services)
-        {
-            map[item.Id] = new OfferCandidate(
-                item.Id,
-                item.StoreId,
-                item.Category ?? "",
-                item.Store.OwnerUserId,
-                item.Store.TrustScore,
-                item.UpdatedAt,
-                item.OfferQa.Count,
-                item.PopularityWeight);
-        }
-
-        return map;
-    }
+        CancellationToken cancellationToken) =>
+        RecommendationBatchOfferLoader.LoadOfferCandidatesAsync(db, viewerUserId, offerIds, cancellationToken);
 
     private async Task<ViewerContacts> LoadViewerContactsAsync(string viewerId, CancellationToken cancellationToken)
     {
@@ -200,8 +164,13 @@ public sealed class RecommendationService(
         return (userEvents, contactEvents);
     }
 
-    private async Task<bool> OfferExistsAsync(string offerId, CancellationToken cancellationToken)
+    private async Task<bool> OfferOrEmergentExistsAsync(string offerId, CancellationToken cancellationToken)
     {
+        if (RecommendationBatchOfferLoader.IsEmergentPublicationId(offerId))
+        {
+            return await db.EmergentOffers.AsNoTracking()
+                .AnyAsync(e => e.Id == offerId && e.RetractedAtUtc == null, cancellationToken);
+        }
         var inProducts = await db.StoreProducts.AsNoTracking()
             .AnyAsync(p => p.Id == offerId, cancellationToken);
         if (inProducts)
@@ -234,35 +203,10 @@ public sealed class RecommendationService(
         return o;
     }
 
-    private async Task<JsonObject> BuildOffersJsonForIdsAsync(
+    private Task<JsonObject> BuildOffersJsonForIdsAsync(
         IReadOnlyList<string> idsInOrder,
-        CancellationToken cancellationToken)
-    {
-        if (idsInOrder.Count == 0)
-            return new JsonObject();
-
-        var idSet = idsInOrder.ToHashSet(StringComparer.Ordinal);
-        var products = await db.StoreProducts.AsNoTracking()
-            .Where(p => idSet.Contains(p.Id))
-            .ToListAsync(cancellationToken);
-        var services = await db.StoreServices.AsNoTracking()
-            .Where(s => idSet.Contains(s.Id))
-            .ToListAsync(cancellationToken);
-
-        var byId = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
-        foreach (var p in products)
-            byId[p.Id] = MarketCatalogOfferJsonBuilder.ProductRowToOfferJson(p);
-        foreach (var s in services)
-            byId[s.Id] = MarketCatalogOfferJsonBuilder.ServiceRowToOfferJson(s);
-
-        var offers = new JsonObject();
-        foreach (var id in idsInOrder)
-        {
-            if (byId.TryGetValue(id, out var node))
-                offers[id] = node;
-        }
-        return offers;
-    }
+        CancellationToken cancellationToken) =>
+        RecommendationBatchOfferLoader.BuildOffersJsonInOrderAsync(db, idsInOrder, cancellationToken);
 
     private static string ToStorageValue(RecommendationInteractionType eventType) =>
         eventType switch

@@ -10,7 +10,7 @@ public interface IGuestInteractionStore
 
 /// <summary>
 /// Almacenamiento efímero para interacciones de invitados (sin cuenta).
-/// Se guarda en memoria con expiración deslizante.
+/// <see cref="GetRecent" /> solo expone interacciones de los últimos 7 días, alineado al feed V2.
 /// </summary>
 public sealed class GuestInteractionStore(IMemoryCache cache) : IGuestInteractionStore
 {
@@ -67,7 +67,9 @@ public sealed class GuestInteractionStore(IMemoryCache cache) : IGuestInteractio
         lock (list)
         {
             var take = Math.Clamp(max, 1, 500);
+            var since = DateTimeOffset.UtcNow.AddDays(-7);
             return list
+                .Where(x => x.At >= since)
                 .OrderByDescending(x => x.At)
                 .Take(take)
                 .Select(x => (x.OfferId, x.EventType, x.At))

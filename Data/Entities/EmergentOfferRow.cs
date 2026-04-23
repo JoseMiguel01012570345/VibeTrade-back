@@ -15,7 +15,7 @@ public sealed class EmergentOfferRow
 
     public string ThreadId { get; set; } = "";
 
-    /// <summary>Id de producto/servicio del hilo (oferta de marketplace).</summary>
+    /// <summary>Id del producto/servicio en el hilo (contexto de mercado). La publicación emergente se identifica por <see cref="Id" />; no es el id de la hoja de ruta.</summary>
     public string OfferId { get; set; } = "";
 
     public string RouteSheetId { get; set; } = "";
