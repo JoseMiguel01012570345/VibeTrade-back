@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
+using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Market.Utils;
 
 namespace VibeTrade.Backend.Features.Recommendations;
@@ -76,13 +77,13 @@ internal static class RecommendationBatchOfferLoader
             {
                 if (p.Store.OwnerUserId == viewerUserId)
                     continue;
-                map[e.Id] = CandidateFromProduct(p, publicationId: e.Id);
+                map[e.Id] = CandidateFromProduct(p, e.Id, e.OfferQa.Count);
             }
             else if (byS.TryGetValue(e.OfferId, out var s))
             {
                 if (s.Store.OwnerUserId == viewerUserId)
                     continue;
-                map[e.Id] = CandidateFromService(s, publicationId: e.Id);
+                map[e.Id] = CandidateFromService(s, e.Id, e.OfferQa.Count);
             }
         }
 
@@ -111,7 +112,7 @@ internal static class RecommendationBatchOfferLoader
             item.OfferQa.Count,
             item.PopularityWeight);
 
-    private static OfferCandidate CandidateFromProduct(StoreProductRow item, string publicationId) =>
+    private static OfferCandidate CandidateFromProduct(StoreProductRow item, string publicationId, int inquiryCount) =>
         new(
             publicationId,
             item.StoreId,
@@ -119,10 +120,10 @@ internal static class RecommendationBatchOfferLoader
             item.Store.OwnerUserId,
             item.Store.TrustScore,
             item.UpdatedAt,
-            item.OfferQa.Count,
+            inquiryCount,
             item.PopularityWeight);
 
-    private static OfferCandidate CandidateFromService(StoreServiceRow item, string publicationId) =>
+    private static OfferCandidate CandidateFromService(StoreServiceRow item, string publicationId, int inquiryCount) =>
         new(
             publicationId,
             item.StoreId,
@@ -130,7 +131,7 @@ internal static class RecommendationBatchOfferLoader
             item.Store.OwnerUserId,
             item.Store.TrustScore,
             item.UpdatedAt,
-            item.OfferQa.Count,
+            inquiryCount,
             item.PopularityWeight);
 
     public static async Task<JsonObject> BuildOffersJsonInOrderAsync(
@@ -196,9 +197,15 @@ internal static class RecommendationBatchOfferLoader
             if (emById.TryGetValue(id, out var em))
             {
                 if (byP.TryGetValue(em.OfferId, out var p))
-                    offers[id] = ToEmergentRoutePublicationJson(em, p, null);
+                    offers[id] = ToEmergentRoutePublicationJson(em, p, null, null);
                 else if (byS.TryGetValue(em.OfferId, out var s))
-                    offers[id] = ToEmergentRoutePublicationJson(em, null, s);
+                    offers[id] = ToEmergentRoutePublicationJson(em, null, s, null);
+                else
+                {
+                    var fallbackStoreId = await TryResolveStoreIdForEmergentOrphanAsync(db, em, cancellationToken);
+                    offers[id] = ToEmergentRoutePublicationJson(em, null, null, fallbackStoreId);
+                }
+
                 continue;
             }
             if (byCatalog.TryGetValue(id, out var node))
@@ -208,17 +215,39 @@ internal static class RecommendationBatchOfferLoader
         return offers;
     }
 
+    private static async Task<string?> TryResolveStoreIdForEmergentOrphanAsync(
+        AppDbContext db,
+        EmergentOfferRow em,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(em.PublisherUserId))
+            return null;
+        return await db.Stores.AsNoTracking()
+            .Where(x => x.OwnerUserId == em.PublisherUserId)
+            .OrderBy(x => x.Id)
+            .Select(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     private static JsonObject ToEmergentRoutePublicationJson(
         EmergentOfferRow e,
         StoreProductRow? p,
-        StoreServiceRow? s)
+        StoreServiceRow? s,
+        string? fallbackStoreId)
     {
         var snap = e.RouteSheetSnapshot ?? new EmergentRouteSheetSnapshot();
+        var storeIdForOrphan = (fallbackStoreId ?? "").Trim();
         var baseNode = p is not null
             ? MarketCatalogOfferJsonBuilder.ProductRowToOfferJson(p)
             : s is not null
                 ? MarketCatalogOfferJsonBuilder.ServiceRowToOfferJson(s)
-                : new JsonObject { ["id"] = e.Id, ["title"] = snap.Titulo, ["storeId"] = "", ["price"] = "—" };
+                : new JsonObject
+                {
+                    ["id"] = e.Id,
+                    ["title"] = snap.Titulo,
+                    ["storeId"] = string.IsNullOrEmpty(storeIdForOrphan) ? "" : storeIdForOrphan,
+                    ["price"] = "—",
+                };
 
         baseNode["id"] = e.Id;
         baseNode["emergentBaseOfferId"] = e.OfferId;
@@ -240,6 +269,7 @@ internal static class RecommendationBatchOfferLoader
         else
             baseNode["tags"] = new JsonArray { "Hoja de ruta (publicada)" };
 
+        baseNode["qa"] = OfferQaJson.ToJsonNode(e.OfferQa);
         return baseNode;
     }
 

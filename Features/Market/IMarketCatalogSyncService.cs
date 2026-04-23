@@ -34,6 +34,9 @@ public interface IMarketCatalogSyncService
     /// <summary>Comentarios QA persistidos (jsonb <c>OfferQaJson</c>), o null si no existe la oferta.</summary>
     Task<IReadOnlyList<OfferQaComment>?> GetOfferQaForOfferAsync(string offerId, CancellationToken cancellationToken = default);
 
+    /// <summary>Ficha <c>Offer</c> + tienda (producto, servicio o publicación <c>emo_*</c>).</summary>
+    Task<PublicOfferCardSnapshot?> TryGetPublicOfferCardAsync(string offerId, CancellationToken cancellationToken = default);
+
     Task<JsonObject> BuildStoresJsonObjectAsync(CancellationToken cancellationToken = default);
 
     Task<JsonObject> BuildStoreCatalogsJsonObjectAsync(CancellationToken cancellationToken = default);

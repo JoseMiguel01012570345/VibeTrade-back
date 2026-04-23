@@ -283,6 +283,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                             ?? new EmergentRouteSheetSnapshot());
             e.Property(x => x.PublishedAtUtc);
             e.Property(x => x.RetractedAtUtc);
+            e.Property(x => x.OfferQa)
+                .HasColumnName("OfferQaJson")
+                .HasColumnType("jsonb")
+                .HasConversion(OfferQaJson.CreateEfConverter());
             e.HasIndex(x => new { x.ThreadId, x.RouteSheetId }).IsUnique();
             e.HasIndex(x => x.OfferId);
             e.HasIndex(x => new { x.Kind, x.RetractedAtUtc, x.PublishedAtUtc });

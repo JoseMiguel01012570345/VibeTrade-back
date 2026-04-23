@@ -19,6 +19,11 @@ public sealed class OfferEngagementService(
         var oid = (offerId ?? "").Trim();
         if (oid.Length < 2)
             return false;
+        if (RecommendationBatchOfferLoader.IsEmergentPublicationId(oid))
+        {
+            return await db.EmergentOffers.AsNoTracking()
+                .AnyAsync(e => e.Id == oid && e.RetractedAtUtc == null, cancellationToken);
+        }
         if (await db.StoreProducts.AsNoTracking().AnyAsync(p => p.Id == oid, cancellationToken))
             return true;
         return await db.StoreServices.AsNoTracking().AnyAsync(s => s.Id == oid, cancellationToken);

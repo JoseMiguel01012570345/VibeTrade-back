@@ -437,6 +437,27 @@ public sealed class MarketController(
         return Content(enriched ?? "[]", "application/json");
     }
 
+    /// <summary>Hidrata ficha y tienda (p. ej. enlace directo a <c>/offer/…</c> sin pasar por el home).</summary>
+    [HttpGet("offers/{offerId}/card")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetOfferCard(string offerId, CancellationToken cancellationToken)
+    {
+        var card = await catalog.TryGetPublicOfferCardAsync(offerId, cancellationToken);
+        if (card is null)
+            return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
+        var oid = offerId.Trim();
+        // `Offer` viene de BuildOffersJsonInOrder: el JsonObject sigue con padre; hay que clonarlo antes de otro contenedor.
+        var offerNode = (JsonObject)JsonNode.Parse(card.Value.Offer.ToJsonString())!;
+        var offers = new JsonObject { [oid] = offerNode };
+        var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
+        await offerEngagement.EnrichOffersJsonAsync(offers, likerKey, cancellationToken);
+        if (offers[oid] is not JsonObject enriched)
+            return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
+        return Ok(new { offer = enriched, store = card.Value.Store });
+    }
+
     /// <summary>Alterna el like en la oferta (requiere Bearer; no invitado anónimo).</summary>
     [HttpPost("offers/{offerId}/like")]
     [AllowAnonymous]

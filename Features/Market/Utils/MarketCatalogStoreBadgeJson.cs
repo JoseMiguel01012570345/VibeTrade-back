@@ -5,6 +5,20 @@ namespace VibeTrade.Backend.Features.Market.Utils;
 
 internal static class MarketCatalogStoreBadgeJson
 {
+    /// <summary>Coincide con <c>StoreBadge</c> en el cliente: evita ficha "no encontrada" si falta el row de tienda pero la oferta tiene <c>storeId</c>.</summary>
+    public static JsonObject MinimalStub(string storeId)
+    {
+        return new JsonObject
+        {
+            ["id"] = storeId,
+            ["name"] = "Tienda",
+            ["verified"] = false,
+            ["categories"] = new JsonArray(),
+            ["transportIncluded"] = false,
+            ["trustScore"] = 0,
+        };
+    }
+
     public static JsonObject FromStoreRow(StoreRow s)
     {
         var node = new JsonObject

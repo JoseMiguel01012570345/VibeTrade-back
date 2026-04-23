@@ -2,9 +2,11 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market.Utils;
+using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Search;
 
 namespace VibeTrade.Backend.Features.Market;
@@ -68,6 +70,20 @@ public sealed partial class MarketCatalogSyncService(
             CreatedAt = createdMs,
         };
 
+        if (RecommendationBatchOfferLoader.IsEmergentPublicationId(offerId))
+        {
+            var emergent = await db.EmergentOffers.FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
+            if (emergent is null || emergent.RetractedAtUtc is not null)
+                return null;
+            var eList = emergent.OfferQa.ToList();
+            if (pid is not null && !eList.Any(x => string.Equals(x.Id, pid, StringComparison.Ordinal)))
+                throw new ArgumentException("parentId no corresponde a un comentario de esta oferta.", nameof(parentId));
+            eList.Insert(0, newItem);
+            emergent.OfferQa = eList;
+            await db.SaveChangesAsync(cancellationToken);
+            return JsonSerializer.SerializeToNode(newItem, OfferQaJson.SerializerOptions) as JsonObject;
+        }
+
         var product = await db.StoreProducts.FindAsync([offerId], cancellationToken);
         if (product is not null)
         {
@@ -105,6 +121,13 @@ public sealed partial class MarketCatalogSyncService(
         if (oid.Length < 2)
             return null;
 
+        if (RecommendationBatchOfferLoader.IsEmergentPublicationId(oid))
+        {
+            var emergent = await db.EmergentOffers.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == oid && x.RetractedAtUtc == null, cancellationToken);
+            return emergent?.OfferQa;
+        }
+
         var product = await db.StoreProducts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
         if (product is not null)
@@ -125,14 +148,24 @@ public sealed partial class MarketCatalogSyncService(
         if (oid.Length < 2 || cid.Length < 2)
             return null;
 
-        var product = await db.StoreProducts.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
-        var list = product?.OfferQa;
-        if (list is null || list.Count == 0)
+        IReadOnlyList<OfferQaComment>? list = null;
+        if (RecommendationBatchOfferLoader.IsEmergentPublicationId(oid))
         {
-            var service = await db.StoreServices.AsNoTracking()
+            var emergent = await db.EmergentOffers.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == oid && x.RetractedAtUtc == null, cancellationToken);
+            list = emergent?.OfferQa;
+        }
+        else
+        {
+            var product = await db.StoreProducts.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
-            list = service?.OfferQa;
+            list = product?.OfferQa;
+            if (list is null || list.Count == 0)
+            {
+                var service = await db.StoreServices.AsNoTracking()
+                    .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
+                list = service?.OfferQa;
+            }
         }
 
         if (list is null)

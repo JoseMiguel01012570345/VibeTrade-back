@@ -1,0 +1,6 @@
+using System.Text.Json.Nodes;
+
+namespace VibeTrade.Backend.Features.Market;
+
+/// <summary>Ficha pública (<c>Offer</c> + tienda) para hidratar el cliente sin el feed completo.</summary>
+public readonly record struct PublicOfferCardSnapshot(JsonObject Offer, JsonObject Store);

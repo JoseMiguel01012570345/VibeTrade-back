@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Recommendations;
 
 namespace VibeTrade.Backend.Features.Chat;
 
@@ -177,6 +178,15 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         string offerId,
         CancellationToken cancellationToken)
     {
+        if (RecommendationBatchOfferLoader.IsEmergentPublicationId(offerId))
+        {
+            var em = await db.EmergentOffers.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == offerId && x.RetractedAtUtc == null, cancellationToken);
+            if (em is null)
+                return (null, null);
+            return await ResolveOfferStoreAsync(em.OfferId, cancellationToken);
+        }
+
         var p = await db.StoreProducts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
         if (p is not null)

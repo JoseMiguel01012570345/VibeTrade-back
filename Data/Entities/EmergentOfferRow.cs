@@ -1,4 +1,5 @@
 using VibeTrade.Backend.Data.RouteSheets;
+using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Data.Entities;
 
@@ -28,4 +29,7 @@ public sealed class EmergentOfferRow
 
     /// <summary>Null = señal activa para recomendaciones.</summary>
     public DateTimeOffset? RetractedAtUtc { get; set; }
+
+    /// <summary>Comentarios públicos de esta publicación (<c>emo_*</c>), independientes del producto/servicio base.</summary>
+    public List<OfferQaComment> OfferQa { get; set; } = new();
 }
