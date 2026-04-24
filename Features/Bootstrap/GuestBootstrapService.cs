@@ -37,7 +37,8 @@ public sealed class GuestBootstrapService(
         var bootRecOfferIds = recommendationFeed.OfferIds.Length > 0
             ? recommendationFeed.OfferIds
             : recommendationFeed.Offers.Select(kv => kv.Key).ToArray();
-        marketObj["offerIds"] = JsonSerializer.SerializeToNode(bootRecOfferIds, JsonOptions) ?? new JsonArray();
+        if (bootRecOfferIds.Length > 0)
+            marketObj["offerIds"] = JsonSerializer.SerializeToNode(bootRecOfferIds, JsonOptions) ?? new JsonArray();
 
         const string reels =
             """{"items":[],"initialComments":{},"initialLikeCounts":{}}""";

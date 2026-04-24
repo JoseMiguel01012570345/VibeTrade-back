@@ -98,7 +98,10 @@ public sealed class BootstrapService(
         var bootRecOfferIds = recommendationFeed.OfferIds.Length > 0
             ? recommendationFeed.OfferIds
             : recommendationFeed.Offers.Select(kv => kv.Key).ToArray();
-        marketObj["offerIds"] = JsonSerializer.SerializeToNode(bootRecOfferIds, JsonOptions) ?? new JsonArray();
+        // No pisar el feed global del mercado cuando el ranking devuelve vacío (p. ej. usuario nuevo):
+        // si no, el cliente pierde `market.offerIds` y el Home queda sin tarjetas.
+        if (bootRecOfferIds.Length > 0)
+            marketObj["offerIds"] = JsonSerializer.SerializeToNode(bootRecOfferIds, JsonOptions) ?? new JsonArray();
 
         var root = new JsonObject
         {
@@ -135,11 +138,27 @@ public sealed class BootstrapService(
         {
             if (threadsOut.ContainsKey(summ.Id))
             {
-                var rsExisting = await routeSheets.ListForThreadAsync(viewerUserId, summ.Id, cancellationToken);
-                if (rsExisting is { Count: > 0 } && threadsOut[summ.Id] is JsonObject thNode)
+                if (threadsOut[summ.Id] is JsonObject thNode)
                 {
-                    thNode["routeSheets"] = JsonSerializer.SerializeToNode(rsExisting, RouteSheetJson.Options)
-                        ?? new JsonArray();
+                    var rsExisting = await routeSheets.ListForThreadAsync(viewerUserId, summ.Id, cancellationToken);
+                    if (rsExisting is { Count: > 0 })
+                    {
+                        thNode["routeSheets"] = JsonSerializer.SerializeToNode(rsExisting, RouteSheetJson.Options)
+                            ?? new JsonArray();
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(summ.PartyExitedUserId))
+                        thNode["partyExitedUserId"] = summ.PartyExitedUserId.Trim();
+                    else
+                        thNode.Remove("partyExitedUserId");
+                    if (!string.IsNullOrWhiteSpace(summ.PartyExitedReason))
+                        thNode["partyExitedReason"] = summ.PartyExitedReason.Trim();
+                    else
+                        thNode.Remove("partyExitedReason");
+                    if (summ.PartyExitedAtUtc is { } partyAt)
+                        thNode["partyExitedAtUtc"] = JsonSerializer.SerializeToNode(partyAt, JsonOptions);
+                    else
+                        thNode.Remove("partyExitedAtUtc");
                 }
                 continue;
             }
@@ -195,6 +214,12 @@ public sealed class BootstrapService(
                 thJson["buyerDisplayName"] = summ.BuyerDisplayName.Trim();
             if (!string.IsNullOrWhiteSpace(summ.BuyerAvatarUrl))
                 thJson["buyerAvatarUrl"] = summ.BuyerAvatarUrl.Trim();
+            if (!string.IsNullOrWhiteSpace(summ.PartyExitedUserId))
+                thJson["partyExitedUserId"] = summ.PartyExitedUserId.Trim();
+            if (!string.IsNullOrWhiteSpace(summ.PartyExitedReason))
+                thJson["partyExitedReason"] = summ.PartyExitedReason.Trim();
+            if (summ.PartyExitedAtUtc is { } pAt)
+                thJson["partyExitedAtUtc"] = JsonSerializer.SerializeToNode(pAt, JsonOptions);
             threadsOut[summ.Id] = thJson;
         }
     }

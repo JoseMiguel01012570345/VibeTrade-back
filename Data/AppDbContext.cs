@@ -30,6 +30,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<RouteTramoSubscriptionRow> RouteTramoSubscriptions => Set<RouteTramoSubscriptionRow>();
     public DbSet<OfferLikeRow> OfferLikes => Set<OfferLikeRow>();
     public DbSet<OfferQaCommentLikeRow> OfferQaCommentLikes => Set<OfferQaCommentLikeRow>();
+    public DbSet<TrustScoreLedgerRow> TrustScoreLedgerRows => Set<TrustScoreLedgerRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -222,6 +223,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.PurchaseMode);
             e.Property(x => x.CreatedAtUtc);
             e.Property(x => x.DeletedAtUtc);
+            e.Property(x => x.BuyerListHiddenAtUtc);
+            e.Property(x => x.SellerListHiddenAtUtc);
+            e.Property(x => x.PartyExitedUserId).HasMaxLength(64);
+            e.Property(x => x.PartyExitedReason).HasMaxLength(2000);
+            e.Property(x => x.PartyExitedAtUtc);
             e.HasIndex(x => x.OfferId);
             e.HasIndex(x => x.BuyerUserId);
             e.HasIndex(x => x.SellerUserId);
@@ -594,6 +600,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(x => new { x.OfferId, x.QaCommentId });
             e.HasIndex(x => new { x.OfferId, x.QaCommentId, x.LikerKey }).IsUnique();
             e.HasIndex(x => x.LikerKey);
+        });
+
+        modelBuilder.Entity<TrustScoreLedgerRow>(e =>
+        {
+            e.ToTable("trust_score_ledger");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.SubjectType).HasMaxLength(16);
+            e.Property(x => x.SubjectId).HasMaxLength(64);
+            e.Property(x => x.Reason).HasMaxLength(512);
+            e.HasIndex(x => new { x.SubjectType, x.SubjectId, x.CreatedAtUtc });
         });
     }
 }

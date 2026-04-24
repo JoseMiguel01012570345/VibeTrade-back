@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using VibeTrade.Backend.Data;
@@ -11,9 +12,11 @@ using VibeTrade.Backend.Data;
 namespace VibeTrade.Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260424205901_ChatThreadPartySoftLeave")]
+    partial class ChatThreadPartySoftLeave
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -221,9 +224,6 @@ namespace VibeTrade.Backend.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<DateTimeOffset?>("BuyerListHiddenAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("BuyerUserId")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -233,6 +233,9 @@ namespace VibeTrade.Backend.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("BuyerListHiddenAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("FirstMessageSentAtUtc")
@@ -262,13 +265,13 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<bool>("PurchaseMode")
                         .HasColumnType("boolean");
 
-                    b.Property<DateTimeOffset?>("SellerListHiddenAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("SellerUserId")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("SellerListHiddenAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("StoreId")
                         .IsRequired()

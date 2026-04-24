@@ -85,6 +85,34 @@ public sealed class ChatController(
         return Ok(dto);
     }
 
+    public sealed record PartySoftLeaveBody(string Reason);
+
+    /// <summary>
+    /// Comprador o vendedor con acuerdo aceptado: oculta el hilo en su lista, notifica al resto con el motivo; el hilo no se borra.
+    /// </summary>
+    [HttpPost("threads/{threadId}/party-soft-leave")]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostPartySoftLeave(
+        string threadId,
+        [FromBody] PartySoftLeaveBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var r = (body?.Reason ?? "").Trim();
+        if (r.Length < 1)
+            return BadRequest(new { error = "reason_required", message = "Indicá un motivo para salir." });
+        var ok = await chat.SoftLeaveThreadAsPartyAsync(userId, threadId, r, cancellationToken);
+        if (!ok)
+            return NotFound(new { error = "not_found", message = "No se pudo registrar la salida (sin acuerdo aceptado o sin permiso)." });
+        return NoContent();
+    }
+
     /// <summary>Borrado lógico del hilo (solo si el usuario puede verlo).</summary>
     [HttpDelete("threads/{threadId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

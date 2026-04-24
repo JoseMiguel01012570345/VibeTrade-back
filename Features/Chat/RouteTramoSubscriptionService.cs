@@ -4,10 +4,14 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Trust;
 
 namespace VibeTrade.Backend.Features.Chat;
 
-public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService chat) : IRouteTramoSubscriptionService
+public sealed class RouteTramoSubscriptionService(
+    AppDbContext db,
+    IChatService chat,
+    ITrustScoreLedgerService trustLedger) : IRouteTramoSubscriptionService
 {
     /// <summary>Alineado con <c>CARRIER_ROUTE_EXIT_TRUST_PENALTY</c> en el cliente (abandono con tramos confirmados y ruta no entregada).</summary>
     private const int CarrierRouteExitTrustPenalty = 3;
@@ -605,8 +609,15 @@ public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService 
                 .FirstOrDefaultAsync(x => x.Id == uid, cancellationToken);
             if (acc is not null)
             {
-                acc.TrustScore = Math.Max(-10_000, acc.TrustScore - CarrierRouteExitTrustPenalty);
+                var prev = acc.TrustScore;
+                acc.TrustScore = Math.Max(-10_000, prev - CarrierRouteExitTrustPenalty);
                 trustScoreAfterPenalty = acc.TrustScore;
+                trustLedger.StageEntry(
+                    TrustLedgerSubjects.User,
+                    uid,
+                    acc.TrustScore - prev,
+                    acc.TrustScore,
+                    "Abandono de ruta como transportista antes de entregar (demo)");
             }
         }
 

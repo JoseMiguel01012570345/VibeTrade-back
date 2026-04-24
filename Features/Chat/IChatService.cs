@@ -16,7 +16,10 @@ public sealed record ChatThreadDto(
     DateTimeOffset CreatedAtUtc,
     bool PurchaseMode,
     string? BuyerDisplayName = null,
-    string? BuyerAvatarUrl = null);
+    string? BuyerAvatarUrl = null,
+    string? PartyExitedUserId = null,
+    string? PartyExitedReason = null,
+    DateTimeOffset? PartyExitedAtUtc = null);
 
 public sealed record ChatMessageDto(
     string Id,
@@ -39,7 +42,10 @@ public sealed record ChatThreadSummaryDto(
     string BuyerUserId,
     string SellerUserId,
     string? BuyerDisplayName = null,
-    string? BuyerAvatarUrl = null);
+    string? BuyerAvatarUrl = null,
+    string? PartyExitedUserId = null,
+    string? PartyExitedReason = null,
+    DateTimeOffset? PartyExitedAtUtc = null);
 
 public sealed record ChatNotificationDto(
     string Id,
@@ -214,4 +220,13 @@ public interface IChatService
 
     /// <summary>Borrado lógico del hilo y de sus mensajes (no se retornan en listados).</summary>
     Task<bool> DeleteThreadAsync(string userId, string threadId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Comprador o vendedor con acuerdo aceptado: oculta el hilo solo para quien sale, guarda motivo para el resto y mantiene el hilo activo.
+    /// </summary>
+    Task<bool> SoftLeaveThreadAsPartyAsync(
+        string userId,
+        string threadId,
+        string reason,
+        CancellationToken cancellationToken = default);
 }

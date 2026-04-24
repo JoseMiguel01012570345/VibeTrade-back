@@ -4,12 +4,14 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Trust;
 
 namespace VibeTrade.Backend.Features.Chat;
 
 public sealed class RouteSheetChatService(
     AppDbContext db,
-    IChatService chat) : IRouteSheetChatService
+    IChatService chat,
+    ITrustScoreLedgerService trustLedger) : IRouteSheetChatService
 {
     public const string EmergentKindRouteSheet = EmergentRouteOfferRanking.EmergentKindRouteSheet;
 
@@ -257,11 +259,15 @@ public sealed class RouteSheetChatService(
                 var storeRow = await db.Stores.FirstOrDefaultAsync(x => x.Id == storeId, cancellationToken);
                 if (storeRow is not null)
                 {
-                    storeRow.TrustScore = Math.Max(
-                        -10_000,
-                        storeRow.TrustScore
-                            - RouteSheetEditAckComputation.StoreTrustPenaltyPerConfirmedCarrierOnSheetDelete
-                                * nConfirmed);
+                    var delta = -RouteSheetEditAckComputation.StoreTrustPenaltyPerConfirmedCarrierOnSheetDelete
+                        * nConfirmed;
+                    storeRow.TrustScore = Math.Max(-10_000, storeRow.TrustScore + delta);
+                    trustLedger.StageEntry(
+                        TrustLedgerSubjects.Store,
+                        storeId,
+                        delta,
+                        storeRow.TrustScore,
+                        $"Eliminación de hoja con transportistas confirmados ({nConfirmed}×, demo)");
                 }
             }
         }
@@ -473,9 +479,14 @@ public sealed class RouteSheetChatService(
         var storeRow = await db.Stores.FirstOrDefaultAsync(x => x.Id == sid, cancellationToken);
         if (storeRow is null)
             return;
-        storeRow.TrustScore = Math.Max(
-            -10_000,
-            storeRow.TrustScore - RouteSheetEditAckComputation.StoreTrustPenaltyOnCarrierRejectSheetEdit);
+        var delta = -RouteSheetEditAckComputation.StoreTrustPenaltyOnCarrierRejectSheetEdit;
+        storeRow.TrustScore = Math.Max(-10_000, storeRow.TrustScore + delta);
+        trustLedger.StageEntry(
+            TrustLedgerSubjects.Store,
+            sid,
+            delta,
+            storeRow.TrustScore,
+            "Transportista rechazó cambios en la hoja de ruta");
     }
 
     private async Task<string?> EmergentPublicationIdForSheetAsync(

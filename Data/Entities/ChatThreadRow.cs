@@ -34,6 +34,19 @@ public sealed class ChatThreadRow
     /// <summary>UTC: borrado lógico; null = activo. No se retorna en listados ni mensajes.</summary>
     public DateTimeOffset? DeletedAtUtc { get; set; }
 
+    /// <summary>Comprador ocultó el hilo en su lista (salida con acuerdo u otra acción); el hilo sigue activo para el vendedor y transportistas.</summary>
+    public DateTimeOffset? BuyerListHiddenAtUtc { get; set; }
+
+    /// <summary>Vendedor ocultó el hilo en su lista.</summary>
+    public DateTimeOffset? SellerListHiddenAtUtc { get; set; }
+
+    /// <summary>Usuario (comprador o vendedor) que salió notificando motivo con acuerdo aceptado.</summary>
+    public string? PartyExitedUserId { get; set; }
+
+    public string? PartyExitedReason { get; set; }
+
+    public DateTimeOffset? PartyExitedAtUtc { get; set; }
+
     public ICollection<ChatMessageRow> Messages { get; set; } = new List<ChatMessageRow>();
 
     public ICollection<TradeAgreementRow> TradeAgreements { get; set; } = new List<TradeAgreementRow>();

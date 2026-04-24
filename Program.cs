@@ -17,6 +17,7 @@ using VibeTrade.Backend.Features.Search;
 using VibeTrade.Backend.Features.Routing;
 using VibeTrade.Backend.Features.EmergentOffers;
 using VibeTrade.Backend.Features.SavedOffers;
+using VibeTrade.Backend.Features.Trust;
 using Microsoft.Extensions.Hosting;
 using VibeTrade.Backend.Infrastructure;
 using VibeTrade.Backend.Infrastructure.DemoData;
@@ -64,6 +65,7 @@ builder.Services.AddScoped<IGuestRecommendationService, GuestRecommendationServi
 builder.Services.AddHostedService<OfferPopularityWeightBackfillHostedService>();
 builder.Services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
 builder.Services.AddScoped<IUserContactsService, UserContactsService>();
+builder.Services.AddScoped<ITrustScoreLedgerService, TrustScoreLedgerService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IRouteSheetChatService, RouteSheetChatService>();

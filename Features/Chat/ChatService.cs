@@ -43,6 +43,12 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         var uid = (userId ?? "").Trim();
         if (uid.Length == 0)
             return false;
+        if (string.Equals(uid, thread.BuyerUserId, StringComparison.Ordinal)
+            && thread.BuyerListHiddenAtUtc is not null)
+            return false;
+        if (string.Equals(uid, thread.SellerUserId, StringComparison.Ordinal)
+            && thread.SellerListHiddenAtUtc is not null)
+            return false;
         // Comprador y vendedor del hilo: acceso a la API del hilo aunque aún no cumplan
         // InitiatorUserId / FirstMessageSentAtUtc (eso limita listados, no el resto del flujo).
         if (string.Equals(uid, thread.BuyerUserId, StringComparison.Ordinal)
@@ -540,7 +546,10 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         t.CreatedAtUtc,
         t.PurchaseMode,
         buyerDisplayName,
-        buyerAvatarUrl);
+        buyerAvatarUrl,
+        string.IsNullOrWhiteSpace(t.PartyExitedUserId) ? null : t.PartyExitedUserId.Trim(),
+        string.IsNullOrWhiteSpace(t.PartyExitedReason) ? null : t.PartyExitedReason.Trim(),
+        t.PartyExitedAtUtc);
 
     private sealed record BuyerPublicFields(string? DisplayName, string? AvatarUrl);
 
@@ -707,6 +716,12 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         var threads = await db.ChatThreads.AsNoTracking()
             .Where(t =>
                 t.DeletedAtUtc == null
+                && !(
+                    t.BuyerUserId == userId
+                    && t.BuyerListHiddenAtUtc != null)
+                && !(
+                    t.SellerUserId == userId
+                    && t.SellerListHiddenAtUtc != null)
                 && (t.InitiatorUserId == userId
                     || (t.FirstMessageSentAtUtc != null
                         && (t.BuyerUserId == userId || t.SellerUserId == userId))))
@@ -760,7 +775,10 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
                 t.BuyerUserId,
                 t.SellerUserId,
                 bdn,
-                bav);
+                bav,
+                string.IsNullOrWhiteSpace(t.PartyExitedUserId) ? null : t.PartyExitedUserId.Trim(),
+                string.IsNullOrWhiteSpace(t.PartyExitedReason) ? null : t.PartyExitedReason.Trim(),
+                t.PartyExitedAtUtc);
         }).ToList();
     }
 
@@ -1355,6 +1373,76 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         }
 
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> SoftLeaveThreadAsPartyAsync(
+        string userId,
+        string threadId,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        var uid = (userId ?? "").Trim();
+        var reasonTrim = (reason ?? "").Trim();
+        if (tid.Length < 4 || uid.Length < 2 || reasonTrim.Length < 1)
+            return false;
+
+        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == tid && x.DeletedAtUtc == null, cancellationToken);
+        if (t is null)
+            return false;
+
+        var isBuyer = string.Equals(uid, t.BuyerUserId, StringComparison.Ordinal);
+        var isSeller = string.Equals(uid, t.SellerUserId, StringComparison.Ordinal);
+        if (!isBuyer && !isSeller)
+            return false;
+
+        if (isBuyer && t.BuyerListHiddenAtUtc is not null)
+            return true;
+        if (isSeller && t.SellerListHiddenAtUtc is not null)
+            return true;
+
+        var hasAccepted = await db.TradeAgreements.AsNoTracking()
+            .AnyAsync(
+                x => x.ThreadId == tid
+                    && x.Status == "accepted"
+                    && x.DeletedAtUtc == null,
+                cancellationToken);
+        if (!hasAccepted)
+            return false;
+
+        var notice = isSeller
+            ? $"El vendedor salió del chat con un acuerdo ya aceptado. Motivo declarado: {reasonTrim}"
+            : $"El comprador salió del chat con un acuerdo ya aceptado. Motivo declarado: {reasonTrim}";
+        var posted = await PostSystemThreadNoticeAsync(uid, tid, notice, cancellationToken);
+        if (posted is null)
+            return false;
+
+        var now = DateTimeOffset.UtcNow;
+        if (isBuyer)
+            t.BuyerListHiddenAtUtc = now;
+        else
+            t.SellerListHiddenAtUtc = now;
+
+        t.PartyExitedUserId = uid;
+        t.PartyExitedReason = reasonTrim.Length > 2000 ? reasonTrim[..2000] : reasonTrim;
+        t.PartyExitedAtUtc = now;
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        var payload = new
+        {
+            threadId = tid,
+            leaverUserId = uid,
+            reason = t.PartyExitedReason,
+            atUtc = t.PartyExitedAtUtc,
+            leaverRole = isSeller ? "seller" : "buyer",
+        };
+
+        await hub.Clients.Group($"thread:{tid}").SendAsync("peerPartyExitedChat", payload, cancellationToken);
+        await HubSendToThreadParticipantsAsync(t, "peerPartyExitedChat", payload, cancellationToken);
+
+        return true;
     }
 
     public async Task<bool> DeleteThreadAsync(string userId, string threadId, CancellationToken cancellationToken = default)
