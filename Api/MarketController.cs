@@ -308,6 +308,10 @@ public sealed class MarketController(
         {
             return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
         }
+        catch (CatalogValidationException ex)
+        {
+            return BadRequest(new { error = "catalog_validation", message = ex.Message });
+        }
     }
 
     /// <summary>Elimina un servicio del catálogo (dueño de la tienda).</summary>

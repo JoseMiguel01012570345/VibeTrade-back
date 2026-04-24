@@ -272,6 +272,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.RouteSheetId).HasMaxLength(64);
             e.Property(x => x.StopId).HasMaxLength(64);
             e.Property(x => x.CarrierUserId).HasMaxLength(64);
+            e.Property(x => x.CarrierPhoneSnapshot).HasMaxLength(40);
             e.Property(x => x.StoreServiceId).HasMaxLength(64);
             e.Property(x => x.TransportServiceLabel).HasMaxLength(512);
             e.Property(x => x.Status).HasMaxLength(24);

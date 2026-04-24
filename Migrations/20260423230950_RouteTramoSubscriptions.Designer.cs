@@ -12,7 +12,7 @@ using VibeTrade.Backend.Data;
 namespace VibeTrade.Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260423203306_RouteTramoSubscriptions")]
+    [Migration("20260423230950_RouteTramoSubscriptions")]
     partial class RouteTramoSubscriptions
     {
         /// <inheritdoc />
@@ -427,6 +427,10 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<string>("Id")
                         .HasMaxLength(48)
                         .HasColumnType("character varying(48)");
+
+                    b.Property<string>("CarrierPhoneSnapshot")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("CarrierUserId")
                         .IsRequired()

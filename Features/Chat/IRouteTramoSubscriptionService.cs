@@ -10,6 +10,7 @@ public interface IRouteTramoSubscriptionService
         string carrierUserId,
         string? storeServiceId,
         string transportServiceLabel,
+        string? carrierContactPhone = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -29,7 +30,7 @@ public interface IRouteTramoSubscriptionService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Comprador o vendedor del hilo: confirma todas las suscripciones pendientes del transportista en la hoja publicada,
+    /// Vendedor del hilo: confirma suscripciones pendientes del transportista en la hoja publicada (todas o solo <paramref name="stopId"/>),
     /// actualiza teléfonos en la hoja persistida y notifica al carrier.
     /// </summary>
     /// <returns>Número de filas pasadas a confirmado; null si no aplica.</returns>
@@ -38,6 +39,16 @@ public interface IRouteTramoSubscriptionService
         string threadId,
         string routeSheetId,
         string carrierUserId,
+        string? stopId = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Solo vendedor del hilo: rechaza solicitudes pendientes (todas o solo <paramref name="stopId"/>) y notifica con enlace a la oferta de ruta.</summary>
+    Task<int?> RejectCarrierPendingOnSheetAsync(
+        string actorUserId,
+        string threadId,
+        string routeSheetId,
+        string carrierUserId,
+        string? stopId = null,
         CancellationToken cancellationToken = default);
 }
 

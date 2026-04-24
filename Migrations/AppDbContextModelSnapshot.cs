@@ -425,6 +425,10 @@ namespace VibeTrade.Backend.Migrations
                         .HasMaxLength(48)
                         .HasColumnType("character varying(48)");
 
+                    b.Property<string>("CarrierPhoneSnapshot")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<string>("CarrierUserId")
                         .IsRequired()
                         .HasMaxLength(64)

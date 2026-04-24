@@ -11,14 +11,18 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
         string threadId,
         CancellationToken cancellationToken = default)
     {
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return Array.Empty<TradeAgreementApiResponse>();
+
         var t = await db.ChatThreads.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !ChatService.UserCanSeeThread(userId, t))
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || !await chat.UserCanAccessThreadRowAsync(userId, t, cancellationToken))
             return Array.Empty<TradeAgreementApiResponse>();
 
         var list = await db.TradeAgreements.AsNoTracking()
             .AsSplitQuery()
-            .Where(a => a.ThreadId == threadId && a.DeletedAtUtc == null)
+            .Where(a => a.ThreadId == tid && a.DeletedAtUtc == null)
             .Include(a => a.MerchandiseLines)
             .Include(a => a.MerchandiseMeta)
             .Include(a => a.ServiceItems).ThenInclude(s => s.ScheduleMonths)

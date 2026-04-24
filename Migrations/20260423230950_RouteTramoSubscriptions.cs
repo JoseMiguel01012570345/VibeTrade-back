@@ -21,6 +21,7 @@ namespace VibeTrade.Backend.Migrations
                     StopId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
                     StopOrden = table.Column<int>(type: "integer", nullable: false),
                     CarrierUserId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    CarrierPhoneSnapshot = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
                     StoreServiceId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
                     TransportServiceLabel = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: false),
                     Status = table.Column<string>(type: "character varying(24)", maxLength: 24, nullable: false),

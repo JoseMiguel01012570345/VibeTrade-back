@@ -32,6 +32,51 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             || (t.FirstMessageSentAtUtc is not null
                 && (t.BuyerUserId == userId || t.SellerUserId == userId)));
 
+    /// <inheritdoc />
+    public async Task<bool> UserCanAccessThreadRowAsync(
+        string userId,
+        ChatThreadRow thread,
+        CancellationToken cancellationToken = default)
+    {
+        if (thread.DeletedAtUtc is not null)
+            return false;
+        if (UserCanSeeThread(userId, thread))
+            return true;
+        var uid = (userId ?? "").Trim();
+        if (uid.Length == 0)
+            return false;
+        if (await db.RouteTramoSubscriptions.AsNoTracking()
+                .AnyAsync(
+                    x => x.ThreadId == thread.Id && x.CarrierUserId == uid,
+                    cancellationToken))
+            return true;
+
+        // Misma fila pero id guardado con otro formato (p. ej. prefijos / solo dígitos).
+        var carrierIds = await db.RouteTramoSubscriptions.AsNoTracking()
+            .Where(x => x.ThreadId == thread.Id)
+            .Select(x => x.CarrierUserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        return carrierIds.Any(cid => UserIdsMatchLoose(uid, cid));
+    }
+
+    /// <summary>
+    /// Coincide <paramref name="viewerId"/> con <paramref name="storedCarrierId"/> (trim + igualdad ordinal o mismos dígitos si ambos tienen al menos 6).
+    /// </summary>
+    public static bool UserIdsMatchLoose(string viewerId, string? storedCarrierId)
+    {
+        var a = (viewerId ?? "").Trim();
+        var b = (storedCarrierId ?? "").Trim();
+        if (a.Length == 0 || b.Length == 0)
+            return false;
+        if (string.Equals(a, b, StringComparison.Ordinal))
+            return true;
+        static string Digits(string s) => string.Concat(s.Where(char.IsDigit));
+        var da = Digits(a);
+        var db = Digits(b);
+        return da.Length >= 6 && db.Length >= 6 && string.Equals(da, db, StringComparison.Ordinal);
+    }
+
     public async Task<bool> IsUserSellerForOfferAsync(
         string userId,
         string offerId,
@@ -185,7 +230,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         foreach (var raw in recipientUserIds)
         {
             var rid = (raw ?? "").Trim();
-            if (rid.Length == 0 || rid == carrier)
+            if (rid.Length == 0)
                 continue;
 
             var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
@@ -212,7 +257,7 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         foreach (var raw in recipientUserIds)
         {
             var rid = (raw ?? "").Trim();
-            if (rid.Length == 0 || rid == carrier)
+            if (rid.Length == 0)
                 continue;
             await hub.Clients.Group(HubUserGroup(rid)).SendAsync(
                 "notificationCreated",
@@ -228,6 +273,10 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         string deciderLabel,
         int deciderTrust,
         string deciderUserId,
+        string? sellerInboxUserId = null,
+        string? sellerInboxPreview = null,
+        string? sellerInboxSubjectLabel = null,
+        int sellerInboxSubjectTrust = 0,
         CancellationToken cancellationToken = default)
     {
         var tid = (threadId ?? "").Trim();
@@ -261,6 +310,129 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             "notificationCreated",
             new { kind = "route_tramo_subscribe_accepted", threadId = tid },
             cancellationToken);
+
+        var sid = (sellerInboxUserId ?? "").Trim();
+        var spv = (sellerInboxPreview ?? "").Trim();
+        if (sid.Length > 0
+            && spv.Length > 0
+            && !string.Equals(sid, cid, StringComparison.Ordinal))
+        {
+            var sl = (sellerInboxSubjectLabel ?? "").Trim();
+            if (sl.Length == 0)
+                sl = "Transportista";
+            var nid2 = "cn_" + Guid.NewGuid().ToString("N")[..16];
+            db.ChatNotifications.Add(new ChatNotificationRow
+            {
+                Id = nid2,
+                RecipientUserId = sid,
+                ThreadId = tid,
+                MessageId = null,
+                OfferId = null,
+                MessagePreview = spv.Length > 500 ? spv[..500] + "…" : spv,
+                AuthorStoreName = sl,
+                AuthorTrustScore = sellerInboxSubjectTrust,
+                SenderUserId = cid,
+                CreatedAtUtc = now,
+                ReadAtUtc = null,
+                Kind = "route_tramo_subscribe_accepted",
+                MetaJson = null,
+            });
+            await db.SaveChangesAsync(cancellationToken);
+            await hub.Clients.Group(HubUserGroup(sid)).SendAsync(
+                "notificationCreated",
+                new { kind = "route_tramo_subscribe_accepted", threadId = tid },
+                cancellationToken);
+        }
+    }
+
+    public async Task NotifyRouteTramoSubscriptionRejectedAsync(
+        string carrierUserId,
+        string threadId,
+        string messagePreview,
+        string sellerLabel,
+        int sellerTrust,
+        string sellerUserId,
+        string? routeOfferId,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        var cid = (carrierUserId ?? "").Trim();
+        if (tid.Length < 4 || cid.Length < 2)
+            return;
+
+        var oid = (routeOfferId ?? "").Trim();
+        var preview = messagePreview.Length > 500 ? messagePreview[..500] + "…" : messagePreview;
+        var now = DateTimeOffset.UtcNow;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = cid,
+            ThreadId = tid,
+            MessageId = null,
+            OfferId = oid.Length > 0 ? oid : null,
+            MessagePreview = preview,
+            AuthorStoreName = (sellerLabel ?? "").Trim().Length > 0 ? sellerLabel.Trim() : "Vendedor",
+            AuthorTrustScore = sellerTrust,
+            SenderUserId = (sellerUserId ?? "").Trim(),
+            CreatedAtUtc = now,
+            ReadAtUtc = null,
+            Kind = "route_tramo_subscribe_rejected",
+            MetaJson = null,
+        });
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        await hub.Clients.Group(HubUserGroup(cid)).SendAsync(
+            "notificationCreated",
+            new
+            {
+                kind = "route_tramo_subscribe_rejected",
+                threadId = tid,
+                offerId = oid.Length > 0 ? oid : null,
+            },
+            cancellationToken);
+    }
+
+    public Task BroadcastRouteTramoSubscriptionsChangedAsync(
+        string threadId,
+        string routeSheetId,
+        string change,
+        string actorUserId,
+        string? emergentPublicationOfferId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        var rsid = (routeSheetId ?? "").Trim();
+        var ch = (change ?? "").Trim().ToLowerInvariant();
+        var aid = (actorUserId ?? "").Trim();
+        var eid = (emergentPublicationOfferId ?? "").Trim();
+        if (tid.Length < 4 || rsid.Length < 1 || ch.Length == 0)
+            return Task.CompletedTask;
+
+        var payload = new
+        {
+            threadId = tid,
+            routeSheetId = rsid,
+            change = ch,
+            actorUserId = aid.Length > 0 ? aid : null,
+            emergentOfferId = eid.Length >= 4 && RecommendationBatchOfferLoader.IsEmergentPublicationId(eid) ? eid : null,
+        };
+
+        var threadTask = hub.Clients.Group($"thread:{tid}").SendAsync(
+            "routeTramoSubscriptionsChanged",
+            payload,
+            cancellationToken);
+
+        if (payload.emergentOfferId is null)
+            return threadTask;
+
+        return Task.WhenAll(
+            threadTask,
+            hub.Clients.Group(HubOfferGroup(payload.emergentOfferId)).SendAsync(
+                "routeTramoSubscriptionsChanged",
+                payload,
+                cancellationToken));
     }
 
     public Task BroadcastOfferCommentsUpdatedAsync(string offerId, CancellationToken cancellationToken = default)
@@ -474,9 +646,15 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         string threadId,
         CancellationToken cancellationToken = default)
     {
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return null;
+
         var t = await db.ChatThreads.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || !UserCanSeeThread(userId, t))
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null)
+            return null;
+        if (!await UserCanAccessThreadRowAsync(userId, t, cancellationToken))
             return null;
         return await MapThreadWithBuyerLabelAsync(t, cancellationToken);
     }
@@ -486,13 +664,14 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         string offerId,
         CancellationToken cancellationToken = default)
     {
+        var uid = (userId ?? "").Trim();
         var oid = (offerId ?? "").Trim();
         ChatThreadRow? t;
         var (_, sellerUserId) = await ResolveOfferStoreAsync(oid, cancellationToken);
         if (sellerUserId is null)
             return null;
 
-        if (userId == sellerUserId)
+        if (uid == sellerUserId)
         {
             t = await db.ChatThreads.AsNoTracking()
                 .Where(x => x.OfferId == oid && x.SellerUserId == sellerUserId && x.DeletedAtUtc == null)
@@ -503,11 +682,13 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         {
             t = await db.ChatThreads.AsNoTracking()
                 .FirstOrDefaultAsync(
-                    x => x.OfferId == oid && x.BuyerUserId == userId && x.DeletedAtUtc == null,
+                    x => x.OfferId == oid && x.BuyerUserId == uid && x.DeletedAtUtc == null,
                     cancellationToken);
         }
 
-        if (t is null || !UserCanSeeThread(userId, t))
+        if (t is null)
+            return null;
+        if (!await UserCanAccessThreadRowAsync(uid, t, cancellationToken))
             return null;
         return await MapThreadWithBuyerLabelAsync(t, cancellationToken);
     }
@@ -612,13 +793,17 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         string threadId,
         CancellationToken cancellationToken = default)
     {
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return Array.Empty<ChatMessageDto>();
+
         var t = await db.ChatThreads.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !UserCanSeeThread(userId, t))
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || !await UserCanAccessThreadRowAsync(userId, t, cancellationToken))
             return Array.Empty<ChatMessageDto>();
 
         var msgs = await db.ChatMessages.AsNoTracking()
-            .Where(m => m.ThreadId == threadId && m.DeletedAtUtc == null)
+            .Where(m => m.ThreadId == tid && m.DeletedAtUtc == null)
             .OrderBy(m => m.CreatedAtUtc)
             .ToListAsync(cancellationToken);
 
@@ -771,7 +956,11 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         JsonElement payload,
         CancellationToken cancellationToken = default)
     {
-        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return null;
+
+        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !UserCanSeeThread(senderUserId, t))
             return null;
 
@@ -1006,13 +1195,17 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         if (status is not (ChatMessageStatus.Delivered or ChatMessageStatus.Read))
             return null;
 
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return null;
+
         var t = await db.ChatThreads.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !UserCanSeeThread(userId, t))
             return null;
 
         var m = await db.ChatMessages.FirstOrDefaultAsync(
-            x => x.Id == messageId && x.ThreadId == threadId && x.DeletedAtUtc == null,
+            x => x.Id == messageId && x.ThreadId == tid && x.DeletedAtUtc == null,
             cancellationToken);
         if (m is null)
             return null;

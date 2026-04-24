@@ -19,13 +19,17 @@ public sealed class RouteSheetChatService(
         string threadId,
         CancellationToken cancellationToken = default)
     {
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return null;
+
         var t = await db.ChatThreads.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !ChatService.UserCanSeeThread(userId, t))
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || !await chat.UserCanAccessThreadRowAsync(userId, t, cancellationToken))
             return null;
 
         return await db.ChatRouteSheets.AsNoTracking()
-            .Where(x => x.ThreadId == threadId && x.DeletedAtUtc == null)
+            .Where(x => x.ThreadId == tid && x.DeletedAtUtc == null)
             .OrderBy(x => x.RouteSheetId)
             .Select(x => x.Payload)
             .ToListAsync(cancellationToken);

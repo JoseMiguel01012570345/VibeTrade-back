@@ -20,6 +20,9 @@ public static class BearerUserId
         if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.String)
             return null;
         var id = idEl.GetString();
-        return string.IsNullOrWhiteSpace(id) ? null : id;
+        if (string.IsNullOrWhiteSpace(id))
+            return null;
+        id = id.Trim();
+        return id.Length == 0 ? null : id;
     }
 }

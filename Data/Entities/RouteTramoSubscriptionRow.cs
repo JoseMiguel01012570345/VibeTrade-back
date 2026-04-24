@@ -18,6 +18,9 @@ public sealed class RouteTramoSubscriptionRow
 
     public string CarrierUserId { get; set; } = "";
 
+    /// <summary>Teléfono de contacto del transportista al momento de la solicitud (perfil / cuenta). Sirve para grabar <c>TelefonoTransportista</c> en la hoja al confirmar.</summary>
+    public string? CarrierPhoneSnapshot { get; set; }
+
     public string? StoreServiceId { get; set; }
 
     /// <summary>Etiqueta del servicio (tipo · categoría) al momento de la solicitud.</summary>

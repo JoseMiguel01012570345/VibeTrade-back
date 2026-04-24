@@ -225,6 +225,11 @@ public sealed partial class MarketCatalogSyncService
         MarketCatalogServiceRowMapper.Apply(item, row, now);
         if (item.TryGetProperty("photoUrls", out var phEl) && phEl.ValueKind == JsonValueKind.Array)
             row.PhotoUrlsJson = await MarketCatalogIncomingServicePhotos.FilterToStoredImageJsonAsync(db, phEl, cancellationToken);
+
+        if (MarketCatalogTransportServiceRules.QualifiesAsTransport(row.Category, row.TipoServicio)
+            && !MarketCatalogTransportServiceRules.HasAtLeastOnePhoto(row.PhotoUrlsJson))
+            throw new CatalogValidationException(
+                "Los servicios de transporte o logística requieren al menos una imagen en la ficha.");
     }
 
     private void ApplyOfferQaFromWorkspace(JsonElement workspaceRoot, DateTimeOffset now)

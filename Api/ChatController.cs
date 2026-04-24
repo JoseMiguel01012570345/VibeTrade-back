@@ -221,16 +221,17 @@ public sealed class ChatController(
         return Ok(list);
     }
 
-    public sealed record AcceptRouteTramoSubscriptionBody(string RouteSheetId, string CarrierUserId);
+    public sealed record AcceptRouteTramoSubscriptionBody(string RouteSheetId, string CarrierUserId, string? StopId = null);
 
     /// <summary>
-    /// Comprador o vendedor: confirma las suscripciones pendientes del transportista en la hoja publicada y notifica al carrier.
+    /// Solo vendedor del hilo: confirma las suscripciones pendientes del transportista en la hoja publicada y notifica al carrier.
     /// </summary>
     [HttpPost("threads/{threadId}/route-tramo-subscriptions/accept")]
     [Consumes("application/json")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> PostAcceptRouteTramoSubscription(
         string threadId,
         [FromBody] AcceptRouteTramoSubscriptionBody body,
@@ -244,15 +245,58 @@ public sealed class ChatController(
             || string.IsNullOrWhiteSpace(body.CarrierUserId))
             return BadRequest(new { error = "invalid_body" });
 
-        var n = await routeTramoSubscriptions.AcceptCarrierPendingOnSheetAsync(
+        try
+        {
+            var n = await routeTramoSubscriptions.AcceptCarrierPendingOnSheetAsync(
+                userId,
+                threadId,
+                body.RouteSheetId.Trim(),
+                body.CarrierUserId.Trim(),
+                string.IsNullOrWhiteSpace(body.StopId) ? null : body.StopId.Trim(),
+                cancellationToken);
+            if (n is null)
+                return NotFound(new { error = "not_found", message = "No hay suscripciones que confirmar." });
+            return Ok(new { acceptedCount = n.Value });
+        }
+        catch (TramoSubscriptionAcceptConflictException ex)
+        {
+            return Conflict(new { error = "tramo_already_confirmed", message = ex.Message });
+        }
+    }
+
+    public sealed record RejectRouteTramoSubscriptionBody(string RouteSheetId, string CarrierUserId, string? StopId = null);
+
+    /// <summary>
+    /// Solo vendedor del hilo: rechaza solicitudes pendientes del transportista y notifica con enlace a la oferta de ruta (<c>emo_*</c>).
+    /// </summary>
+    [HttpPost("threads/{threadId}/route-tramo-subscriptions/reject")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostRejectRouteTramoSubscription(
+        string threadId,
+        [FromBody] RejectRouteTramoSubscriptionBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        if (body is null
+            || string.IsNullOrWhiteSpace(body.RouteSheetId)
+            || string.IsNullOrWhiteSpace(body.CarrierUserId))
+            return BadRequest(new { error = "invalid_body" });
+
+        var n = await routeTramoSubscriptions.RejectCarrierPendingOnSheetAsync(
             userId,
             threadId,
             body.RouteSheetId.Trim(),
             body.CarrierUserId.Trim(),
+            string.IsNullOrWhiteSpace(body.StopId) ? null : body.StopId.Trim(),
             cancellationToken);
         if (n is null)
-            return NotFound(new { error = "not_found", message = "No hay suscripciones que confirmar." });
-        return Ok(new { acceptedCount = n.Value });
+            return NotFound(new { error = "not_found", message = "No hay solicitudes pendientes que rechazar." });
+        return Ok(new { rejectedCount = n.Value });
     }
 
     /// <summary>Crea o actualiza una hoja de ruta en el hilo.</summary>

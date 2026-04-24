@@ -1,6 +1,7 @@
 using System.Text.Json;
 using JsonElement = System.Text.Json.JsonElement;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Chat;
 
@@ -91,7 +92,7 @@ public interface IChatService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Comprador y vendedor del hilo: solicitud de suscripción a tramo (publicación emergente).
+    /// Vendedor y/o suscriptor del tramo: solicitud de suscripción (publicación emergente). No notifica al comprador del hilo.
     /// <paramref name="metaJson"/> camelCase JSON con <c>routeSheetId</c>, <c>stopId</c>, <c>carrierUserId</c>.
     /// </summary>
     Task NotifyRouteTramoSubscriptionRequestAsync(
@@ -104,7 +105,9 @@ public interface IChatService
         string? metaJson,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Transportista: su solicitud de tramo fue confirmada por comprador o vendedor (enlace al chat).</summary>
+    /// <summary>
+    /// Transportista y vendedor: confirmación de tramo (enlace al chat). Copia al vendedor opcional (p. ej. otro dispositivo).
+    /// </summary>
     Task NotifyRouteTramoSubscriptionAcceptedAsync(
         string carrierUserId,
         string threadId,
@@ -112,6 +115,34 @@ public interface IChatService
         string deciderLabel,
         int deciderTrust,
         string deciderUserId,
+        string? sellerInboxUserId = null,
+        string? sellerInboxPreview = null,
+        string? sellerInboxSubjectLabel = null,
+        int sellerInboxSubjectTrust = 0,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Transportista: el vendedor rechazó la solicitud de tramo; <paramref name="routeOfferId"/> = publicación <c>emo_*</c> para <c>/offer/…</c>.</summary>
+    Task NotifyRouteTramoSubscriptionRejectedAsync(
+        string carrierUserId,
+        string threadId,
+        string messagePreview,
+        string sellerLabel,
+        int sellerTrust,
+        string sellerUserId,
+        string? routeOfferId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Participantes del hilo (<c>JoinThread</c>) y, si aplica, la ficha emergente (<c>JoinOffer</c> con <c>emo_*</c>): suscripciones de tramo actualizadas.
+    /// <paramref name="change"/>: <c>request</c>, <c>accept</c>, <c>reject</c>.
+    /// <paramref name="actorUserId"/>: transportista que solicita, o vendedor que acepta/rechaza.
+    /// </summary>
+    Task BroadcastRouteTramoSubscriptionsChangedAsync(
+        string threadId,
+        string routeSheetId,
+        string change,
+        string actorUserId,
+        string? emergentPublicationOfferId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>SignalR a clientes suscritos al grupo <c>offer:{offerId}</c> (ficha abierta).</summary>
@@ -129,6 +160,14 @@ public interface IChatService
     Task SyncOfferQaAnswersForOfferAsync(string offerId, CancellationToken cancellationToken = default);
 
     Task<ChatThreadDto?> GetThreadIfVisibleAsync(string userId, string threadId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Comprador/vendedor del hilo (reglas <see cref="ChatService.UserCanSeeThread"/>) o transportista con suscripción a tramo en este hilo.
+    /// </summary>
+    Task<bool> UserCanAccessThreadRowAsync(
+        string userId,
+        ChatThreadRow thread,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Hilo por oferta visible para el usuario (comprador con su hilo; vendedor solo tras primer mensaje).</summary>
     Task<ChatThreadDto?> GetThreadByOfferIfVisibleAsync(string userId, string offerId, CancellationToken cancellationToken = default);

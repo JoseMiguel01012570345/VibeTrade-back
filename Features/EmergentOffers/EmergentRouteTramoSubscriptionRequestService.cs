@@ -100,6 +100,12 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
         var preview =
             $"{authorLabel} solicitó el tramo {orden} con el servicio «{svcLabel}». Pendiente de validación.";
 
+        var phoneSnap = (carrierAccount?.PhoneDisplay ?? "").Trim();
+        if (phoneSnap.Length == 0 && !string.IsNullOrWhiteSpace(carrierAccount?.PhoneDigits))
+            phoneSnap = carrierAccount!.PhoneDigits!.Trim();
+        if (phoneSnap.Length > 40)
+            phoneSnap = phoneSnap[..40];
+
         await routeTramoSubscriptions.RecordSubscriptionRequestAsync(
             em.ThreadId,
             em.RouteSheetId,
@@ -108,29 +114,52 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
             uid,
             svcId,
             svcLabel,
+            phoneSnap.Length > 0 ? phoneSnap : null,
             cancellationToken);
 
         var meta = JsonSerializer.Serialize(
             new RouteTramoSubscribeMeta(em.RouteSheetId, sid, uid),
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
 
-        var recipients = new HashSet<string>(StringComparer.Ordinal)
+        var sellerId = (thread.SellerUserId ?? "").Trim();
+        var storeRow = await db.Stores.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == thread.StoreId, cancellationToken);
+        var sellerOpLabel = string.IsNullOrWhiteSpace(storeRow?.Name)
+            ? "El vendedor"
+            : storeRow!.Name.Trim();
+        var sellerTrustBadge = storeRow?.TrustScore ?? 0;
+
+        await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
+            em.ThreadId,
+            em.RouteSheetId,
+            "request",
+            uid,
+            eid,
+            cancellationToken);
+
+        // Solo vendedor (no comprador): nueva solicitud de tramo.
+        if (sellerId.Length > 0 && !string.Equals(sellerId, uid, StringComparison.Ordinal))
         {
-            (thread.BuyerUserId ?? "").Trim(),
-            (thread.SellerUserId ?? "").Trim(),
-        };
-        recipients.Remove("");
-        recipients.Remove(uid);
+            await chat.NotifyRouteTramoSubscriptionRequestAsync(
+                new List<string> { sellerId },
+                thread.Id,
+                preview,
+                authorLabel,
+                trust,
+                uid,
+                meta,
+                cancellationToken);
+        }
 
-        if (recipients.Count == 0)
-            return (true, null, null);
-
+        // Suscriptor del tramo: constancia de envío (mismo hilo / meta para deep link).
+        var carrierAck =
+            $"Tu solicitud del tramo {orden} quedó registrada. {sellerOpLabel} puede confirmarla desde el chat de esta operación.";
         await chat.NotifyRouteTramoSubscriptionRequestAsync(
-            recipients.ToList(),
+            new List<string> { uid },
             thread.Id,
-            preview,
-            authorLabel,
-            trust,
+            carrierAck,
+            sellerOpLabel,
+            sellerTrustBadge,
             uid,
             meta,
             cancellationToken);
