@@ -194,6 +194,12 @@ public interface IChatService
         string text,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Aviso de sistema publicado en nombre del vendedor del hilo (p. ej. acciones del transportista).</summary>
+    Task<ChatMessageDto?> PostAutomatedSystemThreadNoticeAsync(
+        string threadId,
+        string text,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Actualiza entrega/lectura (solo participantes; destinatario para delivered/read).</summary>
     Task<ChatMessageDto?> UpdateMessageStatusAsync(
         string userId,

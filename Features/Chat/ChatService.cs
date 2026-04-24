@@ -40,11 +40,16 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
     {
         if (thread.DeletedAtUtc is not null)
             return false;
-        if (UserCanSeeThread(userId, thread))
-            return true;
         var uid = (userId ?? "").Trim();
         if (uid.Length == 0)
             return false;
+        // Comprador y vendedor del hilo: acceso a la API del hilo aunque aún no cumplan
+        // InitiatorUserId / FirstMessageSentAtUtc (eso limita listados, no el resto del flujo).
+        if (string.Equals(uid, thread.BuyerUserId, StringComparison.Ordinal)
+            || string.Equals(uid, thread.SellerUserId, StringComparison.Ordinal))
+            return true;
+        if (UserCanSeeThread(uid, thread))
+            return true;
         if (await db.RouteTramoSubscriptions.AsNoTracking()
                 .AnyAsync(
                     x => x.ThreadId == thread.Id
@@ -1598,6 +1603,31 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             return null;
         if (actorUserId != t.BuyerUserId && actorUserId != t.SellerUserId)
             return null;
+        var tx = (text ?? "").Trim();
+        if (tx.Length == 0 || tx.Length > 12_000)
+            return null;
+
+        var payload = new ChatSystemTextPayload { Text = tx };
+        return await InsertChatMessageAsync(t, actorUserId, payload, cancellationToken);
+    }
+
+    public async Task<ChatMessageDto?> PostAutomatedSystemThreadNoticeAsync(
+        string threadId,
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return null;
+
+        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null)
+            return null;
+
+        var actorUserId = (t.SellerUserId ?? "").Trim();
+        if (actorUserId.Length < 2)
+            return null;
+
         var tx = (text ?? "").Trim();
         if (tx.Length == 0 || tx.Length > 12_000)
             return null;

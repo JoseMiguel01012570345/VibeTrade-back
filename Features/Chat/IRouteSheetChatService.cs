@@ -17,4 +17,12 @@ public interface IRouteSheetChatService
         CancellationToken cancellationToken = default);
 
     Task<bool> DeleteAsync(string userId, string threadId, string routeSheetId, CancellationToken cancellationToken = default);
+
+    /// <summary>Transportista con acuse pending: acepta o rechaza la última edición de la hoja.</summary>
+    Task<bool> CarrierRespondToSheetEditAsync(
+        string carrierUserId,
+        string threadId,
+        string routeSheetId,
+        bool accept,
+        CancellationToken cancellationToken = default);
 }

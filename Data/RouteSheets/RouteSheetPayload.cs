@@ -78,4 +78,7 @@ public sealed class RouteSheetPayload
     public bool? PublicadaPlataforma { get; set; }
 
     public bool? EditadaEnFormulario { get; set; }
+
+    /// <summary>Acuses de transportistas tras editar la hoja (servidor es fuente de verdad).</summary>
+    public RouteSheetEditAckPayload? RouteSheetEditAck { get; set; }
 }

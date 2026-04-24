@@ -362,6 +362,38 @@ public sealed class ChatController(
         return NoContent();
     }
 
+    public sealed record RouteSheetEditCarrierResponseBody(bool Accept);
+
+    /// <summary>
+    /// Transportista con tramo confirmado: acusa recepción de la última edición de la hoja (aceptar o rechazar).
+    /// </summary>
+    [HttpPost("threads/{threadId}/route-sheets/{routeSheetId}/edit-carrier-response")]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostRouteSheetEditCarrierResponse(
+        string threadId,
+        string routeSheetId,
+        [FromBody] RouteSheetEditCarrierResponseBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        if (body is null)
+            return BadRequest(new { error = "invalid_body" });
+        var ok = await routeSheets.CarrierRespondToSheetEditAsync(
+            userId,
+            threadId,
+            routeSheetId,
+            body.Accept,
+            cancellationToken);
+        if (!ok)
+            return NotFound(new { error = "not_found", message = "Sin permiso, sin acuse pendiente o hoja inexistente." });
+        return NoContent();
+    }
+
     /// <summary>Acuerdos del hilo (mercancías/servicios en tablas relacionales).</summary>
     [HttpGet("threads/{threadId}/trade-agreements")]
     [ProducesResponseType(typeof(IReadOnlyList<TradeAgreementApiResponse>), StatusCodes.Status200OK)]
