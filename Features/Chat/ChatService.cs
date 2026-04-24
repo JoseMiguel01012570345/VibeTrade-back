@@ -47,13 +47,15 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             return false;
         if (await db.RouteTramoSubscriptions.AsNoTracking()
                 .AnyAsync(
-                    x => x.ThreadId == thread.Id && x.CarrierUserId == uid,
+                    x => x.ThreadId == thread.Id
+                        && x.CarrierUserId == uid
+                        && x.Status != "withdrawn",
                     cancellationToken))
             return true;
 
         // Misma fila pero id guardado con otro formato (p. ej. prefijos / solo dígitos).
         var carrierIds = await db.RouteTramoSubscriptions.AsNoTracking()
-            .Where(x => x.ThreadId == thread.Id)
+            .Where(x => x.ThreadId == thread.Id && x.Status != "withdrawn")
             .Select(x => x.CarrierUserId)
             .Distinct()
             .ToListAsync(cancellationToken);

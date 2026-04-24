@@ -9,6 +9,8 @@ namespace VibeTrade.Backend.Features.Chat;
 
 public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService chat) : IRouteTramoSubscriptionService
 {
+    /// <summary>Alineado con <c>CARRIER_ROUTE_EXIT_TRUST_PENALTY</c> en el cliente (abandono con tramos confirmados y ruta no entregada).</summary>
+    private const int CarrierRouteExitTrustPenalty = 3;
     public async Task RecordSubscriptionRequestAsync(
         string threadId,
         string routeSheetId,
@@ -122,9 +124,6 @@ public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService 
         if (rows.Count == 0)
             return [];
 
-        // Proyectar primero: ToSubscriptionItemDtosAsync puede marcar "confirmed" por heurística de teléfono
-        // aunque en BD siga "pending". Filtrar filas crudas antes rompía la paridad con comprador/vendedor
-        // (integrantes del chat / chatCarriers).
         var list = await ToSubscriptionItemDtosAsync(rows, payloads, cancellationToken);
         if (narrowToCarrierOnly)
             list = NarrowSubscriptionDtosForCarrierViewer(uid, list);
@@ -174,7 +173,7 @@ public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService 
     }
 
     /// <summary>
-    /// Visibilidad transportista tras enriquecer ítems: confirmados de todos (incl. heurística teléfono) + filas propias.
+    /// Visibilidad transportista: confirmados de todos + filas propias (pendientes / rechazadas / retiradas).
     /// </summary>
     private static List<RouteTramoSubscriptionItemDto> NarrowSubscriptionDtosForCarrierViewer(
         string viewerUserId,
@@ -213,12 +212,6 @@ public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService 
                 .Select(s => new { s.Id, s.StoreId })
                 .ToDictionaryAsync(x => x.Id, x => x.StoreId, StringComparer.Ordinal, cancellationToken);
 
-        static string Digits(string? s)
-        {
-            if (string.IsNullOrWhiteSpace(s)) return "";
-            return new string(s.Where(char.IsDigit).ToArray());
-        }
-
         var list = new List<RouteTramoSubscriptionItemDto>(rows.Count);
         foreach (var r in rows)
         {
@@ -247,14 +240,6 @@ public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService 
             var trust = acc?.TrustScore ?? 0;
 
             var status = (r.Status ?? "pending").Trim().ToLowerInvariant();
-            if (status is not "confirmed" and not "rejected")
-            {
-                var telStop = Digits(parada?.TelefonoTransportista);
-                var telCarrier = Digits(acc?.PhoneDigits ?? acc?.PhoneDisplay);
-                if (telStop.Length >= 6 && telCarrier.Length >= 6
-                    && string.Equals(telStop, telCarrier, StringComparison.Ordinal))
-                    status = "confirmed";
-            }
 
             var createdMs = r.CreatedAtUtc.ToUnixTimeMilliseconds();
             string? svcStore = null;
@@ -323,7 +308,7 @@ public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService 
         var toConfirm = subs.Where(r =>
         {
             var st = (r.Status ?? "pending").Trim().ToLowerInvariant();
-            return st is not "confirmed" and not "rejected";
+            return st is not "confirmed" and not "rejected" and not "withdrawn";
         }).ToList();
 
         if (toConfirm.Count == 0)
@@ -468,7 +453,7 @@ public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService 
         var toReject = subs.Where(r =>
         {
             var st = (r.Status ?? "pending").Trim().ToLowerInvariant();
-            return st is not "confirmed" and not "rejected";
+            return st is not "confirmed" and not "rejected" and not "withdrawn";
         }).ToList();
 
         if (toReject.Count == 0)
@@ -519,5 +504,121 @@ public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService 
             cancellationToken);
 
         return toReject.Count;
+    }
+
+    public async Task<CarrierWithdrawFromThreadResult?> WithdrawCarrierFromThreadAsync(
+        string carrierUserId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var uid = (carrierUserId ?? "").Trim();
+        var tid = (threadId ?? "").Trim();
+        if (uid.Length < 2 || tid.Length < 4)
+            return null;
+
+        var thread = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (thread is null || thread.DeletedAtUtc is not null)
+            return null;
+        if (!await chat.UserCanAccessThreadRowAsync(uid, thread, cancellationToken))
+            return null;
+        if (ChatService.UserCanSeeThread(uid, thread))
+            return null;
+
+        var subs = await db.RouteTramoSubscriptions
+            .Where(x =>
+                x.ThreadId == tid
+                && x.CarrierUserId == uid
+                && x.Status != "withdrawn")
+            .ToListAsync(cancellationToken);
+        if (subs.Count == 0)
+            return null;
+
+        var hadConfirmed = subs.Exists(x =>
+            string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase));
+
+        var distinctSheetIds = subs.Select(x => x.RouteSheetId).Distinct().ToList();
+        var anyRouteIncomplete = false;
+        foreach (var rsid in distinctSheetIds)
+        {
+            var sh = await db.ChatRouteSheets.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
+                    cancellationToken);
+            if (sh is null)
+                continue;
+            var est = (sh.Payload?.Estado ?? "").Trim().ToLowerInvariant();
+            if (est != "entregada")
+                anyRouteIncomplete = true;
+        }
+
+        var applyTrustPenalty = hadConfirmed && anyRouteIncomplete;
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var grp in subs.GroupBy(x => x.RouteSheetId))
+        {
+            var rsid = grp.Key;
+            var stopIds = grp.Select(x => (x.StopId ?? "").Trim()).Where(s => s.Length > 0)
+                .ToHashSet(StringComparer.Ordinal);
+            var sheetRow = await db.ChatRouteSheets
+                .FirstOrDefaultAsync(
+                    x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
+                    cancellationToken);
+            if (sheetRow is null)
+                continue;
+            var payload = sheetRow.Payload;
+            payload.Paradas ??= new List<RouteStopPayload>();
+            foreach (var p in payload.Paradas)
+            {
+                var pid = (p.Id ?? "").Trim();
+                if (pid.Length == 0 || !stopIds.Contains(pid))
+                    continue;
+                p.TelefonoTransportista = null;
+            }
+
+            sheetRow.Payload = JsonSerializer.Deserialize<RouteSheetPayload>(
+                    JsonSerializer.Serialize(payload, RouteSheetJson.Options),
+                    RouteSheetJson.Options)
+                ?? payload;
+            sheetRow.UpdatedAtUtc = now;
+        }
+
+        foreach (var s in subs)
+        {
+            s.Status = "withdrawn";
+            s.UpdatedAtUtc = now;
+        }
+
+        int? trustScoreAfterPenalty = null;
+        if (applyTrustPenalty)
+        {
+            var acc = await db.UserAccounts
+                .FirstOrDefaultAsync(x => x.Id == uid, cancellationToken);
+            if (acc is not null)
+            {
+                acc.TrustScore = Math.Max(-10_000, acc.TrustScore - CarrierRouteExitTrustPenalty);
+                trustScoreAfterPenalty = acc.TrustScore;
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        foreach (var rsid in distinctSheetIds)
+        {
+            var emRow = await db.EmergentOffers.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.ThreadId == tid && x.RouteSheetId == rsid && x.RetractedAtUtc == null,
+                    cancellationToken);
+            var emergentPubId = string.IsNullOrWhiteSpace(emRow?.Id) ? null : emRow!.Id.Trim();
+            await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
+                tid,
+                rsid,
+                "withdraw",
+                uid,
+                emergentPubId,
+                cancellationToken);
+        }
+
+        return new CarrierWithdrawFromThreadResult(subs.Count, applyTrustPenalty, trustScoreAfterPenalty);
     }
 }

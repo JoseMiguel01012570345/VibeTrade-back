@@ -299,6 +299,29 @@ public sealed class ChatController(
         return Ok(new { rejectedCount = n.Value });
     }
 
+    /// <summary>
+    /// Transportista (no comprador/vendedor del hilo): abandona la operación, des-suscribe tramos y limpia teléfonos en hoja.
+    /// </summary>
+    [HttpPost("threads/{threadId}/route-tramo-subscriptions/carrier-withdraw")]
+    [ProducesResponseType(typeof(CarrierWithdrawFromThreadResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostCarrierWithdrawFromRouteSubscriptions(
+        string threadId,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var result = await routeTramoSubscriptions.WithdrawCarrierFromThreadAsync(
+            userId,
+            threadId,
+            cancellationToken);
+        if (result is null)
+            return NotFound(new { error = "not_found", message = "No hay suscripciones activas que retirar." });
+        return Ok(result);
+    }
+
     /// <summary>Crea o actualiza una hoja de ruta en el hilo.</summary>
     [HttpPut("threads/{threadId}/route-sheets/{routeSheetId}")]
     [Consumes("application/json")]

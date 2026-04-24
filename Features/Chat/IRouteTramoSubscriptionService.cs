@@ -50,7 +50,22 @@ public interface IRouteTramoSubscriptionService
         string carrierUserId,
         string? stopId = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Transportista: se retira del hilo (des-suscripción a tramos, limpieza de teléfonos en hoja).
+    /// El resultado incluye si la demo debe bajar la barra de confianza (tramos confirmados y ruta no entregada).
+    /// </summary>
+    Task<CarrierWithdrawFromThreadResult?> WithdrawCarrierFromThreadAsync(
+        string carrierUserId,
+        string threadId,
+        CancellationToken cancellationToken = default);
 }
+
+/// <summary>Resultado de <see cref="IRouteTramoSubscriptionService.WithdrawCarrierFromThreadAsync"/>.</summary>
+public sealed record CarrierWithdrawFromThreadResult(
+    int WithdrawnRowCount,
+    bool ApplyTrustPenalty,
+    int? TrustScoreAfterPenalty = null);
 
 public sealed record RouteTramoSubscriptionItemDto(
     string RouteSheetId,

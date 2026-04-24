@@ -101,12 +101,20 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
         if (userId.Length == 0)
             throw new HubException("Unauthorized");
 
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var chat = scope.ServiceProvider.GetRequiredService<IChatService>();
         var t = await chat.GetThreadIfVisibleAsync(userId, tid, Context.ConnectionAborted);
         if (t is null)
-            return;
-
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        {
+            var threadOk = await db.ChatThreads.AsNoTracking()
+                .AnyAsync(x => x.Id == tid && x.DeletedAtUtc == null, Context.ConnectionAborted);
+            if (!threadOk)
+                return;
+            var wasCarrierOnThread = await db.RouteTramoSubscriptions.AsNoTracking()
+                .AnyAsync(x => x.ThreadId == tid && x.CarrierUserId == userId, Context.ConnectionAborted);
+            if (!wasCarrierOnThread)
+                return;
+        }
         var acc = await db.UserAccounts.AsNoTracking()
             .Where(u => u.Id == userId)
             .Select(u => new { u.DisplayName, u.PhoneDisplay, u.PhoneDigits })
