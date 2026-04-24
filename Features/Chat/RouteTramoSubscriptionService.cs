@@ -558,8 +558,6 @@ public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService 
         foreach (var grp in subs.GroupBy(x => x.RouteSheetId))
         {
             var rsid = grp.Key;
-            var stopIds = grp.Select(x => (x.StopId ?? "").Trim()).Where(s => s.Length > 0)
-                .ToHashSet(StringComparer.Ordinal);
             var sheetRow = await db.ChatRouteSheets
                 .FirstOrDefaultAsync(
                     x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
@@ -568,12 +566,23 @@ public sealed class RouteTramoSubscriptionService(AppDbContext db, IChatService 
                 continue;
             var payload = sheetRow.Payload;
             payload.Paradas ??= new List<RouteStopPayload>();
-            foreach (var p in payload.Paradas)
+            // Una fila de suscripción → como mucho un tramo: evita borrar teléfonos de otros transportistas
+            // si varias paradas comparten Id vacío/erróneo o hay duplicados en JSON.
+            foreach (var sub in grp)
             {
-                var pid = (p.Id ?? "").Trim();
-                if (pid.Length == 0 || !stopIds.Contains(pid))
-                    continue;
-                p.TelefonoTransportista = null;
+                var sid = (sub.StopId ?? "").Trim();
+                RouteStopPayload? parada = null;
+                if (sid.Length > 0)
+                {
+                    parada = payload.Paradas.FirstOrDefault(p =>
+                        string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
+                }
+                if (parada is null && sub.StopOrden > 0)
+                {
+                    parada = payload.Paradas.FirstOrDefault(p => p.Orden == sub.StopOrden);
+                }
+                if (parada is not null)
+                    parada.TelefonoTransportista = null;
             }
 
             sheetRow.Payload = JsonSerializer.Deserialize<RouteSheetPayload>(

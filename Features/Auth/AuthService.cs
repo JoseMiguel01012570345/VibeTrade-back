@@ -217,6 +217,7 @@ public sealed class AuthService(
         root["telegram"] = snapshot.Telegram is { } t ? t : null;
         root["xAccount"] = snapshot.XAccount is { } x ? x : null;
         root["avatarUrl"] = snapshot.AvatarUrl is { } a ? a : null;
+        root["trustScore"] = snapshot.TrustScore;
 
         using var doc = JsonDocument.Parse(root.ToJsonString());
         updatedUser = doc.RootElement.Clone();

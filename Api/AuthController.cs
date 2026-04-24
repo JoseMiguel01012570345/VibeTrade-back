@@ -202,7 +202,9 @@ public sealed class AuthController(
             phoneDigits,
             cancellationToken);
 
-        var snapshot = await userAccountSync.GetProfileSnapshotAsync(phoneDigits, cancellationToken);
+        var snapshot =
+            await userAccountSync.GetProfileSnapshotByUserIdAsync(userId, cancellationToken)
+            ?? await userAccountSync.GetProfileSnapshotAsync(phoneDigits, cancellationToken);
         if (snapshot is null)
             return BadRequest("No se pudo leer el perfil persistido.");
 
@@ -289,11 +291,12 @@ public sealed class AuthController(
         JsonElement userOut = result.User;
         if (auth.TryGetUserByToken("Bearer " + result.SessionToken, out var userNow))
             userOut = userNow;
-        if (result.User.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+        if (userOut.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
         {
             var id = idEl.GetString()!;
-            var snapshotDigits = PhoneDigitsFromSessionUser(result.User);
-            var snapshot = await userAccountSync.GetProfileSnapshotAsync(snapshotDigits, cancellationToken);
+            var snapshot =
+                await userAccountSync.GetProfileSnapshotByUserIdAsync(id, cancellationToken)
+                ?? await userAccountSync.GetProfileSnapshotAsync(PhoneDigitsFromSessionUser(userOut), cancellationToken);
             if (snapshot is not null &&
                 auth.TrySyncSessionFromSnapshot("Bearer " + result.SessionToken, snapshot, out var merged))
                 userOut = merged;
@@ -313,8 +316,10 @@ public sealed class AuthController(
 
         if (user.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
         {
-            var snapshotDigits = PhoneDigitsFromSessionUser(user);
-            var snapshot = await userAccountSync.GetProfileSnapshotAsync(snapshotDigits, cancellationToken);
+            var id = idEl.GetString()!;
+            var snapshot =
+                await userAccountSync.GetProfileSnapshotByUserIdAsync(id, cancellationToken)
+                ?? await userAccountSync.GetProfileSnapshotAsync(PhoneDigitsFromSessionUser(user), cancellationToken);
             if (snapshot is not null &&
                 auth.TrySyncSessionFromSnapshot(Request.Headers.Authorization, snapshot, out var merged))
                 user = merged;
