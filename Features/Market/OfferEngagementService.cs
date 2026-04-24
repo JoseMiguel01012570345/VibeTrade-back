@@ -22,7 +22,15 @@ public sealed class OfferEngagementService(
         if (RecommendationBatchOfferLoader.IsEmergentPublicationId(oid))
         {
             return await db.EmergentOffers.AsNoTracking()
-                .AnyAsync(e => e.Id == oid && e.RetractedAtUtc == null, cancellationToken);
+                .AnyAsync(e =>
+                    e.Id == oid
+                    && e.RetractedAtUtc == null
+                    && db.ChatRouteSheets.Any(r =>
+                        r.ThreadId == e.ThreadId
+                        && r.RouteSheetId == e.RouteSheetId
+                        && r.DeletedAtUtc == null
+                        && r.PublishedToPlatform),
+                    cancellationToken);
         }
         if (await db.StoreProducts.AsNoTracking().AnyAsync(p => p.Id == oid, cancellationToken))
             return true;

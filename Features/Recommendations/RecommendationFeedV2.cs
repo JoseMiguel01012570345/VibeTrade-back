@@ -529,7 +529,12 @@ public sealed class RecommendationFeedV2(
                 .Where(e =>
                     emergentIds.Contains(e.Id)
                     && e.RetractedAtUtc == null
-                    && e.PublisherUserId != viewerUserId)
+                    && e.PublisherUserId != viewerUserId
+                    && db.ChatRouteSheets.Any(r =>
+                        r.ThreadId == e.ThreadId
+                        && r.RouteSheetId == e.RouteSheetId
+                        && r.DeletedAtUtc == null
+                        && r.PublishedToPlatform))
                 .Select(e => e.Id)
                 .ToListAsync(cancellationToken);
             foreach (var id in emOk)

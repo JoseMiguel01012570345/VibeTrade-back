@@ -169,7 +169,15 @@ public sealed class RecommendationService(
         if (RecommendationBatchOfferLoader.IsEmergentPublicationId(offerId))
         {
             return await db.EmergentOffers.AsNoTracking()
-                .AnyAsync(e => e.Id == offerId && e.RetractedAtUtc == null, cancellationToken);
+                .AnyAsync(e =>
+                    e.Id == offerId
+                    && e.RetractedAtUtc == null
+                    && db.ChatRouteSheets.Any(r =>
+                        r.ThreadId == e.ThreadId
+                        && r.RouteSheetId == e.RouteSheetId
+                        && r.DeletedAtUtc == null
+                        && r.PublishedToPlatform),
+                    cancellationToken);
         }
         var inProducts = await db.StoreProducts.AsNoTracking()
             .AnyAsync(p => p.Id == offerId, cancellationToken);

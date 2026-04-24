@@ -492,7 +492,13 @@ public sealed class MarketCatalogStoreSearchService(
         var emergentsById = emergentPublicationIds.Count == 0
             ? new Dictionary<string, EmergentOfferRow>(StringComparer.Ordinal)
             : await db.EmergentOffers.AsNoTracking()
-                .Where(e => emergentPublicationIds.Contains(e.Id) && e.RetractedAtUtc == null)
+                .Where(e => emergentPublicationIds.Contains(e.Id)
+                    && e.RetractedAtUtc == null
+                    && db.ChatRouteSheets.Any(r =>
+                        r.ThreadId == e.ThreadId
+                        && r.RouteSheetId == e.RouteSheetId
+                        && r.DeletedAtUtc == null
+                        && r.PublishedToPlatform))
                 .ToDictionaryAsync(e => e.Id, cancellationToken);
 
         var emergentLiveSheetsByKey = emergentPublicationIds.Count == 0

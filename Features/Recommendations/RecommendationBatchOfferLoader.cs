@@ -54,7 +54,14 @@ internal static class RecommendationBatchOfferLoader
             return map;
 
         var emRows = await db.EmergentOffers.AsNoTracking()
-            .Where(e => emergentIds.Contains(e.Id) && e.RetractedAtUtc == null && e.PublisherUserId != viewerUserId)
+            .Where(e => emergentIds.Contains(e.Id)
+                && e.RetractedAtUtc == null
+                && e.PublisherUserId != viewerUserId
+                && db.ChatRouteSheets.Any(r =>
+                    r.ThreadId == e.ThreadId
+                    && r.RouteSheetId == e.RouteSheetId
+                    && r.DeletedAtUtc == null
+                    && r.PublishedToPlatform))
             .ToListAsync(cancellationToken);
         if (emRows.Count == 0)
             return map;
@@ -177,7 +184,13 @@ internal static class RecommendationBatchOfferLoader
         }
 
         var emRows = await db.EmergentOffers.AsNoTracking()
-            .Where(e => emergentIds.Contains(e.Id) && e.RetractedAtUtc == null)
+            .Where(e => emergentIds.Contains(e.Id)
+                && e.RetractedAtUtc == null
+                && db.ChatRouteSheets.Any(r =>
+                    r.ThreadId == e.ThreadId
+                    && r.RouteSheetId == e.RouteSheetId
+                    && r.DeletedAtUtc == null
+                    && r.PublishedToPlatform))
             .ToListAsync(cancellationToken);
         var emById = emRows.ToDictionary(e => e.Id, StringComparer.Ordinal);
         var baseIds = emRows.Select(e => e.OfferId).Distinct(StringComparer.Ordinal).ToList();

@@ -29,7 +29,12 @@ public static class EmergentRouteOfferRanking
         var emergentOrdered = await db.EmergentOffers.AsNoTracking()
             .Where(e => e.Kind == EmergentKindRouteSheet
                         && e.RetractedAtUtc == null
-                        && e.PublisherUserId != viewer)
+                        && e.PublisherUserId != viewer
+                        && db.ChatRouteSheets.Any(r =>
+                            r.ThreadId == e.ThreadId
+                            && r.RouteSheetId == e.RouteSheetId
+                            && r.DeletedAtUtc == null
+                            && r.PublishedToPlatform))
             .OrderByDescending(e => e.PublishedAtUtc)
             .Select(e => e.Id)
             .Take(256)
