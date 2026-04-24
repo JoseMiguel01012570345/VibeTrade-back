@@ -14,6 +14,7 @@ using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Search;
+using VibeTrade.Backend.Features.Routing;
 using VibeTrade.Backend.Features.EmergentOffers;
 using VibeTrade.Backend.Features.SavedOffers;
 using Microsoft.Extensions.Hosting;
@@ -68,6 +69,13 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IRouteSheetChatService, RouteSheetChatService>();
 builder.Services.AddScoped<IRouteTramoSubscriptionService, RouteTramoSubscriptionService>();
 builder.Services.AddScoped<ITradeAgreementService, TradeAgreementService>();
+builder.Services.Configure<RoutingOptions>(
+    builder.Configuration.GetSection(RoutingOptions.SectionName));
+builder.Services.AddHttpClient<IOsrmLegDistanceService, OsrmLegDistanceService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("VibeTradeBackend/1.0");
+});
 builder.Services.AddMemoryCache();
 
 builder.Services.Configure<ElasticsearchStoreSearchOptions>(
