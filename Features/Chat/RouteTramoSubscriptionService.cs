@@ -557,6 +557,11 @@ public sealed class RouteTramoSubscriptionService(
         }
 
         var applyTrustPenalty = hadConfirmed && anyRouteIncomplete;
+        // Comprador y vendedor ya retiraron el hilo de su lista (p. ej. salida con acuerdo);
+        // no se penaliza al transportista por abandonar en ese escenario.
+        if (thread.BuyerExpelledAtUtc is not null && thread.SellerExpelledAtUtc is not null)
+            applyTrustPenalty = false;
+
         var now = DateTimeOffset.UtcNow;
 
         foreach (var grp in subs.GroupBy(x => x.RouteSheetId))

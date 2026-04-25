@@ -43,17 +43,19 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         var uid = (userId ?? "").Trim();
         if (uid.Length == 0)
             return false;
-        if (string.Equals(uid, thread.BuyerUserId, StringComparison.Ordinal)
-            && thread.BuyerListHiddenAtUtc is not null)
-            return false;
-        if (string.Equals(uid, thread.SellerUserId, StringComparison.Ordinal)
-            && thread.SellerListHiddenAtUtc is not null)
-            return false;
-        // Comprador y vendedor del hilo: acceso a la API del hilo aunque aún no cumplan
-        // InitiatorUserId / FirstMessageSentAtUtc (eso limita listados, no el resto del flujo).
-        if (string.Equals(uid, thread.BuyerUserId, StringComparison.Ordinal)
-            || string.Equals(uid, thread.SellerUserId, StringComparison.Ordinal))
+        // Comprador / vendedor: si fue expulsado, sin acceso. Si no, acceso aunque aún no cumplan Initiator/FirstMessage.
+        if (string.Equals(uid, thread.BuyerUserId, StringComparison.Ordinal))
+        {
+            if (thread.BuyerExpelledAtUtc is not null)
+                return false;
             return true;
+        }
+        if (string.Equals(uid, thread.SellerUserId, StringComparison.Ordinal))
+        {
+            if (thread.SellerExpelledAtUtc is not null)
+                return false;
+            return true;
+        }
         if (UserCanSeeThread(uid, thread))
             return true;
         if (await db.RouteTramoSubscriptions.AsNoTracking()
@@ -612,13 +614,22 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
                 cancellationToken);
         if (existing is not null)
         {
-            if (purchaseIntent && !existing.PurchaseMode)
+            if (existing.BuyerExpelledAtUtc is not null)
             {
-                existing.PurchaseMode = true;
+                // Comprador expulsado de este hilo: archivamos y se crea uno nuevo (misma oferta, nuevo id).
+                existing.DeletedAtUtc = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);
             }
+            else
+            {
+                if (purchaseIntent && !existing.PurchaseMode)
+                {
+                    existing.PurchaseMode = true;
+                    await db.SaveChangesAsync(cancellationToken);
+                }
 
-            return await MapThreadWithBuyerLabelAsync(existing, cancellationToken);
+                return await MapThreadWithBuyerLabelAsync(existing, cancellationToken);
+            }
         }
 
         if (!await OfferIsListedForBuyerChatAsync(oid, cancellationToken))
@@ -718,10 +729,10 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
                 t.DeletedAtUtc == null
                 && !(
                     t.BuyerUserId == userId
-                    && t.BuyerListHiddenAtUtc != null)
+                    && t.BuyerExpelledAtUtc != null)
                 && !(
                     t.SellerUserId == userId
-                    && t.SellerListHiddenAtUtc != null)
+                    && t.SellerExpelledAtUtc != null)
                 && (t.InitiatorUserId == userId
                     || (t.FirstMessageSentAtUtc != null
                         && (t.BuyerUserId == userId || t.SellerUserId == userId))))
@@ -986,7 +997,8 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
             return null;
 
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !UserCanSeeThread(senderUserId, t))
+        if (t is null || t.DeletedAtUtc is not null
+            || !await UserCanAccessThreadRowAsync(senderUserId, t, cancellationToken))
             return null;
 
         if (payload.ValueKind != JsonValueKind.Object
@@ -1397,9 +1409,9 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
         if (!isBuyer && !isSeller)
             return false;
 
-        if (isBuyer && t.BuyerListHiddenAtUtc is not null)
+        if (isBuyer && t.BuyerExpelledAtUtc is not null)
             return true;
-        if (isSeller && t.SellerListHiddenAtUtc is not null)
+        if (isSeller && t.SellerExpelledAtUtc is not null)
             return true;
 
         var hasAccepted = await db.TradeAgreements.AsNoTracking()
@@ -1420,9 +1432,9 @@ public sealed class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : ICh
 
         var now = DateTimeOffset.UtcNow;
         if (isBuyer)
-            t.BuyerListHiddenAtUtc = now;
+            t.BuyerExpelledAtUtc = now;
         else
-            t.SellerListHiddenAtUtc = now;
+            t.SellerExpelledAtUtc = now;
 
         t.PartyExitedUserId = uid;
         t.PartyExitedReason = reasonTrim.Length > 2000 ? reasonTrim[..2000] : reasonTrim;

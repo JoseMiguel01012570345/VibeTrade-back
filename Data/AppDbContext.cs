@@ -223,8 +223,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.PurchaseMode);
             e.Property(x => x.CreatedAtUtc);
             e.Property(x => x.DeletedAtUtc);
-            e.Property(x => x.BuyerListHiddenAtUtc);
-            e.Property(x => x.SellerListHiddenAtUtc);
+            e.Property(x => x.BuyerExpelledAtUtc);
+            e.Property(x => x.SellerExpelledAtUtc);
             e.Property(x => x.PartyExitedUserId).HasMaxLength(64);
             e.Property(x => x.PartyExitedReason).HasMaxLength(2000);
             e.Property(x => x.PartyExitedAtUtc);
