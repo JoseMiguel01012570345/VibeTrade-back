@@ -409,6 +409,106 @@ public sealed class RouteTramoSubscriptionService(
         return toReject.Count;
     }
 
+    public async Task<CarrierExpelledBySellerResult?> ExpelCarrierBySellerFromThreadAsync(
+        string sellerUserId,
+        string threadId,
+        string carrierUserId,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var sid = (sellerUserId ?? "").Trim();
+        var tid = (threadId ?? "").Trim();
+        var carrierId = (carrierUserId ?? "").Trim();
+        var reasonTrim = (reason ?? "").Trim();
+        if (sid.Length < 2 || tid.Length < 4 || carrierId.Length < 2 || reasonTrim.Length < 1)
+            return null;
+        if (reasonTrim.Length > 2000)
+            reasonTrim = reasonTrim[..2000];
+
+        var thread = await db.ChatThreads
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (thread is null || thread.DeletedAtUtc is not null
+            || !string.Equals(thread.SellerUserId, sid, StringComparison.Ordinal))
+            return null;
+
+        if (string.Equals(carrierId, thread.BuyerUserId, StringComparison.Ordinal)
+            || string.Equals(carrierId, thread.SellerUserId, StringComparison.Ordinal))
+            return null;
+
+        var subs = await db.RouteTramoSubscriptions
+            .Where(x => x.ThreadId == tid && x.CarrierUserId == carrierId && x.Status != "withdrawn")
+            .ToListAsync(cancellationToken);
+        if (subs.Count == 0)
+            return null;
+
+        var hadConfirmed = subs.Exists(x =>
+            string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase));
+        if (!hadConfirmed)
+            return null;
+
+        var distinctSheetIds = subs.Select(x => x.RouteSheetId).Distinct().ToList();
+
+        var applyStoreTrustPenalty = hadConfirmed;
+        if (thread.BuyerExpelledAtUtc is not null || thread.SellerExpelledAtUtc is not null)
+            applyStoreTrustPenalty = false;
+
+        var now = DateTimeOffset.UtcNow;
+        await ClearCarrierPhoneOnSheetsForWithdrawAsync(tid, subs, now, cancellationToken);
+        MarkSubscriptionsWithdrawn(subs, now);
+        int? storeTrustAfter = await ApplyStoreTrustPenaltyForSellerExpelIfNeededAsync(
+            applyStoreTrustPenalty,
+            thread.StoreId,
+            reasonTrim,
+            cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        var store = await db.Stores.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == thread.StoreId, cancellationToken);
+        var actorAcc = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == sid, cancellationToken);
+        var (sellerLabel, sellerTrust) = RouteTramoSellerPresentation.LabelAndTrust(store, actorAcc);
+        var carrierName = (await db.UserAccounts.AsNoTracking()
+            .Where(x => x.Id == carrierId)
+            .Select(x => x.DisplayName)
+            .FirstOrDefaultAsync(cancellationToken))?.Trim() ?? "Transportista";
+
+        var em = await db.EmergentOffers.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid
+                    && x.RouteSheetId == distinctSheetIds[0]
+                    && x.RetractedAtUtc == null,
+                cancellationToken);
+        var routeOfferId = string.IsNullOrWhiteSpace(em?.Id) ? null : em!.Id.Trim();
+
+        var preview = $"La tienda te retiró de esta operación. Motivo: {reasonTrim}";
+
+        await chat.NotifyRouteTramoSellerExpelledAsync(
+            new RouteTramoSellerExpelledNotificationArgs(
+                carrierId,
+                tid,
+                preview,
+                sellerLabel,
+                sellerTrust,
+                sid,
+                routeOfferId,
+                reasonTrim),
+            cancellationToken);
+
+        var sys = $"{sellerLabel} retiró a {carrierName} de la oferta de ruta. Motivo: {reasonTrim}.";
+        await chat.PostAutomatedSystemThreadNoticeAsync(tid, sys, cancellationToken);
+
+        foreach (var rsid in distinctSheetIds)
+        {
+            var emergentPubId = await EmergentIdForThreadSheetAsync(tid, rsid, cancellationToken);
+            await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
+                new RouteTramoSubscriptionsBroadcastArgs(tid, rsid, "withdraw", sid, emergentPubId),
+                cancellationToken);
+        }
+
+        return new CarrierExpelledBySellerResult(subs.Count, applyStoreTrustPenalty, storeTrustAfter);
+    }
+
     public async Task<CarrierWithdrawFromThreadResult?> WithdrawCarrierFromThreadAsync(
         string carrierUserId,
         string threadId,
@@ -504,6 +604,33 @@ public sealed class RouteTramoSubscriptionService(
             acc.TrustScore,
             "Abandono de ruta como transportista antes de entregar (demo)");
         return after;
+    }
+
+    private async Task<int?> ApplyStoreTrustPenaltyForSellerExpelIfNeededAsync(
+        bool apply,
+        string? storeId,
+        string reasonForLedger,
+        CancellationToken cancellationToken)
+    {
+        if (!apply)
+            return null;
+        var sid = (storeId ?? "").Trim();
+        if (sid.Length < 2)
+            return null;
+        var storeRow = await db.Stores.FirstOrDefaultAsync(x => x.Id == sid, cancellationToken);
+        if (storeRow is null)
+            return null;
+        var delta = -RouteSheetEditAckComputation.StoreTrustPenaltyOnSellerExpelConfirmedCarrier;
+        var prev = storeRow.TrustScore;
+        storeRow.TrustScore = Math.Max(-10_000, prev + delta);
+        var r = reasonForLedger.Length > 120 ? reasonForLedger[..120] + "…" : reasonForLedger;
+        trustLedger.StageEntry(
+            TrustLedgerSubjects.Store,
+            sid,
+            storeRow.TrustScore - prev,
+            storeRow.TrustScore,
+            $"Expulsión de transportista confirmado por la tienda (demo). Motivo: {r}");
+        return storeRow.TrustScore;
     }
 
     private async Task<bool> AnyRouteNotDeliveredOnSheetsAsync(

@@ -13,6 +13,9 @@ public static class RouteSheetEditAckComputation
     /// <summary>Descuento a la tienda cuando un transportista confirmado rechaza la edición de la hoja.</summary>
     public const int StoreTrustPenaltyOnCarrierRejectSheetEdit = 3;
 
+    /// <summary>Descuento a la tienda al expulsar a un transportista ya confirmado (demo).</summary>
+    public const int StoreTrustPenaltyOnSellerExpelConfirmedCarrier = 3;
+
     public static bool HasPendingCarrierAck(RouteSheetEditAckPayload? ack)
     {
         if (ack?.ByCarrier is null) return false;

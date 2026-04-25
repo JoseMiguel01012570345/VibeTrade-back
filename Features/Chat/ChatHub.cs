@@ -1,8 +1,8 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
-using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Chat.Utils;
+using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Features.Chat;
 
@@ -28,10 +28,12 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
 
     public async Task JoinThread(string threadId)
     {
-        if (!TryGetConnectionUserId(out var userId))
+        var userId = await GetConnectionUserIdForHubCallAsync(
+            Context.ConnectionAborted, migrateOnUserIdChange: true);
+        if (string.IsNullOrEmpty(userId))
             throw new HubException("Unauthorized");
 
-        var tid = (threadId ?? "").Trim();
+        var tid = ChatThreadIds.NormalizePersistedId(threadId);
         if (tid.Length < 4)
             throw new HubException("Forbidden");
 
@@ -41,23 +43,26 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
         if (t is null)
             throw new HubException("Forbidden");
 
-        // Mismo nombre de grupo que <see cref="ChatService"/> (<c>thread:{tid}</c> con tid recortado).
-        await Groups.AddToGroupAsync(Context.ConnectionId, ThreadGroup(tid));
+        // Mismo nombre de grupo que <see cref="ChatService"/> (ver <see cref="ChatHubGroupNames.ForThread"/>).
+        await Groups.AddToGroupAsync(Context.ConnectionId, ChatHubGroupNames.ForThread(tid));
     }
 
     /// <summary>Solo deja el grupo del hilo (p. ej. al navegar fuera). Sin aviso a otros.</summary>
     public Task DisconnectFromThread(string threadId)
     {
-        var tid = (threadId ?? "").Trim();
+        var tid = ChatThreadIds.NormalizePersistedId(threadId);
         if (tid.Length < 4)
             return Task.CompletedTask;
-        return Groups.RemoveFromGroupAsync(Context.ConnectionId, ThreadGroup(tid));
+        return Groups.RemoveFromGroupAsync(
+            Context.ConnectionId,
+            ChatHubGroupNames.ForThread(tid));
     }
 
     /// <summary>Recibe <c>offerCommentsUpdated</c> cuando alguien publica en la ficha (mismo grupo que <see cref="ChatService.BroadcastOfferCommentsUpdatedAsync"/>).</summary>
     public async Task JoinOffer(string offerId)
     {
-        if (!TryGetConnectionUserId(out _))
+        if (string.IsNullOrEmpty(await GetConnectionUserIdForHubCallAsync(
+                Context.ConnectionAborted, migrateOnUserIdChange: true)))
             throw new HubException("Unauthorized");
         var oid = (offerId ?? "").Trim();
         if (oid.Length < 2)
@@ -65,59 +70,38 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
         await Groups.AddToGroupAsync(Context.ConnectionId, OfferGroup(oid));
     }
 
-    public Task LeaveOffer(string offerId)
+    public async Task LeaveOffer(string offerId)
     {
-        if (!TryGetConnectionUserId(out _))
-            return Task.CompletedTask;
+        if (string.IsNullOrEmpty(await GetConnectionUserIdForHubCallAsync(
+                Context.ConnectionAborted, migrateOnUserIdChange: false)))
+            return;
         var oid = (offerId ?? "").Trim();
         if (oid.Length < 2)
-            return Task.CompletedTask;
-        return Groups.RemoveFromGroupAsync(Context.ConnectionId, OfferGroup(oid));
+            return;
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, OfferGroup(oid));
     }
 
-    /// <summary>Aviso explícito «salir»: notifica al resto y luego desconecta del grupo.</summary>
+    /// <summary>Aviso explícito «salir»: notifica al resto (vía <see cref="IChatService.BroadcastParticipantLeftToOthersAsync"/>) y deja el grupo del hilo.</summary>
     public async Task NotifyOthersUserLeftChat(string threadId)
     {
-        if (!TryGetConnectionUserId(out var userId))
+        var userId = await GetConnectionUserIdForHubCallAsync(
+            Context.ConnectionAborted, migrateOnUserIdChange: true);
+        if (string.IsNullOrEmpty(userId))
             throw new HubException("Unauthorized");
 
-        var tid = (threadId ?? "").Trim();
+        var tid = ChatThreadIds.NormalizePersistedId(threadId);
         if (tid.Length < 4)
             return;
 
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var chat = scope.ServiceProvider.GetRequiredService<IChatService>();
-        var t = await chat.GetThreadIfVisibleAsync(userId, tid, Context.ConnectionAborted);
-        if (t is null)
-        {
-            var threadOk = await db.ChatThreads.AsNoTracking()
-                .AnyAsync(x => x.Id == tid && x.DeletedAtUtc == null, Context.ConnectionAborted);
-            if (!threadOk)
-                return;
-            var wasCarrierOnThread = await db.RouteTramoSubscriptions.AsNoTracking()
-                .AnyAsync(x => x.ThreadId == tid && x.CarrierUserId == userId, Context.ConnectionAborted);
-            if (!wasCarrierOnThread)
-                return;
-        }
-        var acc = await db.UserAccounts.AsNoTracking()
-            .Where(u => u.Id == userId)
-            .Select(u => new { u.DisplayName, u.PhoneDisplay, u.PhoneDigits })
-            .FirstOrDefaultAsync(Context.ConnectionAborted);
+        if (!await chat.BroadcastParticipantLeftToOthersAsync(userId, tid, Context.ConnectionAborted))
+            return;
 
-        var displayName = acc is not null && !string.IsNullOrWhiteSpace(acc.DisplayName)
-            ? acc.DisplayName.Trim()
-            : (acc?.PhoneDisplay ?? acc?.PhoneDigits ?? userId);
-
-        await Clients.GroupExcept(ThreadGroup(tid), Context.ConnectionId).SendAsync(
-            "participantLeft",
-            new { threadId = tid, userId, displayName },
-            Context.ConnectionAborted);
-
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, ThreadGroup(tid));
+        await Groups.RemoveFromGroupAsync(
+            Context.ConnectionId,
+            ChatHubGroupNames.ForThread(tid));
     }
-
-    private static string ThreadGroup(string threadId) => $"thread:{threadId}";
 
     private static string OfferGroup(string offerId) => $"offer:{offerId}";
 
@@ -145,21 +129,62 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
         return false;
     }
 
-    /// <summary>Prioriza <see cref="CtxUserId"/> (set en <c>OnConnected</c>); luego reintenta leer el Bearer
-    /// (mismo criterio que el negotiate).</summary>
-    private bool TryGetConnectionUserId(out string userId)
+    /// <summary>
+    /// Resuelve el usuario actual para un método del hub.
+    /// - Si el request (Authorization o <c>access_token</c> del negotiate) envía un token, debe validarse;
+    ///   si el token dejó de ser válido, <b>no</b> reutilizamos el id de <c>OnConnected</c> (evita tomar
+    ///   hilo A con identidad B cacheada) y forzamos al cliente a reconectar.
+    /// - Si no hay credencial en el request, usamos el id fijado en <c>OnConnectedAsync</c> (WebSocket).
+    /// Si el token válido resuelve a un id distinto del cache, migra la conexión a <c>user:{id}</c>.
+    /// </summary>
+    private async Task<string?> GetConnectionUserIdForHubCallAsync(
+        CancellationToken cancellationToken,
+        bool migrateOnUserIdChange)
     {
-        if (Context.Items.TryGetValue(CtxUserId, out var o) && o is string cached)
+        var http = Context.GetHttpContext();
+        if (http is not null
+            && TryGetBearerHeader(http, out var rawBearer)
+            && !string.IsNullOrWhiteSpace(rawBearer))
+        {
+            if (!auth.TryGetUserByToken(rawBearer, out var user)
+                || !user.TryGetProperty("id", out var idEl)
+                || idEl.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            var id = (idEl.GetString() ?? "").Trim();
+            if (id.Length < 1)
+                return null;
+
+            if (migrateOnUserIdChange
+                && Context.Items.TryGetValue(CtxUserId, out var prevObj)
+                && prevObj is string prev
+                && prev.Trim().Length > 0
+                && !string.Equals(prev.Trim(), id, StringComparison.Ordinal))
+            {
+                await Groups.RemoveFromGroupAsync(
+                    Context.ConnectionId,
+                    UserGroup(prev.Trim()),
+                    cancellationToken);
+                await Groups.AddToGroupAsync(
+                    Context.ConnectionId,
+                    UserGroup(id),
+                    cancellationToken);
+            }
+
+            Context.Items[CtxUserId] = id;
+            return id;
+        }
+
+        if (Context.Items[CtxUserId] is string cached)
         {
             var c = cached.Trim();
             if (c.Length > 0)
-            {
-                userId = c;
-                return true;
-            }
+                return c;
         }
 
-        return TryReadBearerUserId(out userId);
+        return null;
     }
 
     private bool TryReadBearerUserId(out string userId)

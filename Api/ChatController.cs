@@ -21,7 +21,7 @@ public sealed class ChatController(
     IRouteTramoSubscriptionService routeTramoSubscriptions)
     : ControllerBase
 {
-    public sealed record CreateThreadBody(string OfferId, bool? PurchaseIntent);
+    public sealed record CreateThreadBody(string OfferId, bool? PurchaseIntent, bool? ForceNew);
 
     /// <summary>Crea o reutiliza el hilo comprador–vendedor para una oferta.</summary>
     /// <param name="body"><c>offerId</c> y opcional <c>purchaseIntent</c> (por defecto true).</param>
@@ -39,6 +39,7 @@ public sealed class ChatController(
             return Unauthorized();
 
         var purchaseIntent = body.PurchaseIntent ?? true;
+        var forceNew = body.ForceNew ?? false;
         var oid = body.OfferId ?? "";
         if (await chat.IsUserSellerForOfferAsync(userId, oid, cancellationToken))
         {
@@ -49,7 +50,7 @@ public sealed class ChatController(
             });
         }
 
-        var dto = await chat.CreateOrGetThreadForBuyerAsync(userId, oid, purchaseIntent, cancellationToken);
+        var dto = await chat.CreateOrGetThreadForBuyerAsync(userId, oid, purchaseIntent, forceNew, cancellationToken);
         if (dto is null)
             return NotFound(new { error = "offer_not_found", message = "No se encontró la oferta o no podés abrir este chat." });
 
@@ -110,6 +111,28 @@ public sealed class ChatController(
         var ok = await chat.SoftLeaveThreadAsPartyAsync(new PartySoftLeaveArgs(userId, threadId, r), cancellationToken);
         if (!ok)
             return NotFound(new { error = "not_found", message = "No se pudo registrar la salida (sin acuerdo aceptado o sin permiso)." });
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Aviso a la contraparte (y demás participantes) de que el usuario dejó de seguir el chat; emite
+    /// <c>participantLeft</c> en SignalR al resto de participantes conectados. Sin acuerdo aceptado,
+    /// se usa al «Salir» de la lista; con acuerdo, el flujo es <c>party-soft-leave</c> y no hace falta.
+    /// </summary>
+    [HttpPost("threads/{threadId}/notify-participant-left")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostNotifyParticipantLeft(
+        string threadId,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var ok = await chat.BroadcastParticipantLeftToOthersAsync(userId, threadId, cancellationToken);
+        if (!ok)
+            return NotFound();
         return NoContent();
     }
 
@@ -329,6 +352,41 @@ public sealed class ChatController(
         if (n is null)
             return NotFound(new { error = "not_found", message = "No hay solicitudes pendientes que rechazar." });
         return Ok(new { rejectedCount = n.Value });
+    }
+
+    public sealed record SellerExpelCarrierBody(string CarrierUserId, string Reason);
+
+    /// <summary>
+    /// Solo vendedor del hilo: retira a un transportista (todos sus tramos en el hilo), con motivo y notificación in-app.
+    /// </summary>
+    [HttpPost("threads/{threadId}/route-tramo-subscriptions/seller-expel-carrier")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(CarrierExpelledBySellerResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostSellerExpelCarrier(
+        string threadId,
+        [FromBody] SellerExpelCarrierBody? body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        if (body is null
+            || string.IsNullOrWhiteSpace(body.CarrierUserId)
+            || string.IsNullOrWhiteSpace((body.Reason ?? "").Trim()))
+            return BadRequest(new { error = "invalid_body", message = "Indicá al transportista y un motivo." });
+
+        var r = await routeTramoSubscriptions.ExpelCarrierBySellerFromThreadAsync(
+            userId,
+            threadId,
+            body.CarrierUserId.Trim(),
+            (body.Reason ?? "").Trim(),
+            cancellationToken);
+        if (r is null)
+            return NotFound(new { error = "not_found", message = "No se pudo retirar al transportista (sin permiso o sin suscripciones activas)." });
+        return Ok(r);
     }
 
     /// <summary>

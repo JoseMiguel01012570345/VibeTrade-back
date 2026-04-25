@@ -5,11 +5,14 @@ namespace VibeTrade.Backend.Features.Chat.Utils;
 /// <summary>Reglas de visibilidad de hilo; antes en <c>ChatService</c>.</summary>
 public static class ChatThreadAccess
 {
+    private static string NormId(string? s) => (s ?? "").Trim();
+
     public static bool UserCanSeeThread(string userId, ChatThreadRow t) =>
         t.DeletedAtUtc is null
-        && (t.InitiatorUserId == userId
+        && (NormId(t.InitiatorUserId) == NormId(userId)
             || (t.FirstMessageSentAtUtc is not null
-                && (t.BuyerUserId == userId || t.SellerUserId == userId)));
+                && (NormId(t.BuyerUserId) == NormId(userId)
+                    || NormId(t.SellerUserId) == NormId(userId))));
 
     /// <summary>Trim, igualdad ordinal o mismos dígitos (≥6 c/u).</summary>
     public static bool UserIdsMatchLoose(string viewerId, string? storedCarrierId)

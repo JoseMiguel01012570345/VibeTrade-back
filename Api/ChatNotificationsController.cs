@@ -14,16 +14,36 @@ public sealed class ChatNotificationsController(IAuthService auth, IChatService 
 {
     public sealed record MarkReadBody(string[]? Ids);
 
-    /// <summary>Lista notificaciones no leídas o recientes del usuario.</summary>
+    /// <summary>Lista notificaciones. Opcional: <c>from</c> y <c>to</c> (ISO 8601) filtran por <c>CreatedAtUtc</c>.</summary>
     [HttpGet("notifications")]
     [ProducesResponseType(typeof(IReadOnlyList<ChatNotificationDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<IReadOnlyList<ChatNotificationDto>>> GetNotifications(CancellationToken cancellationToken)
+    public async Task<ActionResult<IReadOnlyList<ChatNotificationDto>>> GetNotifications(
+        [FromQuery] string? from,
+        [FromQuery] string? to,
+        CancellationToken cancellationToken)
     {
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
-        var list = await chat.ListNotificationsAsync(userId, cancellationToken);
+        DateTimeOffset? fromUtc = null;
+        DateTimeOffset? toUtc = null;
+        if (!string.IsNullOrWhiteSpace(from))
+        {
+            if (!DateTimeOffset.TryParse(from!.Trim(), out var f))
+                return BadRequest(new { error = "invalid_from", message = "Parámetro 'from' no es una fecha ISO válida." });
+            fromUtc = f;
+        }
+        if (!string.IsNullOrWhiteSpace(to))
+        {
+            if (!DateTimeOffset.TryParse(to!.Trim(), out var t))
+                return BadRequest(new { error = "invalid_to", message = "Parámetro 'to' no es una fecha ISO válida." });
+            toUtc = t;
+        }
+        if (fromUtc != null && toUtc != null && fromUtc > toUtc)
+            return BadRequest(new { error = "invalid_range", message = "La fecha de inicio debe ser anterior o igual al fin." });
+        var list = await chat.ListNotificationsAsync(userId, fromUtc, toUtc, cancellationToken);
         return Ok(list);
     }
 

@@ -231,8 +231,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasIndex(x => x.OfferId);
             e.HasIndex(x => x.BuyerUserId);
             e.HasIndex(x => x.SellerUserId);
+            // Múltiples hilos activos (misma oferta y comprador) al iniciar "Comprar" de nuevo, sin archivar.
             e.HasIndex(x => new { x.OfferId, x.BuyerUserId })
-                .IsUnique()
                 .HasFilter("\"DeletedAtUtc\" IS NULL");
             e.HasMany(x => x.Messages)
                 .WithOne(x => x.Thread)

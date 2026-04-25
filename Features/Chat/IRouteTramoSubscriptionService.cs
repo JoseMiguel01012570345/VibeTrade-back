@@ -45,6 +45,17 @@ public interface IRouteTramoSubscriptionService
         string carrierUserId,
         string threadId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Vendedor del hilo: retira a un transportista (todos sus tramos en el hilo) solo si tiene al menos un tramo
+    /// <c>confirmed</c>; aplica ajuste de confianza a la <strong>tienda</strong> (demo) y notifica al transportista.
+    /// </summary>
+    Task<CarrierExpelledBySellerResult?> ExpelCarrierBySellerFromThreadAsync(
+        string sellerUserId,
+        string threadId,
+        string carrierUserId,
+        string reason,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Resultado de <see cref="IRouteTramoSubscriptionService.WithdrawCarrierFromThreadAsync"/>.</summary>
@@ -52,6 +63,12 @@ public sealed record CarrierWithdrawFromThreadResult(
     int WithdrawnRowCount,
     bool ApplyTrustPenalty,
     int? TrustScoreAfterPenalty = null);
+
+/// <summary>Resultado de <see cref="IRouteTramoSubscriptionService.ExpelCarrierBySellerFromThreadAsync"/>.</summary>
+public sealed record CarrierExpelledBySellerResult(
+    int WithdrawnRowCount,
+    bool ApplyStoreTrustPenalty,
+    int? StoreTrustScoreAfter = null);
 
 public sealed record RouteTramoSubscriptionItemDto(
     string RouteSheetId,

@@ -56,6 +56,16 @@ public sealed record RouteTramoSubscriptionRejectedNotificationArgs(
     string SellerUserId,
     string? RouteOfferId);
 
+public sealed record RouteTramoSellerExpelledNotificationArgs(
+    string CarrierUserId,
+    string ThreadId,
+    string MessagePreview,
+    string SellerLabel,
+    int SellerTrust,
+    string SellerUserId,
+    string? RouteOfferId,
+    string Reason);
+
 public sealed record RouteTramoSubscriptionsBroadcastArgs(
     string ThreadId,
     string RouteSheetId,

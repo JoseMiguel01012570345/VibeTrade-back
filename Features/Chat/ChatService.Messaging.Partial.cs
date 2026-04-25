@@ -504,16 +504,23 @@ public sealed partial class ChatService
 
     public async Task<IReadOnlyList<ChatNotificationDto>> ListNotificationsAsync(
         string userId,
+        DateTimeOffset? fromUtc = null,
+        DateTimeOffset? toUtc = null,
         CancellationToken cancellationToken = default)
     {
-        var list = await db.ChatNotifications.AsNoTracking()
+        var q = db.ChatNotifications.AsNoTracking()
             .Where(n => n.RecipientUserId == userId)
             .Where(n =>
                 n.OfferId != null && n.ThreadId == null
                 || (n.ThreadId != null
-                    && db.ChatThreads.Any(t => t.Id == n.ThreadId && t.DeletedAtUtc == null)))
+                    && db.ChatThreads.Any(t => t.Id == n.ThreadId && t.DeletedAtUtc == null)));
+        if (fromUtc.HasValue)
+            q = q.Where(n => n.CreatedAtUtc >= fromUtc.Value);
+        if (toUtc.HasValue)
+            q = q.Where(n => n.CreatedAtUtc <= toUtc.Value);
+        var list = await q
             .OrderByDescending(n => n.CreatedAtUtc)
-            .Take(200)
+            .Take(fromUtc != null || toUtc != null ? 500 : 200)
             .ToListAsync(cancellationToken);
 
         return list.Select(n => new ChatNotificationDto(

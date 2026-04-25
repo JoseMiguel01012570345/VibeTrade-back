@@ -5,6 +5,7 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Utils;
 using VibeTrade.Backend.Features.Chat.Utils;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -77,14 +78,16 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         var uid = (userId ?? "").Trim();
         if (uid.Length == 0)
             return false;
+        var buyerId = (thread.BuyerUserId ?? "").Trim();
+        var sellerId = (thread.SellerUserId ?? "").Trim();
         // Comprador / vendedor: si fue expulsado, sin acceso. Si no, acceso aunque aún no cumplan Initiator/FirstMessage.
-        if (string.Equals(uid, thread.BuyerUserId, StringComparison.Ordinal))
+        if (string.Equals(uid, buyerId, StringComparison.Ordinal))
         {
             if (thread.BuyerExpelledAtUtc is not null)
                 return false;
             return true;
         }
-        if (string.Equals(uid, thread.SellerUserId, StringComparison.Ordinal))
+        if (string.Equals(uid, sellerId, StringComparison.Ordinal))
         {
             if (thread.SellerExpelledAtUtc is not null)
                 return false;
@@ -442,6 +445,49 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
             cancellationToken);
     }
 
+    public async Task NotifyRouteTramoSellerExpelledAsync(
+        RouteTramoSellerExpelledNotificationArgs request,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (request.ThreadId ?? "").Trim();
+        var cid = (request.CarrierUserId ?? "").Trim();
+        if (tid.Length < 4 || cid.Length < 2)
+            return;
+
+        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
+        var r = (request.Reason ?? "").Trim();
+        var meta = System.Text.Json.JsonSerializer.Serialize(new { reason = r });
+        var oid = (request.RouteOfferId ?? "").Trim();
+        var now = DateTimeOffset.UtcNow;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = cid,
+            ThreadId = tid,
+            MessageId = null,
+            OfferId = oid.Length > 0 ? oid : null,
+            MessagePreview = preview,
+            AuthorStoreName = (request.SellerLabel ?? "").Trim().Length > 0 ? request.SellerLabel.Trim() : "Vendedor",
+            AuthorTrustScore = request.SellerTrust,
+            SenderUserId = (request.SellerUserId ?? "").Trim(),
+            CreatedAtUtc = now,
+            ReadAtUtc = null,
+            Kind = "route_tramo_seller_expelled",
+            MetaJson = meta,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await hub.Clients.Group(ChatHubGroupNames.ForUser(cid)).SendAsync(
+            "notificationCreated",
+            new
+            {
+                kind = "route_tramo_seller_expelled",
+                threadId = tid,
+                offerId = oid.Length > 0 ? oid : null,
+            },
+            cancellationToken);
+    }
+
     public Task BroadcastRouteTramoSubscriptionsChangedAsync(
         RouteTramoSubscriptionsBroadcastArgs request,
         CancellationToken cancellationToken = default)
@@ -590,6 +636,7 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         string buyerUserId,
         string offerId,
         bool purchaseIntent = true,
+        bool forceNewThread = false,
         CancellationToken cancellationToken = default)
     {
         var oid = (offerId ?? "").Trim();
@@ -603,11 +650,16 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         if (buyerUserId == sellerUserId)
             return null;
 
+        // Sin unique en DB: el más reciente gana reutilizar si el cliente no pide hilo forzado.
         var existing = await db.ChatThreads
-            .FirstOrDefaultAsync(
-                x => x.OfferId == oid && x.BuyerUserId == buyerUserId && x.DeletedAtUtc == null,
-                cancellationToken);
-        if (existing is not null)
+            .Where(
+                x => x.OfferId == oid
+                    && x.BuyerUserId == buyerUserId
+                    && x.DeletedAtUtc == null)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (!forceNewThread && existing is not null)
         {
             var reused = await TryReuseOrArchiveExistingThreadForBuyerAsync(
                 existing, purchaseIntent, cancellationToken);
@@ -690,7 +742,7 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         string threadId,
         CancellationToken cancellationToken = default)
     {
-        var tid = (threadId ?? "").Trim();
+        var tid = ChatThreadIds.NormalizePersistedId(threadId);
         if (tid.Length < 4)
             return null;
 
@@ -725,9 +777,9 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         else
         {
             t = await db.ChatThreads.AsNoTracking()
-                .FirstOrDefaultAsync(
-                    x => x.OfferId == oid && x.BuyerUserId == uid && x.DeletedAtUtc == null,
-                    cancellationToken);
+                .Where(x => x.OfferId == oid && x.BuyerUserId == uid && x.DeletedAtUtc == null)
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
         }
 
         if (t is null)
@@ -842,6 +894,59 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
                 string.IsNullOrWhiteSpace(x.AvatarUrl) ? null : x.AvatarUrl.Trim()));
 
         return new ListThreadsForUserMaterialized(threads, lastByThread, buyerById);
+    }
+
+    private async Task<string> ResolveDisplayNameForParticipantLeftAsync(
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var acc = await db.UserAccounts.AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.DisplayName, u.PhoneDisplay, u.PhoneDigits })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (acc is not null && !string.IsNullOrWhiteSpace(acc.DisplayName))
+            return acc.DisplayName.Trim();
+        return (acc?.PhoneDisplay ?? acc?.PhoneDigits ?? userId).Trim();
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> BroadcastParticipantLeftToOthersAsync(
+        string leaverUserId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = ChatThreadIds.NormalizePersistedId(threadId);
+        if (tid.Length < 4)
+            return false;
+        var uid = (leaverUserId ?? "").Trim();
+        if (uid.Length < 2)
+            return false;
+
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null)
+            return false;
+
+        if (!await UserCanAccessThreadRowAsync(uid, t, cancellationToken))
+            return false;
+
+        var displayName = await ResolveDisplayNameForParticipantLeftAsync(uid, cancellationToken);
+        var payload = new { threadId = tid, userId = uid, displayName };
+        var others = await GetThreadParticipantUserIdsAsync(t, cancellationToken);
+        others.Remove(uid);
+        foreach (var oid in others)
+        {
+            var rid = (oid ?? "").Trim();
+            if (rid.Length < 2)
+                continue;
+            if (string.Equals(rid, uid, StringComparison.Ordinal))
+                continue;
+            await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
+                "participantLeft",
+                payload,
+                cancellationToken);
+        }
+        return true;
     }
 }
 

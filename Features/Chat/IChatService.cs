@@ -102,6 +102,11 @@ public interface IChatService
         RouteTramoSubscriptionRejectedNotificationArgs request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Transportista: el vendedor lo expulsó de la operación (retiro de tramos, posible ajuste de confianza).</summary>
+    Task NotifyRouteTramoSellerExpelledAsync(
+        RouteTramoSellerExpelledNotificationArgs request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Participantes del hilo (<c>JoinThread</c>) y, si aplica, la ficha emergente (<c>JoinOffer</c> con <c>emo_*</c>): suscripciones de tramo actualizadas.
     /// <c>Change</c>: <c>request</c>, <c>accept</c>, <c>reject</c>.
@@ -118,6 +123,7 @@ public interface IChatService
         string buyerUserId,
         string offerId,
         bool purchaseIntent = true,
+        bool forceNewThread = false,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -172,9 +178,24 @@ public interface IChatService
         UpdateChatMessageStatusArgs request,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<ChatNotificationDto>> ListNotificationsAsync(string userId, CancellationToken cancellationToken = default);
+    /// <param name="fromUtc">Inicio del rango (inclusive), UTC.</param>
+    /// <param name="toUtc">Fin del rango (inclusive), UTC.</param>
+    Task<IReadOnlyList<ChatNotificationDto>> ListNotificationsAsync(
+        string userId,
+        DateTimeOffset? fromUtc = null,
+        DateTimeOffset? toUtc = null,
+        CancellationToken cancellationToken = default);
 
     Task MarkNotificationsReadAsync(string userId, IReadOnlyList<string>? notificationIds, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Avisa a los demás participantes (grupo de usuario en SignalR) que alguien salió del chat.
+    /// No requiere estar en el grupo del hilo; requiere acceso al hilo como comprador, vendedor o transportista.
+    /// </summary>
+    Task<bool> BroadcastParticipantLeftToOthersAsync(
+        string leaverUserId,
+        string threadId,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Borrado lógico del hilo y de sus mensajes (no se retornan en listados).</summary>
     Task<bool> DeleteThreadAsync(string userId, string threadId, CancellationToken cancellationToken = default);
