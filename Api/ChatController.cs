@@ -107,7 +107,7 @@ public sealed class ChatController(
         var r = (body?.Reason ?? "").Trim();
         if (r.Length < 1)
             return BadRequest(new { error = "reason_required", message = "Indicá un motivo para salir." });
-        var ok = await chat.SoftLeaveThreadAsPartyAsync(userId, threadId, r, cancellationToken);
+        var ok = await chat.SoftLeaveThreadAsPartyAsync(new PartySoftLeaveArgs(userId, threadId, r), cancellationToken);
         if (!ok)
             return NotFound(new { error = "not_found", message = "No se pudo registrar la salida (sin acuerdo aceptado o sin permiso)." });
         return NoContent();
@@ -183,7 +183,7 @@ public sealed class ChatController(
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
-        var msg = await chat.PostMessageAsync(userId, threadId, payload, cancellationToken);
+        var msg = await chat.PostMessageAsync(new PostChatMessageArgs(userId, threadId, payload), cancellationToken);
         if (msg is null)
             return NotFound(new { error = "not_found", message = "Hilo no encontrado o mensaje inválido." });
         return Ok(msg);
@@ -209,7 +209,9 @@ public sealed class ChatController(
             return Unauthorized();
         if (!Enum.TryParse<ChatMessageStatus>(body.Status, ignoreCase: true, out var st))
             return BadRequest(new { error = "invalid_status" });
-        var msg = await chat.UpdateMessageStatusAsync(userId, threadId, messageId, st, cancellationToken);
+        var msg = await chat.UpdateMessageStatusAsync(
+            new UpdateChatMessageStatusArgs(userId, threadId, messageId, st),
+            cancellationToken);
         if (msg is null)
             return NotFound(new { error = "not_found", message = "Mensaje o hilo no encontrado." });
         return Ok(msg);
@@ -276,11 +278,12 @@ public sealed class ChatController(
         try
         {
             var n = await routeTramoSubscriptions.AcceptCarrierPendingOnSheetAsync(
-                userId,
-                threadId,
-                body.RouteSheetId.Trim(),
-                body.CarrierUserId.Trim(),
-                string.IsNullOrWhiteSpace(body.StopId) ? null : body.StopId.Trim(),
+                new TramoSellerSheetAction(
+                    userId,
+                    threadId,
+                    body.RouteSheetId.Trim(),
+                    body.CarrierUserId.Trim(),
+                    string.IsNullOrWhiteSpace(body.StopId) ? null : body.StopId.Trim()),
                 cancellationToken);
             if (n is null)
                 return NotFound(new { error = "not_found", message = "No hay suscripciones que confirmar." });
@@ -316,11 +319,12 @@ public sealed class ChatController(
             return BadRequest(new { error = "invalid_body" });
 
         var n = await routeTramoSubscriptions.RejectCarrierPendingOnSheetAsync(
-            userId,
-            threadId,
-            body.RouteSheetId.Trim(),
-            body.CarrierUserId.Trim(),
-            string.IsNullOrWhiteSpace(body.StopId) ? null : body.StopId.Trim(),
+            new TramoSellerSheetAction(
+                userId,
+                threadId,
+                body.RouteSheetId.Trim(),
+                body.CarrierUserId.Trim(),
+                string.IsNullOrWhiteSpace(body.StopId) ? null : body.StopId.Trim()),
             cancellationToken);
         if (n is null)
             return NotFound(new { error = "not_found", message = "No hay solicitudes pendientes que rechazar." });

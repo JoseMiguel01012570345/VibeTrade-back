@@ -107,14 +107,15 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
             phoneSnap = phoneSnap[..40];
 
         await routeTramoSubscriptions.RecordSubscriptionRequestAsync(
-            em.ThreadId,
-            em.RouteSheetId,
-            sid,
-            orden,
-            uid,
-            svcId,
-            svcLabel,
-            phoneSnap.Length > 0 ? phoneSnap : null,
+            new RecordRouteTramoSubscriptionRequestArgs(
+                em.ThreadId,
+                em.RouteSheetId,
+                sid,
+                orden,
+                uid,
+                svcId,
+                svcLabel,
+                phoneSnap.Length > 0 ? phoneSnap : null),
             cancellationToken);
 
         var meta = JsonSerializer.Serialize(
@@ -130,24 +131,21 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
         var sellerTrustBadge = storeRow?.TrustScore ?? 0;
 
         await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
-            em.ThreadId,
-            em.RouteSheetId,
-            "request",
-            uid,
-            eid,
+            new RouteTramoSubscriptionsBroadcastArgs(em.ThreadId, em.RouteSheetId, "request", uid, eid),
             cancellationToken);
 
         // Solo vendedor (no comprador): nueva solicitud de tramo.
         if (sellerId.Length > 0 && !string.Equals(sellerId, uid, StringComparison.Ordinal))
         {
             await chat.NotifyRouteTramoSubscriptionRequestAsync(
-                new List<string> { sellerId },
-                thread.Id,
-                preview,
-                authorLabel,
-                trust,
-                uid,
-                meta,
+                new RouteTramoSubscriptionRequestNotificationArgs(
+                    new List<string> { sellerId },
+                    thread.Id,
+                    preview,
+                    authorLabel,
+                    trust,
+                    uid,
+                    meta),
                 cancellationToken);
         }
 
@@ -155,13 +153,14 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
         var carrierAck =
             $"Tu solicitud del tramo {orden} quedó registrada. {sellerOpLabel} puede confirmarla desde el chat de esta operación.";
         await chat.NotifyRouteTramoSubscriptionRequestAsync(
-            new List<string> { uid },
-            thread.Id,
-            carrierAck,
-            sellerOpLabel,
-            sellerTrustBadge,
-            uid,
-            meta,
+            new RouteTramoSubscriptionRequestNotificationArgs(
+                new List<string> { uid },
+                thread.Id,
+                carrierAck,
+                sellerOpLabel,
+                sellerTrustBadge,
+                uid,
+                meta),
             cancellationToken);
 
         return (true, null, null);

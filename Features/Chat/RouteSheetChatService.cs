@@ -167,11 +167,12 @@ public sealed class RouteSheetChatService(
         {
             var emergentId = await EmergentPublicationIdForSheetAsync(threadId, rsId, cancellationToken);
             await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
-                threadId,
-                rsId,
-                "sheet_edit_pending",
-                userId.Trim(),
-                emergentId,
+                new RouteTramoSubscriptionsBroadcastArgs(
+                    threadId,
+                    rsId,
+                    "sheet_edit_pending",
+                    userId.Trim(),
+                    emergentId),
                 cancellationToken);
         }
 
@@ -300,11 +301,12 @@ public sealed class RouteSheetChatService(
         await chat.PostSystemThreadNoticeAsync(userId.Trim(), threadId, sys, cancellationToken);
 
         await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
-            threadId,
-            rsId,
-            "sheet_deleted",
-            userId.Trim(),
-            emergentPubId,
+            new RouteTramoSubscriptionsBroadcastArgs(
+                threadId,
+                rsId,
+                "sheet_deleted",
+                userId.Trim(),
+                emergentPubId),
             cancellationToken);
 
         return true;
@@ -398,11 +400,12 @@ public sealed class RouteSheetChatService(
 
         var emergentId = await EmergentPublicationIdForSheetAsync(tid, rsid, cancellationToken);
         await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
-            tid,
-            rsid,
-            accept ? "sheet_edit_accept" : "sheet_edit_reject",
-            cid,
-            emergentId,
+            new RouteTramoSubscriptionsBroadcastArgs(
+                tid,
+                rsid,
+                accept ? "sheet_edit_accept" : "sheet_edit_reject",
+                cid,
+                emergentId),
             cancellationToken);
 
         return true;

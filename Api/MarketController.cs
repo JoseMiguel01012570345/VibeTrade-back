@@ -388,12 +388,13 @@ public sealed class MarketController(
                     && !string.Equals(askedById, sellerId, StringComparison.Ordinal))
                 {
                     await chat.NotifyOfferCommentAsync(
-                        sellerId,
-                        offerOid,
-                        preview,
-                        askedByName,
-                        askedByTrust,
-                        askedById,
+                        new OfferCommentNotificationArgs(
+                            sellerId,
+                            offerOid,
+                            preview,
+                            askedByName,
+                            askedByTrust,
+                            askedById),
                         cancellationToken);
                 }
             }
@@ -404,12 +405,13 @@ public sealed class MarketController(
                     && !string.Equals(parentAuthor, askedById, StringComparison.Ordinal))
                 {
                     await chat.NotifyOfferCommentAsync(
-                        parentAuthor,
-                        offerOid,
-                        preview,
-                        askedByName,
-                        askedByTrust,
-                        askedById,
+                        new OfferCommentNotificationArgs(
+                            parentAuthor,
+                            offerOid,
+                            preview,
+                            askedByName,
+                            askedByTrust,
+                            askedById),
                         cancellationToken);
                 }
             }
@@ -488,7 +490,9 @@ public sealed class MarketController(
                 var (likerSenderId, likerLabel, likerTrust) =
                     await ResolveEngagementLikerDisplayAsync(likerKey, cancellationToken);
                 if (!string.Equals(sellerId, likerSenderId, StringComparison.Ordinal))
-                    await chat.NotifyOfferLikeAsync(sellerId, offerId, likerLabel, likerTrust, likerSenderId, cancellationToken);
+                    await chat.NotifyOfferLikeAsync(
+                        new OfferLikeNotificationArgs(sellerId, offerId, likerLabel, likerTrust, likerSenderId),
+                        cancellationToken);
             }
         }
 
@@ -530,7 +534,9 @@ public sealed class MarketController(
                     var (likerSenderId, likerLabel, likerTrust) =
                         await ResolveEngagementLikerDisplayAsync(likerKey, cancellationToken);
                     if (!string.Equals(aid, likerSenderId, StringComparison.Ordinal))
-                        await chat.NotifyQaCommentLikeAsync(aid, offerId, likerLabel, likerTrust, likerSenderId, cancellationToken);
+                        await chat.NotifyQaCommentLikeAsync(
+                            new QaCommentLikeNotificationArgs(aid, offerId, likerLabel, likerTrust, likerSenderId),
+                            cancellationToken);
                 }
             }
         }

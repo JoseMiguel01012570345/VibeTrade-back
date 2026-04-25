@@ -127,31 +127,26 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
     }
 
     public async Task NotifyOfferCommentAsync(
-        string recipientUserId,
-        string offerId,
-        string textPreview,
-        string authorLabel,
-        int authorTrust,
-        string senderUserId,
+        OfferCommentNotificationArgs request,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(recipientUserId))
+        if (string.IsNullOrWhiteSpace(request.RecipientUserId))
             return;
 
-        var preview = textPreview.Length > 500 ? textPreview[..500] + "…" : textPreview;
+        var preview = request.TextPreview.Length > 500 ? request.TextPreview[..500] + "…" : request.TextPreview;
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        var rid = recipientUserId.Trim();
+        var rid = request.RecipientUserId.Trim();
         db.ChatNotifications.Add(new ChatNotificationRow
         {
             Id = nid,
             RecipientUserId = rid,
             ThreadId = null,
             MessageId = null,
-            OfferId = offerId,
+            OfferId = request.OfferId,
             MessagePreview = preview,
-            AuthorStoreName = authorLabel,
-            AuthorTrustScore = authorTrust,
-            SenderUserId = senderUserId,
+            AuthorStoreName = request.AuthorLabel,
+            AuthorTrustScore = request.AuthorTrust,
+            SenderUserId = request.SenderUserId,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             ReadAtUtc = null,
             Kind = "offer_comment",
@@ -160,24 +155,20 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
 
         await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
             "notificationCreated",
-            new { kind = "offer_comment", offerId },
+            new { kind = "offer_comment", offerId = request.OfferId },
             cancellationToken);
     }
 
     public async Task NotifyOfferLikeAsync(
-        string sellerUserId,
-        string offerId,
-        string likerLabel,
-        int likerTrust,
-        string likerSenderUserId,
+        OfferLikeNotificationArgs request,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(sellerUserId))
+        if (string.IsNullOrWhiteSpace(request.SellerUserId))
             return;
 
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        var rid = sellerUserId.Trim();
-        var oid = (offerId ?? "").Trim();
+        var rid = request.SellerUserId.Trim();
+        var oid = (request.OfferId ?? "").Trim();
         db.ChatNotifications.Add(new ChatNotificationRow
         {
             Id = nid,
@@ -186,9 +177,9 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
             MessageId = null,
             OfferId = oid,
             MessagePreview = "Le dio me gusta a tu oferta.",
-            AuthorStoreName = likerLabel,
-            AuthorTrustScore = likerTrust,
-            SenderUserId = likerSenderUserId,
+            AuthorStoreName = request.LikerLabel,
+            AuthorTrustScore = request.LikerTrust,
+            SenderUserId = request.LikerSenderUserId,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             ReadAtUtc = null,
             Kind = "offer_like",
@@ -202,19 +193,15 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
     }
 
     public async Task NotifyQaCommentLikeAsync(
-        string commentAuthorUserId,
-        string offerId,
-        string likerLabel,
-        int likerTrust,
-        string likerSenderUserId,
+        QaCommentLikeNotificationArgs request,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(commentAuthorUserId))
+        if (string.IsNullOrWhiteSpace(request.CommentAuthorUserId))
             return;
 
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        var rid = commentAuthorUserId.Trim();
-        var oid = (offerId ?? "").Trim();
+        var rid = request.CommentAuthorUserId.Trim();
+        var oid = (request.OfferId ?? "").Trim();
         db.ChatNotifications.Add(new ChatNotificationRow
         {
             Id = nid,
@@ -223,9 +210,9 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
             MessageId = null,
             OfferId = oid,
             MessagePreview = "Le dio me gusta a tu comentario.",
-            AuthorStoreName = likerLabel,
-            AuthorTrustScore = likerTrust,
-            SenderUserId = likerSenderUserId,
+            AuthorStoreName = request.LikerLabel,
+            AuthorTrustScore = request.LikerTrust,
+            SenderUserId = request.LikerSenderUserId,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             ReadAtUtc = null,
             Kind = "qa_comment_like",
@@ -239,30 +226,24 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
     }
 
     public async Task NotifyRouteTramoSubscriptionRequestAsync(
-        IReadOnlyCollection<string> recipientUserIds,
-        string threadId,
-        string messagePreview,
-        string authorLabel,
-        int authorTrust,
-        string carrierUserId,
-        string? metaJson,
+        RouteTramoSubscriptionRequestNotificationArgs request,
         CancellationToken cancellationToken = default)
     {
-        var tid = (threadId ?? "").Trim();
-        if (tid.Length < 4 || recipientUserIds.Count == 0)
+        var tid = (request.ThreadId ?? "").Trim();
+        if (tid.Length < 4 || request.RecipientUserIds.Count == 0)
             return;
 
-        var carrier = (carrierUserId ?? "").Trim();
-        var preview = messagePreview.Length > 500 ? messagePreview[..500] + "…" : messagePreview;
+        var carrier = (request.CarrierUserId ?? "").Trim();
+        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
         var now = DateTimeOffset.UtcNow;
-        var meta = string.IsNullOrWhiteSpace(metaJson) ? null : metaJson.Trim();
+        var meta = string.IsNullOrWhiteSpace(request.MetaJson) ? null : request.MetaJson.Trim();
         if (meta is { Length: > 4000 })
             meta = meta[..4000];
 
         AddRouteTramoSubscribeRequestNotificationRows(
-            recipientUserIds, tid, preview, authorLabel, authorTrust, carrier, meta, now);
+            request.RecipientUserIds, tid, preview, request.AuthorLabel, request.AuthorTrust, carrier, meta, now);
         await db.SaveChangesAsync(cancellationToken);
-        await SendRouteTramoSubscribeRequestHubToRecipientsAsync(recipientUserIds, tid, cancellationToken);
+        await SendRouteTramoSubscribeRequestHubToRecipientsAsync(request.RecipientUserIds, tid, cancellationToken);
     }
 
     private void AddRouteTramoSubscribeRequestNotificationRows(
@@ -318,34 +299,25 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
     }
 
     public async Task NotifyRouteTramoSubscriptionAcceptedAsync(
-        string carrierUserId,
-        string threadId,
-        string messagePreview,
-        string deciderLabel,
-        int deciderTrust,
-        string deciderUserId,
-        string? sellerInboxUserId = null,
-        string? sellerInboxPreview = null,
-        string? sellerInboxSubjectLabel = null,
-        int sellerInboxSubjectTrust = 0,
+        RouteTramoSubscriptionAcceptedNotificationArgs request,
         CancellationToken cancellationToken = default)
     {
-        var tid = (threadId ?? "").Trim();
-        var cid = (carrierUserId ?? "").Trim();
+        var tid = (request.ThreadId ?? "").Trim();
+        var cid = (request.CarrierUserId ?? "").Trim();
         if (tid.Length < 4 || cid.Length < 2)
             return;
 
-        var preview = messagePreview.Length > 500 ? messagePreview[..500] + "…" : messagePreview;
+        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
         var now = DateTimeOffset.UtcNow;
         await NotifyCarrierOfRouteTramoSubscriptionAcceptedCoreAsync(
-            cid, tid, preview, deciderLabel, deciderTrust, deciderUserId, now, cancellationToken);
+            cid, tid, preview, request.DeciderLabel, request.DeciderTrust, request.DeciderUserId, now, cancellationToken);
         await TryNotifyRouteTramoAcceptedSellerInboxAsync(
             tid,
             cid,
-            sellerInboxUserId,
-            sellerInboxPreview,
-            sellerInboxSubjectLabel,
-            sellerInboxSubjectTrust,
+            request.SellerInboxUserId,
+            request.SellerInboxPreview,
+            request.SellerInboxSubjectLabel,
+            request.SellerInboxSubjectTrust,
             now,
             cancellationToken);
     }
@@ -428,22 +400,16 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
     }
 
     public async Task NotifyRouteTramoSubscriptionRejectedAsync(
-        string carrierUserId,
-        string threadId,
-        string messagePreview,
-        string sellerLabel,
-        int sellerTrust,
-        string sellerUserId,
-        string? routeOfferId,
+        RouteTramoSubscriptionRejectedNotificationArgs request,
         CancellationToken cancellationToken = default)
     {
-        var tid = (threadId ?? "").Trim();
-        var cid = (carrierUserId ?? "").Trim();
+        var tid = (request.ThreadId ?? "").Trim();
+        var cid = (request.CarrierUserId ?? "").Trim();
         if (tid.Length < 4 || cid.Length < 2)
             return;
 
-        var oid = (routeOfferId ?? "").Trim();
-        var preview = messagePreview.Length > 500 ? messagePreview[..500] + "…" : messagePreview;
+        var oid = (request.RouteOfferId ?? "").Trim();
+        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
         var now = DateTimeOffset.UtcNow;
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
         db.ChatNotifications.Add(new ChatNotificationRow
@@ -454,9 +420,9 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
             MessageId = null,
             OfferId = oid.Length > 0 ? oid : null,
             MessagePreview = preview,
-            AuthorStoreName = (sellerLabel ?? "").Trim().Length > 0 ? sellerLabel.Trim() : "Vendedor",
-            AuthorTrustScore = sellerTrust,
-            SenderUserId = (sellerUserId ?? "").Trim(),
+            AuthorStoreName = (request.SellerLabel ?? "").Trim().Length > 0 ? request.SellerLabel.Trim() : "Vendedor",
+            AuthorTrustScore = request.SellerTrust,
+            SenderUserId = (request.SellerUserId ?? "").Trim(),
             CreatedAtUtc = now,
             ReadAtUtc = null,
             Kind = "route_tramo_subscribe_rejected",
@@ -477,18 +443,14 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
     }
 
     public Task BroadcastRouteTramoSubscriptionsChangedAsync(
-        string threadId,
-        string routeSheetId,
-        string change,
-        string actorUserId,
-        string? emergentPublicationOfferId = null,
+        RouteTramoSubscriptionsBroadcastArgs request,
         CancellationToken cancellationToken = default)
     {
-        var tid = (threadId ?? "").Trim();
-        var rsid = (routeSheetId ?? "").Trim();
-        var ch = (change ?? "").Trim().ToLowerInvariant();
-        var aid = (actorUserId ?? "").Trim();
-        var eid = (emergentPublicationOfferId ?? "").Trim();
+        var tid = (request.ThreadId ?? "").Trim();
+        var rsid = (request.RouteSheetId ?? "").Trim();
+        var ch = (request.Change ?? "").Trim().ToLowerInvariant();
+        var aid = (request.ActorUserId ?? "").Trim();
+        var eid = (request.EmergentPublicationOfferId ?? "").Trim();
         if (tid.Length < 4 || rsid.Length < 1 || ch.Length == 0)
             return Task.CompletedTask;
 

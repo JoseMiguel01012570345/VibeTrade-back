@@ -1,5 +1,3 @@
-using System.Text.Json;
-using JsonElement = System.Text.Json.JsonElement;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 
@@ -71,30 +69,17 @@ public interface IChatService
 
     /// <summary>Notificación por comentario público en la ficha de oferta (sin hilo de chat).</summary>
     Task NotifyOfferCommentAsync(
-        string recipientUserId,
-        string offerId,
-        string textPreview,
-        string authorLabel,
-        int authorTrust,
-        string senderUserId,
+        OfferCommentNotificationArgs request,
         CancellationToken cancellationToken = default);
 
     /// <summary>Me gusta nuevo en la oferta del vendedor (no al quitar like).</summary>
     Task NotifyOfferLikeAsync(
-        string sellerUserId,
-        string offerId,
-        string likerLabel,
-        int likerTrust,
-        string likerSenderUserId,
+        OfferLikeNotificationArgs request,
         CancellationToken cancellationToken = default);
 
     /// <summary>Me gusta nuevo en un comentario QA cuyo autor tiene cuenta.</summary>
     Task NotifyQaCommentLikeAsync(
-        string commentAuthorUserId,
-        string offerId,
-        string likerLabel,
-        int likerTrust,
-        string likerSenderUserId,
+        QaCommentLikeNotificationArgs request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -102,53 +87,28 @@ public interface IChatService
     /// <paramref name="metaJson"/> camelCase JSON con <c>routeSheetId</c>, <c>stopId</c>, <c>carrierUserId</c>.
     /// </summary>
     Task NotifyRouteTramoSubscriptionRequestAsync(
-        IReadOnlyCollection<string> recipientUserIds,
-        string threadId,
-        string messagePreview,
-        string authorLabel,
-        int authorTrust,
-        string carrierUserId,
-        string? metaJson,
+        RouteTramoSubscriptionRequestNotificationArgs request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Transportista y vendedor: confirmación de tramo (enlace al chat). Copia al vendedor opcional (p. ej. otro dispositivo).
     /// </summary>
     Task NotifyRouteTramoSubscriptionAcceptedAsync(
-        string carrierUserId,
-        string threadId,
-        string messagePreview,
-        string deciderLabel,
-        int deciderTrust,
-        string deciderUserId,
-        string? sellerInboxUserId = null,
-        string? sellerInboxPreview = null,
-        string? sellerInboxSubjectLabel = null,
-        int sellerInboxSubjectTrust = 0,
+        RouteTramoSubscriptionAcceptedNotificationArgs request,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Transportista: el vendedor rechazó la solicitud de tramo; <paramref name="routeOfferId"/> = publicación <c>emo_*</c> para <c>/offer/…</c>.</summary>
+    /// <summary>Transportista: el vendedor rechazó la solicitud de tramo; <c>RouteOfferId</c> = publicación <c>emo_*</c> para <c>/offer/…</c>.</summary>
     Task NotifyRouteTramoSubscriptionRejectedAsync(
-        string carrierUserId,
-        string threadId,
-        string messagePreview,
-        string sellerLabel,
-        int sellerTrust,
-        string sellerUserId,
-        string? routeOfferId,
+        RouteTramoSubscriptionRejectedNotificationArgs request,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Participantes del hilo (<c>JoinThread</c>) y, si aplica, la ficha emergente (<c>JoinOffer</c> con <c>emo_*</c>): suscripciones de tramo actualizadas.
-    /// <paramref name="change"/>: <c>request</c>, <c>accept</c>, <c>reject</c>.
-    /// <paramref name="actorUserId"/>: transportista que solicita, o vendedor que acepta/rechaza.
+    /// <c>Change</c>: <c>request</c>, <c>accept</c>, <c>reject</c>.
+    /// <c>ActorUserId</c>: transportista que solicita, o vendedor que acepta/rechaza.
     /// </summary>
     Task BroadcastRouteTramoSubscriptionsChangedAsync(
-        string threadId,
-        string routeSheetId,
-        string change,
-        string actorUserId,
-        string? emergentPublicationOfferId = null,
+        RouteTramoSubscriptionsBroadcastArgs request,
         CancellationToken cancellationToken = default);
 
     /// <summary>SignalR a clientes suscritos al grupo <c>offer:{offerId}</c> (ficha abierta).</summary>
@@ -182,18 +142,19 @@ public interface IChatService
 
     Task<IReadOnlyList<ChatMessageDto>> ListMessagesAsync(string userId, string threadId, CancellationToken cancellationToken = default);
 
-    Task<ChatMessageDto?> PostMessageAsync(string senderUserId, string threadId, JsonElement payload, CancellationToken cancellationToken = default);
+    Task<ChatMessageDto?> PostMessageAsync(
+        PostChatMessageArgs request,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Mensaje de acuerdo en el hilo (solo vendedor).</summary>
     Task<ChatMessageDto?> PostAgreementAnnouncementAsync(
-        string sellerUserId,
-        string threadId,
-        string agreementId,
-        string title,
-        string status,
+        PostAgreementAnnouncementArgs request,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Aviso de sistema en el hilo (texto informativo; actor = comprador o vendedor).</summary>
+    /// <summary>
+    /// Aviso de sistema en el hilo (texto informativo; actor = comprador o vendedor).
+    /// Requiere acceso al hilo (p. ej. expulsado sin acceso no puede publicar; comprador/vendedor con acceso sí, aunque aún no «vean» el hilo en listado por Initiator/FirstMessage).
+    /// </summary>
     Task<ChatMessageDto?> PostSystemThreadNoticeAsync(
         string actorUserId,
         string threadId,
@@ -208,10 +169,7 @@ public interface IChatService
 
     /// <summary>Actualiza entrega/lectura (solo participantes; destinatario para delivered/read).</summary>
     Task<ChatMessageDto?> UpdateMessageStatusAsync(
-        string userId,
-        string threadId,
-        string messageId,
-        ChatMessageStatus status,
+        UpdateChatMessageStatusArgs request,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ChatNotificationDto>> ListNotificationsAsync(string userId, CancellationToken cancellationToken = default);
@@ -225,8 +183,6 @@ public interface IChatService
     /// Comprador o vendedor con acuerdo aceptado: oculta el hilo solo para quien sale, guarda motivo para el resto y mantiene el hilo activo.
     /// </summary>
     Task<bool> SoftLeaveThreadAsPartyAsync(
-        string userId,
-        string threadId,
-        string reason,
+        PartySoftLeaveArgs request,
         CancellationToken cancellationToken = default);
 }

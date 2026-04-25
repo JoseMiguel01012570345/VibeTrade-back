@@ -84,11 +84,7 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
         await db.SaveChangesAsync(cancellationToken);
 
         await chat.PostAgreementAnnouncementAsync(
-            sellerUserId,
-            threadId,
-            id,
-            ag.Title,
-            "pending_buyer",
+            new PostAgreementAnnouncementArgs(sellerUserId, threadId, id, ag.Title, "pending_buyer"),
             cancellationToken);
 
         return await GetTrackedResponseAsync(id, cancellationToken);

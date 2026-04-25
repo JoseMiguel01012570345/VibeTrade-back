@@ -186,12 +186,11 @@ public sealed partial class ChatService
     }
 
     public async Task<ChatMessageDto?> PostMessageAsync(
-        string senderUserId,
-        string threadId,
-        JsonElement payload,
+        PostChatMessageArgs request,
         CancellationToken cancellationToken = default)
     {
-        var tid = (threadId ?? "").Trim();
+        var senderUserId = request.SenderUserId;
+        var tid = (request.ThreadId ?? "").Trim();
         if (tid.Length < 4)
             return null;
 
@@ -200,6 +199,7 @@ public sealed partial class ChatService
             || !await UserCanAccessThreadRowAsync(senderUserId, t, cancellationToken))
             return null;
 
+        var payload = request.Payload;
         if (payload.ValueKind != JsonValueKind.Object
             || !payload.TryGetProperty("type", out var typeEl)
             || typeEl.ValueKind != JsonValueKind.String)
@@ -393,19 +393,19 @@ public sealed partial class ChatService
     }
 
     public async Task<ChatMessageDto?> UpdateMessageStatusAsync(
-        string userId,
-        string threadId,
-        string messageId,
-        ChatMessageStatus status,
+        UpdateChatMessageStatusArgs request,
         CancellationToken cancellationToken = default)
     {
-        if (status is not (ChatMessageStatus.Delivered or ChatMessageStatus.Read))
+        if (request.Status is not (ChatMessageStatus.Delivered or ChatMessageStatus.Read))
             return null;
 
-        var tid = (threadId ?? "").Trim();
+        var tid = (request.ThreadId ?? "").Trim();
         if (tid.Length < 4)
             return null;
 
+        var userId = request.UserId;
+        var messageId = request.MessageId;
+        var status = request.Status;
         var ctx = await TryGetMessageStatusUpdateContextAsync(userId, tid, messageId, cancellationToken);
         if (ctx is null)
             return null;
@@ -559,14 +559,12 @@ public sealed partial class ChatService
 
     /// <inheritdoc />
     public async Task<bool> SoftLeaveThreadAsPartyAsync(
-        string userId,
-        string threadId,
-        string reason,
+        PartySoftLeaveArgs request,
         CancellationToken cancellationToken = default)
     {
-        var tid = (threadId ?? "").Trim();
-        var uid = (userId ?? "").Trim();
-        var reasonTrim = (reason ?? "").Trim();
+        var tid = (request.ThreadId ?? "").Trim();
+        var uid = (request.UserId ?? "").Trim();
+        var reasonTrim = (request.Reason ?? "").Trim();
         if (tid.Length < 4 || uid.Length < 2 || reasonTrim.Length < 1)
             return false;
 
@@ -965,29 +963,28 @@ public sealed partial class ChatService
     }
 
     public async Task<ChatMessageDto?> PostAgreementAnnouncementAsync(
-        string sellerUserId,
-        string threadId,
-        string agreementId,
-        string title,
-        string status,
+        PostAgreementAnnouncementArgs request,
         CancellationToken cancellationToken = default)
     {
+        var sellerUserId = request.SellerUserId;
+        var threadId = request.ThreadId;
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
             return null;
         if (sellerUserId != t.SellerUserId)
             return null;
-        if (string.IsNullOrWhiteSpace(agreementId) || string.IsNullOrWhiteSpace(title))
+        if (string.IsNullOrWhiteSpace(request.AgreementId) || string.IsNullOrWhiteSpace(request.Title))
             return null;
-        if (status is not ("pending_buyer" or "accepted" or "rejected"))
-            status = "pending_buyer";
+        var st = request.Status;
+        if (st is not ("pending_buyer" or "accepted" or "rejected"))
+            st = "pending_buyer";
 
         var payload = new ChatAgreementPayload
         {
-            AgreementId = agreementId.Trim(),
-            Title = title.Trim(),
+            AgreementId = request.AgreementId.Trim(),
+            Title = request.Title.Trim(),
             Body = "",
-            Status = status,
+            Status = st,
         };
         return await InsertChatMessageAsync(t, sellerUserId, payload, cancellationToken);
     }
@@ -999,16 +996,20 @@ public sealed partial class ChatService
         CancellationToken cancellationToken = default)
     {
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(actorUserId, t))
+        if (t is null || t.DeletedAtUtc is not null)
             return null;
-        if (actorUserId != t.BuyerUserId && actorUserId != t.SellerUserId)
+        var aid = (actorUserId ?? "").Trim();
+        if (!string.Equals(aid, t.BuyerUserId, StringComparison.Ordinal)
+            && !string.Equals(aid, t.SellerUserId, StringComparison.Ordinal))
+            return null;
+        if (!await UserCanAccessThreadRowAsync(aid, t, cancellationToken))
             return null;
         var tx = (text ?? "").Trim();
         if (tx.Length == 0 || tx.Length > 12_000)
             return null;
 
         var payload = new ChatSystemTextPayload { Text = tx };
-        return await InsertChatMessageAsync(t, actorUserId, payload, cancellationToken);
+        return await InsertChatMessageAsync(t, aid, payload, cancellationToken);
     }
 
     public async Task<ChatMessageDto?> PostAutomatedSystemThreadNoticeAsync(
