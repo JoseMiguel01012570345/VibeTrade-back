@@ -442,7 +442,7 @@ public sealed class RouteTramoSubscriptionService(
             distinctSheetIds, tid, cancellationToken);
 
         var applyTrustPenalty = hadConfirmed && anyRouteIncomplete;
-        if (thread.BuyerExpelledAtUtc is not null && thread.SellerExpelledAtUtc is not null)
+        if (thread.BuyerExpelledAtUtc is not null || thread.SellerExpelledAtUtc is not null)
             applyTrustPenalty = false;
 
         var now = DateTimeOffset.UtcNow;
