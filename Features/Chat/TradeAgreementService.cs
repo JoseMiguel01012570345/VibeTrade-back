@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Chat.Utils;
 
 namespace VibeTrade.Backend.Features.Chat;
 
@@ -50,7 +51,7 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
             return null;
 
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !ChatService.UserCanSeeThread(sellerUserId, t))
+        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
             return null;
         if (sellerUserId != t.SellerUserId)
             return null;
@@ -105,7 +106,7 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
 
         var t = await db.ChatThreads.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !ChatService.UserCanSeeThread(sellerUserId, t))
+        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
             return null;
         if (sellerUserId != t.SellerUserId)
             return null;
@@ -164,7 +165,7 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
         CancellationToken cancellationToken = default)
     {
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !ChatService.UserCanSeeThread(buyerUserId, t))
+        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(buyerUserId, t))
             return null;
         if (buyerUserId != t.BuyerUserId)
             return null;
@@ -199,7 +200,7 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
     {
         var t = await db.ChatThreads.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !ChatService.UserCanSeeThread(sellerUserId, t))
+        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
             return false;
         if (sellerUserId != t.SellerUserId)
             return false;
@@ -238,7 +239,7 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
             .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null
             || t.DeletedAtUtc is not null
-            || !ChatService.UserCanSeeThread(sellerUserId, t)
+            || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t)
             || sellerUserId != t.SellerUserId)
             return null;
 

@@ -9,22 +9,26 @@ namespace VibeTrade.Backend.Features.Chat;
 /// <summary>Realtime: grupos por hilo y por usuario. Autenticación con el mismo Bearer que la API.</summary>
 public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory) : Hub
 {
+    /// <summary>Id de usuario fijado en <see cref="OnConnectedAsync"/>; en WebSockets el <c>HttpContext</c>
+    /// de invocaciones posteriores a veces no reexpone <c>access_token</c> como en el negotiate.</summary>
+    private const string CtxUserId = "__vtUserId";
+
     public override async Task OnConnectedAsync()
     {
-        if (!TryGetUserId(out var userId))
+        if (!TryReadBearerUserId(out var userId))
         {
             Context.Abort();
             return;
         }
 
+        Context.Items[CtxUserId] = userId;
         await Groups.AddToGroupAsync(Context.ConnectionId, UserGroup(userId));
         await base.OnConnectedAsync();
     }
 
     public async Task JoinThread(string threadId)
     {
-        var http = Context.GetHttpContext();
-        if (http is null || !TryGetBearerHeader(http, out var bearerHeader))
+        if (!TryGetConnectionUserId(out var userId))
             throw new HubException("Unauthorized");
 
         var tid = (threadId ?? "").Trim();
@@ -32,15 +36,6 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
             throw new HubException("Forbidden");
 
         await using var scope = scopeFactory.CreateAsyncScope();
-        var scopedAuth = scope.ServiceProvider.GetRequiredService<IAuthService>();
-        if (!scopedAuth.TryGetUserByToken(bearerHeader, out var userEl))
-            throw new HubException("Unauthorized");
-        if (!userEl.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.String)
-            throw new HubException("Unauthorized");
-        var userId = (idEl.GetString() ?? "").Trim();
-        if (userId.Length == 0)
-            throw new HubException("Unauthorized");
-
         var chat = scope.ServiceProvider.GetRequiredService<IChatService>();
         var t = await chat.GetThreadIfVisibleAsync(userId, tid, Context.ConnectionAborted);
         if (t is null)
@@ -62,7 +57,7 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     /// <summary>Recibe <c>offerCommentsUpdated</c> cuando alguien publica en la ficha (mismo grupo que <see cref="ChatService.BroadcastOfferCommentsUpdatedAsync"/>).</summary>
     public async Task JoinOffer(string offerId)
     {
-        if (!TryGetUserId(out _))
+        if (!TryGetConnectionUserId(out _))
             throw new HubException("Unauthorized");
         var oid = (offerId ?? "").Trim();
         if (oid.Length < 2)
@@ -72,7 +67,7 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
 
     public Task LeaveOffer(string offerId)
     {
-        if (!TryGetUserId(out _))
+        if (!TryGetConnectionUserId(out _))
             return Task.CompletedTask;
         var oid = (offerId ?? "").Trim();
         if (oid.Length < 2)
@@ -83,8 +78,7 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     /// <summary>Aviso explícito «salir»: notifica al resto y luego desconecta del grupo.</summary>
     public async Task NotifyOthersUserLeftChat(string threadId)
     {
-        var http = Context.GetHttpContext();
-        if (http is null || !TryGetBearerHeader(http, out var bearerHeader))
+        if (!TryGetConnectionUserId(out var userId))
             throw new HubException("Unauthorized");
 
         var tid = (threadId ?? "").Trim();
@@ -92,15 +86,6 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
             return;
 
         await using var scope = scopeFactory.CreateAsyncScope();
-        var scopedAuth = scope.ServiceProvider.GetRequiredService<IAuthService>();
-        if (!scopedAuth.TryGetUserByToken(bearerHeader, out var userEl))
-            throw new HubException("Unauthorized");
-        if (!userEl.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.String)
-            throw new HubException("Unauthorized");
-        var userId = (idEl.GetString() ?? "").Trim();
-        if (userId.Length == 0)
-            throw new HubException("Unauthorized");
-
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var chat = scope.ServiceProvider.GetRequiredService<IChatService>();
         var t = await chat.GetThreadIfVisibleAsync(userId, tid, Context.ConnectionAborted);
@@ -160,7 +145,24 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
         return false;
     }
 
-    private bool TryGetUserId(out string userId)
+    /// <summary>Prioriza <see cref="CtxUserId"/> (set en <c>OnConnected</c>); luego reintenta leer el Bearer
+    /// (mismo criterio que el negotiate).</summary>
+    private bool TryGetConnectionUserId(out string userId)
+    {
+        if (Context.Items.TryGetValue(CtxUserId, out var o) && o is string cached)
+        {
+            var c = cached.Trim();
+            if (c.Length > 0)
+            {
+                userId = c;
+                return true;
+            }
+        }
+
+        return TryReadBearerUserId(out userId);
+    }
+
+    private bool TryReadBearerUserId(out string userId)
     {
         userId = "";
         var http = Context.GetHttpContext();

@@ -168,7 +168,7 @@ public interface IChatService
     Task<ChatThreadDto?> GetThreadIfVisibleAsync(string userId, string threadId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Comprador/vendedor del hilo (reglas <see cref="ChatService.UserCanSeeThread"/>) o transportista con suscripción a tramo en este hilo.
+    /// Comprador/vendedor del hilo (reglas <see cref="T:VibeTrade.Backend.Features.Chat.Utils.ChatThreadAccess" />, método UserCanSeeThread) o transportista con suscripción a tramo en este hilo.
     /// </summary>
     Task<bool> UserCanAccessThreadRowAsync(
         string userId,

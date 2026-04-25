@@ -4,6 +4,7 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Chat.Utils;
 using VibeTrade.Backend.Features.Trust;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -105,7 +106,7 @@ public sealed class RouteTramoSubscriptionService(
 
         if (!await chat.UserCanAccessThreadRowAsync(uid, thread, cancellationToken))
             return null;
-        var narrowToCarrierOnly = !ChatService.UserCanSeeThread(uid, thread);
+        var narrowToCarrierOnly = !ChatThreadAccess.UserCanSeeThread(uid, thread);
 
         var publishedSheets = await db.ChatRouteSheets.AsNoTracking()
             .Where(x => x.ThreadId == tid && x.DeletedAtUtc == null && x.PublishedToPlatform)
@@ -189,7 +190,7 @@ public sealed class RouteTramoSubscriptionService(
         return dtos
             .Where(dto =>
                 string.Equals((dto.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase)
-                || ChatService.UserIdsMatchLoose(v, dto.CarrierUserId))
+                || ChatThreadAccess.UserIdsMatchLoose(v, dto.CarrierUserId))
             .ToList();
     }
 
@@ -526,7 +527,7 @@ public sealed class RouteTramoSubscriptionService(
             return null;
         if (!await chat.UserCanAccessThreadRowAsync(uid, thread, cancellationToken))
             return null;
-        if (ChatService.UserCanSeeThread(uid, thread))
+        if (ChatThreadAccess.UserCanSeeThread(uid, thread))
             return null;
 
         var subs = await db.RouteTramoSubscriptions

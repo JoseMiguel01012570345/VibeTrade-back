@@ -4,6 +4,7 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Chat.Utils;
 using VibeTrade.Backend.Features.Trust;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -44,7 +45,7 @@ public sealed class RouteSheetChatService(
         CancellationToken cancellationToken = default)
     {
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !ChatService.UserCanSeeThread(userId, t))
+        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(userId, t))
             return false;
 
         var rsId = (routeSheetId ?? "").Trim();
@@ -215,7 +216,7 @@ public sealed class RouteSheetChatService(
         CancellationToken cancellationToken = default)
     {
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !ChatService.UserCanSeeThread(userId, t))
+        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(userId, t))
             return false;
 
         var rsId = (routeSheetId ?? "").Trim();
@@ -347,7 +348,7 @@ public sealed class RouteSheetChatService(
             .ToListAsync(cancellationToken);
         if (!subsConfirmed.Any(x =>
                 string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase)
-                && ChatService.UserIdsMatchLoose(cid, x.CarrierUserId)))
+                && ChatThreadAccess.UserIdsMatchLoose(cid, x.CarrierUserId)))
             return false;
 
         var carrierName =
@@ -370,7 +371,7 @@ public sealed class RouteSheetChatService(
                     && x.RouteSheetId == rsid
                     && x.Status != "withdrawn")
                 .ToListAsync(cancellationToken);
-            subs = subs.Where(x => ChatService.UserIdsMatchLoose(cid, x.CarrierUserId)).ToList();
+            subs = subs.Where(x => ChatThreadAccess.UserIdsMatchLoose(cid, x.CarrierUserId)).ToList();
             foreach (var s in subs)
             {
                 s.Status = "withdrawn";
@@ -419,7 +420,7 @@ public sealed class RouteSheetChatService(
             if (k.Length == 0) continue;
             if (string.Equals(k, v, StringComparison.Ordinal))
                 return kv.Key;
-            if (ChatService.UserIdsMatchLoose(v, kv.Key))
+            if (ChatThreadAccess.UserIdsMatchLoose(v, kv.Key))
                 return kv.Key;
         }
         return null;

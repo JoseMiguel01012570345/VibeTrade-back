@@ -550,6 +550,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.CreatedAtUtc);
             e.Property(x => x.UpdatedAtUtc);
             e.Property(x => x.DeletedAtUtc);
+            e.Property(x => x.GroupReceiptsJson);
             e.HasIndex(x => x.ThreadId);
             e.HasIndex(x => new { x.ThreadId, x.CreatedAtUtc });
         });

@@ -18,6 +18,11 @@ public sealed class ChatMessageRow
 
     public ChatMessageStatus Status { get; set; } = ChatMessageStatus.Sent;
 
+    /// <summary>
+    /// JSON (ver <see cref="VibeTrade.Backend.Data.ChatMessageGroupReceipts"/>). Sólo grupos; si es null, aplica <see cref="Status"/> 1:1.
+    /// </summary>
+    public string? GroupReceiptsJson { get; set; }
+
     /// <summary>UTC: instante de envío.</summary>
     public DateTimeOffset CreatedAtUtc { get; set; }
 
