@@ -5,7 +5,7 @@ using VibeTrade.Backend.Data.RouteSheets;
 
 namespace VibeTrade.Backend.Features.Chat;
 
-/// <summary>Detecta transportistas afectados por edición de paradas (alineado al fingerprint del cliente).</summary>
+/// <summary>Detecta transportistas confirmados afectados por cambios en datos del tramo distintos del teléfono de contacto.</summary>
 public static class RouteSheetEditAckComputation
 {
     /// <summary>Descuento a la tienda al eliminar hoja con transportistas confirmados (demo).</summary>
@@ -41,6 +41,30 @@ public static class RouteSheetEditAckComputation
             t2 = (p.TiempoEntregaEstimado ?? "").Trim(),
             pr = (p.PrecioTransportista ?? "").Trim(),
             tel = (p.TelefonoTransportista ?? "").Trim(),
+            cg = (p.CargaEnTramo ?? "").Trim(),
+            tmc = (p.TipoMercanciaCarga ?? "").Trim(),
+            tmd = (p.TipoMercanciaDescarga ?? "").Trim(),
+            no = (p.Notas ?? "").Trim(),
+            re = (p.ResponsabilidadEmbalaje ?? "").Trim(),
+            rq = (p.RequisitosEspeciales ?? "").Trim(),
+            ve = (p.TipoVehiculoRequerido ?? "").Trim(),
+            mon = (p.MonedaPago ?? "").Trim(),
+        });
+
+    /// <summary>Misma serialización que <see cref="RouteStopFingerprint"/> sin teléfono: acuse de edición solo si cambió otro dato del tramo.</summary>
+    public static string RouteStopFingerprintExcludingPhone(RouteStopPayload p) =>
+        JsonSerializer.Serialize(new
+        {
+            orden = p.Orden,
+            origen = (p.Origen ?? "").Trim(),
+            destino = (p.Destino ?? "").Trim(),
+            olat = (p.OrigenLat ?? "").Trim(),
+            olng = (p.OrigenLng ?? "").Trim(),
+            dlat = (p.DestinoLat ?? "").Trim(),
+            dlng = (p.DestinoLng ?? "").Trim(),
+            t1 = (p.TiempoRecogidaEstimado ?? "").Trim(),
+            t2 = (p.TiempoEntregaEstimado ?? "").Trim(),
+            pr = (p.PrecioTransportista ?? "").Trim(),
             cg = (p.CargaEnTramo ?? "").Trim(),
             tmc = (p.TipoMercanciaCarga ?? "").Trim(),
             tmd = (p.TipoMercanciaDescarga ?? "").Trim(),
@@ -100,7 +124,10 @@ public static class RouteSheetEditAckComputation
                 affected.Add(sub.CarrierUserId);
                 continue;
             }
-            if (!string.Equals(RouteStopFingerprint(oldP), RouteStopFingerprint(newP), StringComparison.Ordinal))
+            if (!string.Equals(
+                    RouteStopFingerprintExcludingPhone(oldP),
+                    RouteStopFingerprintExcludingPhone(newP),
+                    StringComparison.Ordinal))
                 affected.Add(sub.CarrierUserId);
         }
 
@@ -132,6 +159,40 @@ public static class RouteSheetEditAckComputation
         }
 
         return new RouteSheetEditAckPayload { Revision = prevRev + 1, ByCarrier = nextBy };
+    }
+
+    /// <summary>
+    /// Cuando ningún tramo confirmado cambió en campos distintos al teléfono: quita <c>pending</c>
+    /// para que no quede bloqueado el acuse (p. ej. solo se editó contacto en el tramo).
+    /// </summary>
+    public static RouteSheetEditAckPayload? AckAfterSaveWhenNoCarrierAffectedByStopEdits(
+        RouteSheetEditAckPayload prevAck,
+        HashSet<string> confirmedCarrierIds)
+    {
+        if (confirmedCarrierIds.Count == 0)
+            return prevAck;
+        var prevBy = prevAck.ByCarrier ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        var nextBy = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var kv in prevBy)
+            nextBy[kv.Key] = kv.Value;
+        var changed = false;
+        foreach (var uid in confirmedCarrierIds)
+        {
+            if (!nextBy.TryGetValue(uid, out var st))
+                continue;
+            if (!string.Equals(st.Trim(), "pending", StringComparison.OrdinalIgnoreCase))
+                continue;
+            nextBy[uid] = "accepted";
+            changed = true;
+        }
+
+        if (!changed)
+            return prevAck;
+        return new RouteSheetEditAckPayload
+        {
+            Revision = prevAck.Revision + 1,
+            ByCarrier = nextBy,
+        };
     }
 
     public static string BuildEditNoticeText(

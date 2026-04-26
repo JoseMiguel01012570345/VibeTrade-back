@@ -56,6 +56,13 @@ public interface IRouteTramoSubscriptionService
         string carrierUserId,
         string reason,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Transportista cuyo teléfono figura en la hoja: <c>Accepted</c> suscribe; si no, notifica rechazo al vendedor.
+    /// </summary>
+    Task<bool> CarrierRespondPreselectedRouteInviteAsync(
+        CarrierPreselInviteRequest request,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Resultado de <see cref="IRouteTramoSubscriptionService.WithdrawCarrierFromThreadAsync"/>.</summary>

@@ -9,6 +9,16 @@ public interface IRouteSheetChatService
         string threadId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Vista de hoja para invitación presel: el transportista autenticado tiene su teléfono en un tramo.
+    /// No requiere acceso al hilo de chat.
+    /// </summary>
+    Task<RouteSheetPayload?> GetPreselPreviewForCarrierAsync(
+        string carrierUserId,
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken = default);
+
     Task<bool> UpsertAsync(
         string userId,
         string threadId,
@@ -27,13 +37,13 @@ public interface IRouteSheetChatService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Aviso in-app a cuentas registradas cuyo teléfono figura en <paramref name="rawPhones"/> (p. ej. tramos de la hoja).
+    /// Aviso in-app por tramos donde el teléfono cambió al guardar (<paramref name="invites"/>).
     /// Requiere acceso al hilo.
     /// </summary>
     Task<int> NotifyPreselectedTransportistasAsync(
         string editorUserId,
         string threadId,
         string routeSheetId,
-        IReadOnlyList<string> rawPhones,
+        IReadOnlyList<RouteSheetPreselectedInvite> invites,
         CancellationToken cancellationToken = default);
 }

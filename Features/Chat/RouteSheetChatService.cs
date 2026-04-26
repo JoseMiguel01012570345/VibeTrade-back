@@ -37,6 +37,62 @@ public sealed class RouteSheetChatService(
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<RouteSheetPayload?> GetPreselPreviewForCarrierAsync(
+        string carrierUserId,
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken = default)
+    {
+        var uid = (carrierUserId ?? "").Trim();
+        var tid = (threadId ?? "").Trim();
+        var rsid = (routeSheetId ?? "").Trim();
+        if (uid.Length < 2 || tid.Length < 4 || rsid.Length < 1)
+            return null;
+
+        var thread = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (thread is null || thread.DeletedAtUtc is not null)
+            return null;
+
+        var carrier = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == uid, cancellationToken);
+        if (carrier is null)
+            return null;
+        var carrierDigits = (carrier.PhoneDigits ?? "").Trim();
+        if (carrierDigits.Length < 6)
+            return null;
+
+        var sheetRow = await db.ChatRouteSheets.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
+                cancellationToken);
+        if (sheetRow is null)
+            return null;
+
+        var payload = sheetRow.Payload;
+        payload.Paradas ??= new List<RouteStopPayload>();
+        var matched = false;
+        foreach (var p in payload.Paradas)
+        {
+            var d = DigitsOnly(p.TelefonoTransportista);
+            if (d.Length >= 6 && string.Equals(d, carrierDigits, StringComparison.Ordinal))
+            {
+                matched = true;
+                break;
+            }
+        }
+        if (!matched)
+            return null;
+
+        var json = JsonSerializer.Serialize(payload, RouteSheetJson.Options);
+        var copy = JsonSerializer.Deserialize<RouteSheetPayload>(json, RouteSheetJson.Options);
+        if (copy is null)
+            return null;
+        copy.Id = rsid;
+        copy.ThreadId = tid;
+        return copy;
+    }
+
     public async Task<bool> UpsertAsync(
         string userId,
         string threadId,
@@ -92,11 +148,12 @@ public sealed class RouteSheetChatService(
             affectedForNotice = affected;
             confirmedRowsForNotice = confirmedOnSheet;
             nextAck = RouteSheetEditAckComputation.BuildNextEditAck(oldSnapshot.RouteSheetEditAck, confirmedIds, affected);
-            if (nextAck is null
+            if (affected.Count == 0
                 && confirmedIds.Count > 0
-                && affected.Count == 0
                 && oldSnapshot.RouteSheetEditAck is not null)
-                nextAck = oldSnapshot.RouteSheetEditAck;
+                nextAck = RouteSheetEditAckComputation.AckAfterSaveWhenNoCarrierAffectedByStopEdits(
+                    oldSnapshot.RouteSheetEditAck,
+                    confirmedIds);
             merged.RouteSheetEditAck = nextAck;
         }
         else
@@ -419,7 +476,7 @@ public sealed class RouteSheetChatService(
         string editorUserId,
         string threadId,
         string routeSheetId,
-        IReadOnlyList<string> rawPhones,
+        IReadOnlyList<RouteSheetPreselectedInvite> invites,
         CancellationToken cancellationToken = default)
     {
         var tid = (threadId ?? "").Trim();
@@ -427,7 +484,7 @@ public sealed class RouteSheetChatService(
         var eid = (editorUserId ?? "").Trim();
         if (tid.Length < 4 || rsid.Length < 1 || eid.Length < 2)
             return -1;
-        if (rawPhones is null || rawPhones.Count == 0)
+        if (invites is null || invites.Count == 0)
             return -1;
 
         var thread = await db.ChatThreads.AsNoTracking()
@@ -459,24 +516,60 @@ public sealed class RouteSheetChatService(
         var authorTrust = editor.TrustScore;
 
         var messageBase = title.Length > 0
-            ? $"Te indicaron como contacto de transporte en la hoja de ruta «{title}». Abrí el chat de la operación para ver el detalle del tramo."
-            : "Te indicaron como contacto de transporte en una hoja de ruta. Abrí el chat de la operación para ver el detalle del tramo.";
+            ? $"Te indicaron como contacto de transporte en la hoja de ruta «{title}». Abrí la notificación para ver el mapa, la tarifa y aceptar o rechazar la invitación."
+            : "Te indicaron como contacto de transporte en una hoja de ruta. Abrí la notificación para ver el mapa, la tarifa y aceptar o rechazar la invitación.";
 
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var n = 0;
-        foreach (var raw in rawPhones)
+        var subsForSheet = await db.RouteTramoSubscriptions
+            .Where(x => x.ThreadId == tid && x.RouteSheetId == rsid)
+            .ToListAsync(cancellationToken);
+
+        var byRecipient = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var inv in invites)
         {
-            var digits = DigitsOnly(raw);
-            if (digits.Length < 6)
+            var stopId = (inv.StopId ?? "").Trim();
+            if (stopId.Length < 1)
                 continue;
+            var inviteDigits = DigitsOnly(inv.Phone);
+            if (inviteDigits.Length < 6)
+                continue;
+
+            var parada = sheetRow.Payload.Paradas?
+                .FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), stopId, StringComparison.Ordinal));
+            if (parada is null)
+                continue;
+            var onSheetDigits = DigitsOnly(parada.TelefonoTransportista);
+            if (!string.Equals(onSheetDigits, inviteDigits, StringComparison.Ordinal))
+                continue;
+
             var acc = await db.UserAccounts.AsNoTracking()
-                .FirstOrDefaultAsync(x => x.PhoneDigits == digits, cancellationToken);
+                .FirstOrDefaultAsync(x => x.PhoneDigits == inviteDigits, cancellationToken);
             if (acc is null)
                 continue;
             var uid = (acc.Id ?? "").Trim();
             if (uid.Length < 2 || string.Equals(uid, eid, StringComparison.Ordinal))
                 continue;
-            if (!seen.Add(uid))
+
+            if (!byRecipient.TryGetValue(uid, out var stopSet))
+            {
+                stopSet = new HashSet<string>(StringComparer.Ordinal);
+                byRecipient[uid] = stopSet;
+            }
+
+            stopSet.Add(stopId);
+        }
+
+        var n = 0;
+        foreach (var kv in byRecipient)
+        {
+            var uid = kv.Key;
+            var stopIdsForRecipient = kv.Value.ToList();
+            if (stopIdsForRecipient.Count == 0)
+                continue;
+            if (ShouldSkipPreselectedNotifyForRecipient(
+                    sheetRow.Payload,
+                    uid,
+                    stopIdsForRecipient,
+                    subsForSheet))
                 continue;
             await chat.NotifyRouteSheetPreselectedTransportistaAsync(
                 new RouteSheetPreselectedTransportistaNotificationArgs(
@@ -487,12 +580,85 @@ public sealed class RouteSheetChatService(
                     messageBase,
                     authorLabel,
                     authorTrust,
-                    eid),
+                    eid,
+                    stopIdsForRecipient),
                 cancellationToken);
+            ApplyStopContentFingerprintsAfterPreselectedNotify(
+                sheetRow.Payload,
+                subsForSheet,
+                uid,
+                stopIdsForRecipient);
             n++;
         }
 
+        if (n > 0)
+            await db.SaveChangesAsync(cancellationToken);
+
         return n;
+    }
+
+    /// <summary>No re-notificar presel si para cada tramo con ese teléfono ya hay suscripción pending/confirmed y el fingerprint del tramo coincide.</summary>
+    private static bool ShouldSkipPreselectedNotifyForRecipient(
+        RouteSheetPayload payload,
+        string recipientUserId,
+        IReadOnlyList<string> stopIdsForRecipient,
+        IReadOnlyList<RouteTramoSubscriptionRow> subsForSheet)
+    {
+        foreach (var stopId in stopIdsForRecipient)
+        {
+            var sid = (stopId ?? "").Trim();
+            if (sid.Length == 0)
+                return false;
+            var parada = payload.Paradas?
+                .FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
+            if (parada is null)
+                return false;
+            var fp = RouteSheetEditAckComputation.RouteStopFingerprint(parada);
+            var sub = subsForSheet.FirstOrDefault(s =>
+                string.Equals((s.StopId ?? "").Trim(), sid, StringComparison.Ordinal)
+                && ChatThreadAccess.UserIdsMatchLoose(recipientUserId, s.CarrierUserId));
+            if (sub is null)
+                return false;
+            var st = (sub.Status ?? "").Trim().ToLowerInvariant();
+            if (st is "rejected" or "withdrawn")
+                return false;
+            if (st is "pending" or "confirmed")
+            {
+                if (!string.Equals(fp, sub.StopContentFingerprint ?? "", StringComparison.Ordinal))
+                    return false;
+            }
+            else
+                return false;
+        }
+
+        return true;
+    }
+
+    private static void ApplyStopContentFingerprintsAfterPreselectedNotify(
+        RouteSheetPayload payload,
+        List<RouteTramoSubscriptionRow> subsForSheet,
+        string recipientUserId,
+        IReadOnlyList<string> stopIdsForRecipient)
+    {
+        foreach (var stopId in stopIdsForRecipient)
+        {
+            var sid = (stopId ?? "").Trim();
+            if (sid.Length == 0)
+                continue;
+            var parada = payload.Paradas?
+                .FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
+            if (parada is null)
+                continue;
+            var fp = RouteSheetEditAckComputation.RouteStopFingerprint(parada);
+            foreach (var sub in subsForSheet)
+            {
+                if (!string.Equals((sub.StopId ?? "").Trim(), sid, StringComparison.Ordinal))
+                    continue;
+                if (!ChatThreadAccess.UserIdsMatchLoose(recipientUserId, sub.CarrierUserId))
+                    continue;
+                sub.StopContentFingerprint = fp;
+            }
+        }
     }
 
     private static string DigitsOnly(string? raw)

@@ -82,7 +82,19 @@ public sealed record RouteSheetPreselectedTransportistaNotificationArgs(
     string MessagePreview,
     string AuthorLabel,
     int AuthorTrust,
-    string SenderUserId);
+    string SenderUserId,
+    IReadOnlyList<string>? StopIds = null);
+
+/// <summary>Vendedor del hilo: el transportista rechazó la invitación por contacto preseleccionado en la hoja.</summary>
+public sealed record RouteSheetPreselDeclinedByCarrierNotificationArgs(
+    string SellerUserId,
+    string ThreadId,
+    string OfferId,
+    string RouteSheetId,
+    string CarrierDisplayName,
+    int CarrierTrustScore,
+    string CarrierUserId,
+    string MessagePreview);
 
 public sealed record PostChatMessageArgs(
     string SenderUserId,

@@ -282,6 +282,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.StoreServiceId).HasMaxLength(64);
             e.Property(x => x.TransportServiceLabel).HasMaxLength(512);
             e.Property(x => x.Status).HasMaxLength(24);
+            e.Property(x => x.StopContentFingerprint).HasMaxLength(2048);
             e.Property(x => x.CreatedAtUtc);
             e.Property(x => x.UpdatedAtUtc);
             e.HasIndex(x => x.ThreadId);

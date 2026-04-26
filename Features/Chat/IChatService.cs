@@ -112,6 +112,11 @@ public interface IChatService
         RouteSheetPreselectedTransportistaNotificationArgs request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Vendedor del hilo: el transportista rechazó integrarse tras figurar como contacto en la hoja.</summary>
+    Task NotifyRouteSheetPreselDeclinedByCarrierAsync(
+        RouteSheetPreselDeclinedByCarrierNotificationArgs request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Participantes del hilo (<c>JoinThread</c>) y, si aplica, la ficha emergente (<c>JoinOffer</c> con <c>emo_*</c>): suscripciones de tramo actualizadas.
     /// <c>Change</c>: <c>request</c>, <c>accept</c>, <c>reject</c>.
@@ -139,7 +144,8 @@ public interface IChatService
     Task<ChatThreadDto?> GetThreadIfVisibleAsync(string userId, string threadId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Comprador/vendedor del hilo (reglas <see cref="T:VibeTrade.Backend.Features.Chat.Utils.ChatThreadAccess" />, método UserCanSeeThread) o transportista con suscripción a tramo en este hilo.
+    /// Comprador/vendedor del hilo (reglas <see cref="T:VibeTrade.Backend.Features.Chat.Utils.ChatThreadAccess" />, método UserCanSeeThread)
+    /// o transportista con suscripción <c>pending</c> o <c>confirmed</c> (no <c>rejected</c> ni <c>withdrawn</c>).
     /// </summary>
     Task<bool> UserCanAccessThreadRowAsync(
         string userId,

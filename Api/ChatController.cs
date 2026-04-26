@@ -257,6 +257,31 @@ public sealed class ChatController(
     }
 
     /// <summary>
+    /// Transportista invitado (teléfono en tramo): datos de la hoja para modal presel sin acceso al hilo de chat.
+    /// </summary>
+    [HttpGet("threads/{threadId}/route-sheets/{routeSheetId}/presel-preview")]
+    [ProducesResponseType(typeof(RouteSheetPayload), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetRouteSheetPreselPreview(
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var payload = await routeSheets.GetPreselPreviewForCarrierAsync(
+            userId,
+            threadId,
+            routeSheetId,
+            cancellationToken);
+        if (payload is null)
+            return NotFound();
+        return Ok(payload);
+    }
+
+    /// <summary>
     /// Suscripciones a tramos registradas en servidor para hojas publicadas en este hilo (visor en chat).
     /// </summary>
     [HttpGet("threads/{threadId}/route-tramo-subscriptions")]
@@ -433,10 +458,10 @@ public sealed class ChatController(
         return NoContent();
     }
 
-    public sealed record NotifyPreselectedBody(string[]? Phones);
+    public sealed record NotifyPreselectedBody(RouteSheetPreselectedInvite[]? Invites);
 
     /// <summary>
-    /// Tras guardar la hoja: notifica a usuarios registrados cuyo teléfono aparece en <c>phones</c> (mismo criterio que tramos de la hoja).
+    /// Tras guardar la hoja: notifica solo por tramos incluidos en <c>invites</c> (teléfono nuevo o modificado en ese tramo).
     /// </summary>
     [HttpPost("threads/{threadId}/route-sheets/{routeSheetId}/notify-preselected")]
     [Consumes("application/json")]
@@ -453,13 +478,13 @@ public sealed class ChatController(
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
-        if (body?.Phones is null || body.Phones.Length == 0)
-            return BadRequest(new { error = "invalid_body", message = "Indicá al menos un teléfono." });
+        if (body?.Invites is null || body.Invites.Length == 0)
+            return BadRequest(new { error = "invalid_body", message = "Indicá al menos un tramo con teléfono a notificar." });
         var n = await routeSheets.NotifyPreselectedTransportistasAsync(
             userId,
             threadId,
             routeSheetId,
-            body.Phones,
+            body.Invites,
             cancellationToken);
         if (n < 0)
             return NotFound(new { error = "not_found", message = "Hilo o hoja no encontrados, o sin permiso." });
@@ -467,6 +492,41 @@ public sealed class ChatController(
     }
 
     public sealed record NotifyPreselectedResult(int NotifiedCount);
+
+    public sealed record CarrierPreselInviteBody(string RouteSheetId, string? StopId, bool Accepted);
+
+    /// <summary>
+    /// Transportista invitado vía teléfono en la hoja: <c>Accepted</c> true = suscripción y acceso al hilo;
+    /// false = rechazo y notificación al vendedor.
+    /// </summary>
+    [HttpPost("threads/{threadId}/route-sheet-presel-invite")]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostCarrierRespondPreselInvite(
+        string threadId,
+        [FromBody] CarrierPreselInviteBody? body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        if (body is null || string.IsNullOrWhiteSpace(body.RouteSheetId))
+            return BadRequest(new { error = "invalid_body" });
+        var stop = string.IsNullOrWhiteSpace(body.StopId) ? null : body.StopId.Trim();
+        var rsid = body.RouteSheetId.Trim();
+        var ok = await routeTramoSubscriptions.CarrierRespondPreselectedRouteInviteAsync(
+            new CarrierPreselInviteRequest(userId, threadId, rsid, stop, body.Accepted),
+            cancellationToken);
+        var errMsg = body.Accepted
+            ? "No se pudo confirmar (teléfono en hoja, hilo o permisos)."
+            : "No se pudo registrar el rechazo.";
+        if (!ok)
+            return NotFound(new { error = "not_found", message = errMsg });
+        return Ok(new { ok = true, accepted = body.Accepted });
+    }
 
     /// <summary>Elimina una hoja de ruta persistida y retira la señal emergente asociada.</summary>
     [HttpDelete("threads/{threadId}/route-sheets/{routeSheetId}")]

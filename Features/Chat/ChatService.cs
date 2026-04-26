@@ -22,7 +22,10 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         if (thread.SellerExpelledAtUtc is null && !string.IsNullOrWhiteSpace(thread.SellerUserId))
             set.Add(thread.SellerUserId.Trim());
         var carriers = await db.RouteTramoSubscriptions.AsNoTracking()
-            .Where(x => x.ThreadId == thread.Id && x.Status != "withdrawn")
+            .Where(x =>
+                x.ThreadId == thread.Id
+                && x.Status != "rejected"
+                && x.Status != "withdrawn")
             .Select(x => x.CarrierUserId)
             .ToListAsync(cancellationToken);
         foreach (var c in carriers)
@@ -51,7 +54,11 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         CancellationToken cancellationToken) =>
         await db.RouteTramoSubscriptions.AsNoTracking()
             .AnyAsync(
-                x => x.ThreadId == threadId && x.CarrierUserId == userId && x.Status != "withdrawn",
+                x =>
+                    x.ThreadId == threadId
+                    && x.CarrierUserId == userId
+                    && x.Status != "rejected"
+                    && x.Status != "withdrawn",
                 cancellationToken);
 
     private async Task HubSendToThreadParticipantsAsync(
@@ -99,13 +106,17 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
                 .AnyAsync(
                     x => x.ThreadId == thread.Id
                         && x.CarrierUserId == uid
+                        && x.Status != "rejected"
                         && x.Status != "withdrawn",
                     cancellationToken))
             return true;
 
         // Misma fila pero id guardado con otro formato (p. ej. prefijos / solo dígitos).
         var carrierIds = await db.RouteTramoSubscriptions.AsNoTracking()
-            .Where(x => x.ThreadId == thread.Id && x.Status != "withdrawn")
+            .Where(x =>
+                x.ThreadId == thread.Id
+                && x.Status != "rejected"
+                && x.Status != "withdrawn")
             .Select(x => x.CarrierUserId)
             .Distinct()
             .ToListAsync(cancellationToken);
@@ -502,7 +513,12 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         var preview = request.MessagePreview.Length > 500
             ? request.MessagePreview[..500] + "…"
             : request.MessagePreview;
-        var meta = System.Text.Json.JsonSerializer.Serialize(new { routeSheetId = rsid });
+        var stopIds = request.StopIds?
+            .Select(x => (x ?? "").Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray() ?? [];
+        var meta = System.Text.Json.JsonSerializer.Serialize(new { routeSheetId = rsid, stopIds });
         var now = DateTimeOffset.UtcNow;
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
         db.ChatNotifications.Add(new ChatNotificationRow
@@ -530,6 +546,57 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
                 threadId = tid,
                 offerId = oid,
                 routeSheetId = rsid,
+                stopIds = stopIds.Length > 0 ? stopIds : null,
+            },
+            cancellationToken);
+    }
+
+    public async Task NotifyRouteSheetPreselDeclinedByCarrierAsync(
+        RouteSheetPreselDeclinedByCarrierNotificationArgs request,
+        CancellationToken cancellationToken = default)
+    {
+        var sellerId = (request.SellerUserId ?? "").Trim();
+        var tid = (request.ThreadId ?? "").Trim();
+        var oid = (request.OfferId ?? "").Trim();
+        var rsid = (request.RouteSheetId ?? "").Trim();
+        var cid = (request.CarrierUserId ?? "").Trim();
+        if (sellerId.Length < 2 || tid.Length < 4 || oid.Length < 2 || rsid.Length < 1 || cid.Length < 2)
+            return;
+
+        var preview = request.MessagePreview.Length > 500
+            ? request.MessagePreview[..500] + "…"
+            : request.MessagePreview;
+        var meta = System.Text.Json.JsonSerializer.Serialize(new { routeSheetId = rsid, carrierUserId = cid });
+        var now = DateTimeOffset.UtcNow;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = sellerId,
+            ThreadId = tid,
+            MessageId = null,
+            OfferId = oid,
+            MessagePreview = preview,
+            AuthorStoreName = (request.CarrierDisplayName ?? "").Trim().Length > 0
+                ? request.CarrierDisplayName.Trim()
+                : "Transportista",
+            AuthorTrustScore = request.CarrierTrustScore,
+            SenderUserId = cid,
+            CreatedAtUtc = now,
+            ReadAtUtc = null,
+            Kind = "route_sheet_presel_decl",
+            MetaJson = meta,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await hub.Clients.Group(ChatHubGroupNames.ForUser(sellerId)).SendAsync(
+            "notificationCreated",
+            new
+            {
+                kind = "route_sheet_presel_decl",
+                threadId = tid,
+                offerId = oid,
+                routeSheetId = rsid,
+                carrierUserId = cid,
             },
             cancellationToken);
     }
@@ -878,7 +945,7 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         string uid,
         CancellationToken cancellationToken)
     {
-        // Comprador/vendedor (como antes) ∪ hilos donde el usuario es transportista con tramo confirmado.
+        // Comprador/vendedor (como antes) ∪ hilos donde el usuario es transportista con tramo pendiente o confirmado.
         var partyQuery = db.ChatThreads.AsNoTracking()
             .Where(t =>
                 t.DeletedAtUtc == null
@@ -892,7 +959,8 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
             from s in db.RouteTramoSubscriptions.AsNoTracking()
             join t in db.ChatThreads.AsNoTracking() on s.ThreadId equals t.Id
             where s.CarrierUserId == uid
-                && s.Status == "confirmed"
+                && s.Status != "rejected"
+                && s.Status != "withdrawn"
                 && t.DeletedAtUtc == null
                 && !(t.BuyerUserId == uid && t.BuyerExpelledAtUtc != null)
                 && !(t.SellerUserId == uid && t.SellerExpelledAtUtc != null)

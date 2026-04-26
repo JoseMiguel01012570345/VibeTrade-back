@@ -51,6 +51,19 @@ public sealed class RouteTramoSubscriptionService(
                     && x.CarrierUserId == uid,
                 cancellationToken);
 
+        var sheetRow = await db.ChatRouteSheets.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
+                cancellationToken);
+        string? stopFp = null;
+        if (sheetRow is not null)
+        {
+            var parada = sheetRow.Payload.Paradas?
+                .FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
+            if (parada is not null)
+                stopFp = RouteSheetEditAckComputation.RouteStopFingerprint(parada);
+        }
+
         var now = DateTimeOffset.UtcNow;
         if (existing is not null)
         {
@@ -61,6 +74,8 @@ public sealed class RouteTramoSubscriptionService(
             existing.UpdatedAtUtc = now;
             if (snap is not null)
                 existing.CarrierPhoneSnapshot = snap;
+            if (stopFp is not null)
+                existing.StopContentFingerprint = stopFp;
         }
         else
         {
@@ -76,6 +91,7 @@ public sealed class RouteTramoSubscriptionService(
                 StoreServiceId = svcTrim,
                 TransportServiceLabel = label,
                 Status = "pending",
+                StopContentFingerprint = stopFp,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now,
             });
@@ -106,14 +122,45 @@ public sealed class RouteTramoSubscriptionService(
         var publishedSheets = await db.ChatRouteSheets.AsNoTracking()
             .Where(x => x.ThreadId == tid && x.DeletedAtUtc == null && x.PublishedToPlatform)
             .ToListAsync(cancellationToken);
-        if (publishedSheets.Count == 0)
+
+        var sheetsById = publishedSheets
+            .ToDictionary(x => x.RouteSheetId, x => x, StringComparer.Ordinal);
+
+        // Transportista sin Initiator/FirstMessage: puede tener suscripción (p. ej. presel) en hoja aún no publicada;
+        // sin esto GET devuelve [] y el cliente bloquea el chat aunque UserCanAccessThreadRowAsync sea true.
+        if (narrowToCarrierOnly)
+        {
+            var carrierRows = await db.RouteTramoSubscriptions.AsNoTracking()
+                .Where(x => x.ThreadId == tid && x.Status != "withdrawn")
+                .Select(x => new { x.RouteSheetId, x.CarrierUserId })
+                .ToListAsync(cancellationToken);
+            var mySubSheetIds = carrierRows
+                .Where(x => ChatThreadAccess.UserIdsMatchLoose(uid, x.CarrierUserId))
+                .Select(x => x.RouteSheetId)
+                .Distinct()
+                .ToList();
+            var missingIds = mySubSheetIds.Where(id => !sheetsById.ContainsKey(id)).ToList();
+            if (missingIds.Count > 0)
+            {
+                var extraSheets = await db.ChatRouteSheets.AsNoTracking()
+                    .Where(x =>
+                        x.ThreadId == tid
+                        && x.DeletedAtUtc == null
+                        && missingIds.Contains(x.RouteSheetId))
+                    .ToListAsync(cancellationToken);
+                foreach (var row in extraSheets)
+                    sheetsById[row.RouteSheetId] = row;
+            }
+        }
+
+        if (sheetsById.Count == 0)
             return [];
 
-        var publishedIds = publishedSheets.Select(x => x.RouteSheetId).ToHashSet(StringComparer.Ordinal);
-        var payloads = publishedSheets.ToDictionary(x => x.RouteSheetId, x => x.Payload, StringComparer.Ordinal);
+        var sheetIds = sheetsById.Keys.ToHashSet(StringComparer.Ordinal);
+        var payloads = sheetsById.ToDictionary(x => x.Key, x => x.Value.Payload, StringComparer.Ordinal);
 
         var rows = await db.RouteTramoSubscriptions.AsNoTracking()
-            .Where(x => x.ThreadId == tid && publishedIds.Contains(x.RouteSheetId))
+            .Where(x => x.ThreadId == tid && sheetIds.Contains(x.RouteSheetId))
             .OrderBy(x => x.RouteSheetId)
             .ThenBy(x => x.StopOrden)
             .ThenBy(x => x.CarrierUserId)
@@ -243,6 +290,8 @@ public sealed class RouteTramoSubscriptionService(
             sub.UpdatedAtUtc = now;
             var parada = payload.Paradas.FirstOrDefault(p =>
                 string.Equals((p.Id ?? "").Trim(), sub.StopId, StringComparison.Ordinal));
+            if (parada is not null)
+                sub.StopContentFingerprint = RouteSheetEditAckComputation.RouteStopFingerprint(parada);
             var tel = accountPhone;
             if (tel.Length == 0)
                 tel = (sub.CarrierPhoneSnapshot ?? "").Trim();
@@ -573,6 +622,265 @@ public sealed class RouteTramoSubscriptionService(
         }
 
         return new CarrierWithdrawFromThreadResult(subs.Count, applyTrustPenalty, trustScoreAfterPenalty);
+    }
+
+    private sealed record PreselCore(
+        ChatThreadRow Thread,
+        UserAccount Carrier,
+        RouteSheetPayload Payload,
+        string Rsid);
+
+    public async Task<bool> CarrierRespondPreselectedRouteInviteAsync(
+        CarrierPreselInviteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var core = await PreselLoadCoreAsync(request, cancellationToken);
+        if (core is null)
+            return false;
+        var digits = (core.Carrier.PhoneDigits ?? "").Trim();
+        var stops = PreselMatchStops(core.Payload, digits, request.StopIdRestrict);
+        if (stops.Count == 0)
+            return false;
+        return request.Accepted
+            ? await PreselExecuteAcceptAsync(core, stops, cancellationToken)
+            : await PreselExecuteRejectAsync(core, cancellationToken);
+    }
+
+    private async Task<PreselCore?> PreselLoadCoreAsync(
+        CarrierPreselInviteRequest request,
+        CancellationToken cancellationToken)
+    {
+        var uid = (request.CarrierUserId ?? "").Trim();
+        var tid = (request.ThreadId ?? "").Trim();
+        var rsid = (request.RouteSheetId ?? "").Trim();
+        if (uid.Length < 2 || tid.Length < 4 || rsid.Length < 1)
+            return null;
+
+        var thread = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (thread is null || thread.DeletedAtUtc is not null)
+            return null;
+
+        var carrier = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == uid, cancellationToken);
+        if (carrier is null)
+            return null;
+        var carrierDigits = (carrier.PhoneDigits ?? "").Trim();
+        if (carrierDigits.Length < 6)
+            return null;
+
+        var sheetRow = await db.ChatRouteSheets.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
+                cancellationToken);
+        if (sheetRow is null)
+            return null;
+
+        var payload = sheetRow.Payload;
+        payload.Paradas ??= new List<RouteStopPayload>();
+        return new PreselCore(thread, carrier, payload, rsid);
+    }
+
+    private static List<RouteStopPayload> PreselMatchStops(
+        RouteSheetPayload payload,
+        string carrierDigits,
+        string? stopIdRestrict)
+    {
+        var stopRestrict = (stopIdRestrict ?? "").Trim();
+        var list = new List<RouteStopPayload>();
+        foreach (var p in payload.Paradas ?? [])
+        {
+            var d = DigitsOnlyTel(p.TelefonoTransportista);
+            if (d.Length < 6 || !string.Equals(d, carrierDigits, StringComparison.Ordinal))
+                continue;
+            if (stopRestrict.Length > 0
+                && !string.Equals((p.Id ?? "").Trim(), stopRestrict, StringComparison.Ordinal))
+                continue;
+            list.Add(p);
+        }
+        return list;
+    }
+
+    private async Task<bool> PreselExecuteAcceptAsync(
+        PreselCore core,
+        List<RouteStopPayload> stops,
+        CancellationToken cancellationToken)
+    {
+        var tid = core.Thread.Id;
+        var rsid = core.Rsid;
+        var uid = (core.Carrier.Id ?? "").Trim();
+        var sellerId = (core.Thread.SellerUserId ?? "").Trim();
+        if (uid.Length < 2 || sellerId.Length < 2)
+            return false;
+
+        var sheetRow = await db.ChatRouteSheets
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
+                cancellationToken);
+        if (sheetRow is null)
+            return false;
+
+        var phoneSnapRaw = PhoneSnap40(core.Carrier);
+        var phoneSnap = phoneSnapRaw.Length > 0 ? phoneSnapRaw : null;
+        var accountPhone = RouteTramoUserContactUtil.BestPhoneForCarrier(core.Carrier, null, null);
+
+        var payload = sheetRow.Payload;
+        payload.Paradas ??= new List<RouteStopPayload>();
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var stop in stops)
+        {
+            var sid = (stop.Id ?? "").Trim();
+            if (sid.Length < 1)
+                continue;
+
+            var parada = payload.Paradas.FirstOrDefault(p =>
+                string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
+            string? stopFp = null;
+            if (parada is not null)
+                stopFp = RouteSheetEditAckComputation.RouteStopFingerprint(parada);
+
+            var existing = await db.RouteTramoSubscriptions
+                .FirstOrDefaultAsync(
+                    x => x.ThreadId == tid
+                        && x.RouteSheetId == rsid
+                        && x.StopId == sid
+                        && x.CarrierUserId == uid,
+                    cancellationToken);
+
+            RouteTramoSubscriptionRow subRow;
+            if (existing is null)
+            {
+                subRow = new RouteTramoSubscriptionRow
+                {
+                    Id = "rts_" + Guid.NewGuid().ToString("N"),
+                    ThreadId = tid,
+                    RouteSheetId = rsid,
+                    StopId = sid,
+                    StopOrden = stop.Orden,
+                    CarrierUserId = uid,
+                    CarrierPhoneSnapshot = phoneSnap,
+                    StoreServiceId = null,
+                    TransportServiceLabel = "Contacto indicado en la hoja",
+                    Status = "confirmed",
+                    StopContentFingerprint = stopFp,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now,
+                };
+                db.RouteTramoSubscriptions.Add(subRow);
+            }
+            else
+            {
+                subRow = existing;
+                subRow.StopOrden = stop.Orden;
+                subRow.StoreServiceId = null;
+                subRow.TransportServiceLabel = "Contacto indicado en la hoja";
+                subRow.Status = "confirmed";
+                subRow.UpdatedAtUtc = now;
+                if (phoneSnap is not null)
+                    subRow.CarrierPhoneSnapshot = phoneSnap;
+                if (stopFp is not null)
+                    subRow.StopContentFingerprint = stopFp;
+            }
+
+            var tel = accountPhone;
+            if (tel.Length == 0)
+                tel = (subRow.CarrierPhoneSnapshot ?? "").Trim();
+            if (tel.Length == 0)
+                tel = (parada?.TelefonoTransportista ?? "").Trim();
+            if (parada is not null && tel.Length > 0)
+                parada.TelefonoTransportista = tel;
+        }
+
+        RouteSheetPayloadPersistence.ApplyPayloadAndTouch(sheetRow, payload, now);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var emergentPubId = await EmergentIdForThreadSheetAsync(tid, rsid, cancellationToken);
+
+        var actorAcc = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == sellerId, cancellationToken);
+        var deciderLabel = RouteTramoUserContactUtil.ParticipanteOrDisplay(actorAcc?.DisplayName);
+        var deciderTrust = actorAcc?.TrustScore ?? 0;
+        var preview =
+            $"{deciderLabel} confirmó tu servicio de transporte en esta operación. Abrí el chat para coordinar la hoja de ruta.";
+
+        var carrierLabel = string.IsNullOrWhiteSpace(core.Carrier.DisplayName)
+            ? "El transportista"
+            : core.Carrier.DisplayName.Trim();
+        var sellerInboxPreview =
+            $"Confirmaste el servicio de transporte de {carrierLabel} en esta operación. Abrí el chat para coordinar la hoja de ruta.";
+
+        await chat.NotifyRouteTramoSubscriptionAcceptedAsync(
+            new RouteTramoSubscriptionAcceptedNotificationArgs(
+                uid,
+                tid,
+                preview,
+                deciderLabel,
+                deciderTrust,
+                sellerId,
+                sellerId,
+                sellerInboxPreview,
+                carrierLabel,
+                core.Carrier.TrustScore),
+            cancellationToken);
+
+        await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
+            new RouteTramoSubscriptionsBroadcastArgs(tid, rsid, "accept", sellerId, emergentPubId),
+            cancellationToken);
+        return true;
+    }
+
+    private async Task<bool> PreselExecuteRejectAsync(
+        PreselCore core,
+        CancellationToken cancellationToken)
+    {
+        var sellerId = (core.Thread.SellerUserId ?? "").Trim();
+        if (sellerId.Length < 2)
+            return false;
+
+        var carrierName = (core.Carrier.DisplayName ?? "").Trim();
+        if (carrierName.Length == 0)
+            carrierName = "Transportista";
+        var title = (core.Payload.Titulo ?? "").Trim();
+        var preview = title.Length > 0
+            ? $"{carrierName} rechazó la invitación como transportista en «{title}»."
+            : $"{carrierName} rechazó la invitación como transportista en una hoja de ruta.";
+
+        var oid = (core.Thread.OfferId ?? "").Trim();
+        if (oid.Length < 2)
+            return false;
+
+        var tid = core.Thread.Id;
+        var uid = core.Carrier.Id;
+        await chat.NotifyRouteSheetPreselDeclinedByCarrierAsync(
+            new RouteSheetPreselDeclinedByCarrierNotificationArgs(
+                sellerId,
+                tid,
+                oid,
+                core.Rsid,
+                carrierName,
+                core.Carrier.TrustScore,
+                uid,
+                preview),
+            cancellationToken);
+        return true;
+    }
+
+    private static string PhoneSnap40(UserAccount carrier)
+    {
+        var phoneSnap = (carrier.PhoneDisplay ?? "").Trim();
+        if (phoneSnap.Length == 0 && !string.IsNullOrWhiteSpace(carrier.PhoneDigits))
+            phoneSnap = carrier.PhoneDigits.Trim();
+        if (phoneSnap.Length > 40)
+            phoneSnap = phoneSnap[..40];
+        return phoneSnap;
+    }
+
+    private static string DigitsOnlyTel(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw))
+            return "";
+        return string.Concat(raw.Where(char.IsDigit));
     }
 
     private static void MarkSubscriptionsWithdrawn(List<RouteTramoSubscriptionRow> subs, DateTimeOffset now)

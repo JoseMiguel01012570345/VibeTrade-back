@@ -29,6 +29,9 @@ public sealed class RouteTramoSubscriptionRow
     /// <summary><c>pending</c>, <c>confirmed</c>, <c>rejected</c> (actualización futura vía API; hoy suele inferirse desde la hoja).</summary>
     public string Status { get; set; } = "pending";
 
+    /// <summary>Huella del contenido del tramo (misma serialización que en la edición de hoja) al registrar, confirmar o tras notificar presel; evita re-notificar si el tramo aceptado no cambió.</summary>
+    public string? StopContentFingerprint { get; set; }
+
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset UpdatedAtUtc { get; set; }

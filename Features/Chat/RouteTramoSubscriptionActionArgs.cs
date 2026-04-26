@@ -18,3 +18,11 @@ public sealed record TramoSellerSheetAction(
     string RouteSheetId,
     string CarrierUserId,
     string? StopId = null);
+
+/// <summary>Transportista: aceptar o rechazar invitación por teléfono en hoja de ruta.</summary>
+public sealed record CarrierPreselInviteRequest(
+    string CarrierUserId,
+    string ThreadId,
+    string RouteSheetId,
+    string? StopIdRestrict,
+    bool Accepted);
