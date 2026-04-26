@@ -41,6 +41,12 @@ public sealed class RouteStopPayload
 
     public string? TelefonoTransportista { get; set; }
 
+    /// <summary>Servicio de vitrina (catálogo) con el que el vendedor invita al transportista en este tramo.</summary>
+    public string? TransportInvitedStoreServiceId { get; set; }
+
+    /// <summary>Resumen corto para UI y notificaciones (p. ej. tipo · categoría).</summary>
+    public string? TransportInvitedServiceSummary { get; set; }
+
     public bool? Completada { get; set; }
 
     public string? Lugar { get; set; }

@@ -96,6 +96,15 @@ public sealed record RouteSheetPreselDeclinedByCarrierNotificationArgs(
     string CarrierUserId,
     string MessagePreview);
 
+/// <summary>Vendedor (dueño de la tienda): la confianza de la tienda bajó por reglas de hoja de ruta u operación (demo).</summary>
+public sealed record SellerStoreTrustPenaltyNotificationArgs(
+    string SellerUserId,
+    string? ThreadId,
+    string? OfferId,
+    int Delta,
+    int BalanceAfter,
+    string MessagePreview);
+
 public sealed record PostChatMessageArgs(
     string SenderUserId,
     string ThreadId,

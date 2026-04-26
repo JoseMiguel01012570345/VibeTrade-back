@@ -117,6 +117,11 @@ public interface IChatService
         RouteSheetPreselDeclinedByCarrierNotificationArgs request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Vendedor: notificación in-app cuando la confianza de su tienda se reduce por hoja de ruta / expulsión (demo).</summary>
+    Task NotifySellerStoreTrustPenaltyAsync(
+        SellerStoreTrustPenaltyNotificationArgs request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Participantes del hilo (<c>JoinThread</c>) y, si aplica, la ficha emergente (<c>JoinOffer</c> con <c>emo_*</c>): suscripciones de tramo actualizadas.
     /// <c>Change</c>: <c>request</c>, <c>accept</c>, <c>reject</c>.

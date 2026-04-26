@@ -4,7 +4,7 @@ using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Features.Market.Utils;
 
-internal static class MarketCatalogRowJsonSerialization
+public static class MarketCatalogRowJsonSerialization
 {
     public static JsonObject ProductToJson(StoreProductRow p)
     {

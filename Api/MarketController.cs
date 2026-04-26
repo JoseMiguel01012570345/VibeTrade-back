@@ -2,6 +2,9 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;
@@ -18,6 +21,7 @@ namespace VibeTrade.Backend.Api;
 [Produces("application/json")]
 [Tags("Market")]
 public sealed class MarketController(
+    AppDbContext appDb,
     IMarketWorkspaceService marketWorkspace,
     IMarketCatalogSyncService catalog,
     IAuthService auth,
@@ -66,6 +70,52 @@ public sealed class MarketController(
     public ActionResult<CurrenciesResponse> GetCurrencies()
     {
         return Ok(new CurrenciesResponse(CatalogCurrencies.All));
+    }
+
+    /// <summary>
+    /// Servicios de catálogo publicados del usuario en tiendas con transporte (<c>TransportIncluded</c>), para elegir ficha al invitar por teléfono en la hoja de ruta.
+    /// </summary>
+    [HttpGet("users/{userId}/published-transport-services")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetPublishedTransportServicesForUser(
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var bearer = BearerUserId.FromRequest(auth, Request);
+        if (bearer is null)
+            return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
+        var uid = (userId ?? "").Trim();
+        if (uid.Length < 2)
+            return BadRequest(new { error = "invalid_user", message = "Usuario inválido." });
+
+        var storeIds = await appDb.Stores.AsNoTracking()
+            .Where(s => s.OwnerUserId == uid)
+            .Select(s => s.Id)
+            .ToListAsync(cancellationToken);
+        if (storeIds.Count == 0)
+            return Ok(new { services = Array.Empty<object>() });
+
+        var services = await appDb.StoreServices.AsNoTracking()
+            .Include(s => s.Store)
+            .Where(s => storeIds.Contains(s.StoreId)
+                && s.DeletedAtUtc == null
+                && s.Published == true)
+            .OrderBy(s => s.TipoServicio)
+            .ThenBy(s => s.Category)
+            .ToListAsync(cancellationToken);
+
+        var arr = new JsonArray();
+        foreach (var s in services)
+        {
+            var o = MarketCatalogRowJsonSerialization.ServiceToJson(s);
+            if (s.Store is not null)
+                o["storeName"] = s.Store.Name ?? "";
+            arr.Add(o);
+        }
+
+        return Ok(new JsonObject { ["services"] = arr });
     }
 
     /// <summary>

@@ -34,6 +34,34 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
                 continue;
             set.Add(c.Trim());
         }
+
+        var participatedHereIds = await db.RouteTramoSubscriptions.AsNoTracking()
+            .Where(x => x.ThreadId == thread.Id && x.Status != "rejected")
+            .Select(x => x.CarrierUserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var activeElsewhereIds = await db.RouteTramoSubscriptions.AsNoTracking()
+            .Where(x =>
+                x.ThreadId != thread.Id
+                && x.Status != "rejected"
+                && x.Status != "withdrawn")
+            .Select(x => x.CarrierUserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        foreach (var pid in participatedHereIds)
+        {
+            if (string.IsNullOrWhiteSpace(pid))
+                continue;
+            var p = pid.Trim();
+            if (set.Contains(p))
+                continue;
+            if (activeElsewhereIds.Any(e =>
+                    !string.IsNullOrWhiteSpace(e)
+                    && (string.Equals(e.Trim(), p, StringComparison.Ordinal)
+                        || ChatThreadAccess.UserIdsMatchLoose(p, e))))
+                set.Add(p);
+        }
+
         return set;
     }
 
@@ -110,6 +138,40 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
                         && x.Status != "withdrawn",
                     cancellationToken))
             return true;
+
+        // Retirado/expulsado en este hilo pero con tramos activos en otro hilo: mantiene el chat acá.
+        var carrierIdsThisThread = await db.RouteTramoSubscriptions.AsNoTracking()
+            .Where(x => x.ThreadId == thread.Id && x.Status != "rejected")
+            .Select(x => x.CarrierUserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        if (carrierIdsThisThread.Any(cid =>
+                !string.IsNullOrWhiteSpace(cid)
+                && (string.Equals(cid.Trim(), uid, StringComparison.Ordinal)
+                    || ChatThreadAccess.UserIdsMatchLoose(uid, cid))))
+        {
+            if (await db.RouteTramoSubscriptions.AsNoTracking()
+                    .AnyAsync(
+                        x => x.CarrierUserId == uid
+                            && x.ThreadId != thread.Id
+                            && x.Status != "rejected"
+                            && x.Status != "withdrawn",
+                        cancellationToken))
+                return true;
+            var otherCarrierIds = await db.RouteTramoSubscriptions.AsNoTracking()
+                .Where(x =>
+                    x.ThreadId != thread.Id
+                    && x.Status != "rejected"
+                    && x.Status != "withdrawn")
+                .Select(x => x.CarrierUserId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+            if (otherCarrierIds.Any(oid =>
+                    !string.IsNullOrWhiteSpace(oid)
+                    && (string.Equals(oid.Trim(), uid, StringComparison.Ordinal)
+                        || ChatThreadAccess.UserIdsMatchLoose(uid, oid))))
+                return true;
+        }
 
         // Misma fila pero id guardado con otro formato (p. ej. prefijos / solo dígitos).
         var carrierIds = await db.RouteTramoSubscriptions.AsNoTracking()
@@ -597,6 +659,56 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
                 offerId = oid,
                 routeSheetId = rsid,
                 carrierUserId = cid,
+            },
+            cancellationToken);
+    }
+
+    public async Task NotifySellerStoreTrustPenaltyAsync(
+        SellerStoreTrustPenaltyNotificationArgs request,
+        CancellationToken cancellationToken = default)
+    {
+        var sellerId = (request.SellerUserId ?? "").Trim();
+        if (sellerId.Length < 2)
+            return;
+
+        var tid = (request.ThreadId ?? "").Trim();
+        var oid = (request.OfferId ?? "").Trim();
+        var preview = request.MessagePreview.Length > 500
+            ? request.MessagePreview[..500] + "…"
+            : request.MessagePreview;
+        var meta = JsonSerializer.Serialize(new
+        {
+            delta = request.Delta,
+            balanceAfter = request.BalanceAfter,
+        });
+        var now = DateTimeOffset.UtcNow;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = sellerId,
+            ThreadId = tid.Length >= 4 ? tid : null,
+            MessageId = null,
+            OfferId = oid.Length >= 2 ? oid : null,
+            MessagePreview = preview,
+            AuthorStoreName = "Confianza de la tienda",
+            AuthorTrustScore = request.BalanceAfter,
+            SenderUserId = sellerId,
+            CreatedAtUtc = now,
+            ReadAtUtc = null,
+            Kind = "store_trust_penalty",
+            MetaJson = meta,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await hub.Clients.Group(ChatHubGroupNames.ForUser(sellerId)).SendAsync(
+            "notificationCreated",
+            new
+            {
+                kind = "store_trust_penalty",
+                threadId = tid.Length >= 4 ? tid : null,
+                offerId = oid.Length >= 2 ? oid : null,
+                delta = request.Delta,
+                balanceAfter = request.BalanceAfter,
             },
             cancellationToken);
     }

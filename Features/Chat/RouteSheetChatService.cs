@@ -310,6 +310,8 @@ public sealed class RouteSheetChatService(
             s.UpdatedAtUtc = retractNow;
         }
 
+        int? storeTrustBalanceAfterDelete = null;
+        int? storeTrustDeltaDelete = null;
         if (nConfirmed > 0)
         {
             var storeId = (t.StoreId ?? "").Trim();
@@ -327,6 +329,8 @@ public sealed class RouteSheetChatService(
                         delta,
                         storeRow.TrustScore,
                         $"Eliminación de hoja con transportistas confirmados ({nConfirmed}×, demo)");
+                    storeTrustBalanceAfterDelete = storeRow.TrustScore;
+                    storeTrustDeltaDelete = delta;
                 }
             }
         }
@@ -346,6 +350,25 @@ public sealed class RouteSheetChatService(
 
         await RetractEmergentAsync(threadId, rsId, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+
+        if (storeTrustBalanceAfterDelete is int balDel && storeTrustDeltaDelete is int dDel)
+        {
+            var sellerNotify = (t.SellerUserId ?? "").Trim();
+            if (sellerNotify.Length >= 2)
+            {
+                var previewDel =
+                    $"Eliminaste una hoja con {nConfirmed} transportista(s) confirmado(s); se aplicó un ajuste de confianza a tu tienda ({dDel} pts, demo).";
+                await chat.NotifySellerStoreTrustPenaltyAsync(
+                    new SellerStoreTrustPenaltyNotificationArgs(
+                        sellerNotify,
+                        threadId,
+                        (t.OfferId ?? "").Trim(),
+                        dDel,
+                        balDel,
+                        previewDel),
+                    cancellationToken);
+            }
+        }
 
         var title = (row.Payload.Titulo ?? "").Trim();
         if (title.Length > 120)
@@ -438,8 +461,27 @@ public sealed class RouteSheetChatService(
             }
 
             PersistSheetPayloadWithAck(sheetRow, ack, now, p => ClearTransportistaPhonesForSubs(p, subs));
-            await ApplyStoreTrustPenaltyOnSheetEditRejectAsync(thread.StoreId, cancellationToken);
+            var balReject = await ApplyStoreTrustPenaltyOnSheetEditRejectAsync(thread.StoreId, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
+            if (balReject is int balR)
+            {
+                var sellerNotify = (thread.SellerUserId ?? "").Trim();
+                if (sellerNotify.Length >= 2)
+                {
+                    var dR = -RouteSheetEditAckComputation.StoreTrustPenaltyOnCarrierRejectSheetEdit;
+                    var previewR =
+                        "Un transportista confirmado rechazó los cambios en la hoja de ruta; se aplicó un ajuste de confianza a tu tienda (demo).";
+                    await chat.NotifySellerStoreTrustPenaltyAsync(
+                        new SellerStoreTrustPenaltyNotificationArgs(
+                            sellerNotify,
+                            tid,
+                            (thread.OfferId ?? "").Trim(),
+                            dR,
+                            balR,
+                            previewR),
+                        cancellationToken);
+                }
+            }
             await chat.PostAutomatedSystemThreadNoticeAsync(
                 tid,
                 SheetEditRejectNotice(carrierName, sheetTitle),
@@ -726,20 +768,24 @@ public sealed class RouteSheetChatService(
             if (parada is null && sub.StopOrden > 0)
                 parada = payload.Paradas.FirstOrDefault(p => p.Orden == sub.StopOrden);
             if (parada is not null)
+            {
                 parada.TelefonoTransportista = null;
+                parada.TransportInvitedStoreServiceId = null;
+                parada.TransportInvitedServiceSummary = null;
+            }
         }
     }
 
-    private async Task ApplyStoreTrustPenaltyOnSheetEditRejectAsync(
+    private async Task<int?> ApplyStoreTrustPenaltyOnSheetEditRejectAsync(
         string? storeId,
         CancellationToken cancellationToken)
     {
         var sid = (storeId ?? "").Trim();
         if (sid.Length < 2)
-            return;
+            return null;
         var storeRow = await db.Stores.FirstOrDefaultAsync(x => x.Id == sid, cancellationToken);
         if (storeRow is null)
-            return;
+            return null;
         var delta = -RouteSheetEditAckComputation.StoreTrustPenaltyOnCarrierRejectSheetEdit;
         storeRow.TrustScore = Math.Max(-10_000, storeRow.TrustScore + delta);
         trustLedger.StageEntry(
@@ -748,6 +794,7 @@ public sealed class RouteSheetChatService(
             delta,
             storeRow.TrustScore,
             "Transportista rechazó cambios en la hoja de ruta");
+        return storeRow.TrustScore;
     }
 
     private async Task<string?> EmergentPublicationIdForSheetAsync(

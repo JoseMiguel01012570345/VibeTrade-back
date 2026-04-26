@@ -379,10 +379,15 @@ public sealed class ChatController(
         return Ok(new { rejectedCount = n.Value });
     }
 
-    public sealed record SellerExpelCarrierBody(string CarrierUserId, string Reason);
+    public sealed record SellerExpelCarrierBody(
+        string CarrierUserId,
+        string Reason,
+        string? RouteSheetId = null,
+        string? StopId = null);
 
     /// <summary>
-    /// Solo vendedor del hilo: retira a un transportista (todos sus tramos en el hilo), con motivo y notificación in-app.
+    /// Solo vendedor del hilo: retira a un transportista (un tramo si van <c>routeSheetId</c> y <c>stopId</c>, o toda la operación),
+    /// con motivo y notificación in-app.
     /// </summary>
     [HttpPost("threads/{threadId}/route-tramo-subscriptions/seller-expel-carrier")]
     [Consumes("application/json")]
@@ -403,11 +408,22 @@ public sealed class ChatController(
             || string.IsNullOrWhiteSpace((body.Reason ?? "").Trim()))
             return BadRequest(new { error = "invalid_body", message = "Indicá al transportista y un motivo." });
 
+        var rs = (body.RouteSheetId ?? "").Trim();
+        var st = (body.StopId ?? "").Trim();
+        if (rs.Length > 0 != st.Length > 0)
+            return BadRequest(new
+            {
+                error = "invalid_body",
+                message = "Para expulsar solo un tramo enviá routeSheetId y stopId; para toda la operación, ninguno de los dos.",
+            });
+
         var r = await routeTramoSubscriptions.ExpelCarrierBySellerFromThreadAsync(
             userId,
             threadId,
             body.CarrierUserId.Trim(),
             (body.Reason ?? "").Trim(),
+            rs.Length > 0 ? rs : null,
+            st.Length > 0 ? st : null,
             cancellationToken);
         if (r is null)
             return NotFound(new { error = "not_found", message = "No se pudo retirar al transportista (sin permiso o sin suscripciones activas)." });
