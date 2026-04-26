@@ -102,6 +102,34 @@ public sealed class AuthController(
         }
     }
 
+    /// <summary>Busca un usuario registrado por número (sin añadirlo a la agenda).</summary>
+    [HttpGet("contacts/resolve")]
+    [ProducesResponseType(typeof(PlatformUserByPhoneDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PlatformUserByPhoneDto>> GetContactResolve(
+        [FromQuery] string? phone,
+        CancellationToken cancellationToken)
+    {
+        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
+            return Unauthorized();
+        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
+            return Unauthorized();
+        var userId = idEl.GetString()!;
+        try
+        {
+            var dto = await contacts.ResolveByPhoneAsync(userId, phone ?? "", cancellationToken);
+            if (dto is null)
+                return NotFound(new { error = "phone_not_registered", message = "Ese número no está registrado en la plataforma." });
+            return Ok(dto);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = "invalid_phone", message = ex.Message });
+        }
+    }
+
     /// <summary>Elimina un contacto de la lista por id de usuario de la plataforma.</summary>
     /// <param name="contactUserId">Id de la cuenta a quitar de la agenda.</param>
     /// <param name="cancellationToken">Token de cancelación.</param>

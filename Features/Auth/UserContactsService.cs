@@ -80,6 +80,30 @@ public sealed class UserContactsService(AppDbContext db) : IUserContactsService
         return ToDto(target, now);
     }
 
+    public async Task<PlatformUserByPhoneDto?> ResolveByPhoneAsync(
+        string requesterUserId,
+        string phoneRaw,
+        CancellationToken cancellationToken = default)
+    {
+        var digits = DigitsOnly(phoneRaw);
+        if (string.IsNullOrEmpty(digits))
+            throw new InvalidOperationException("Indicá un número de teléfono.");
+
+        var target = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.PhoneDigits == digits, cancellationToken);
+        if (target is null)
+            return null;
+
+        if (string.Equals((target.Id ?? "").Trim(), (requesterUserId ?? "").Trim(), StringComparison.Ordinal))
+            throw new InvalidOperationException("No podés usarte a vos mismo como transportista de contacto.");
+
+        return new PlatformUserByPhoneDto(
+            target.Id!,
+            target.DisplayName ?? "",
+            target.PhoneDisplay,
+            target.PhoneDigits);
+    }
+
     public async Task<bool> RemoveAsync(
         string ownerUserId,
         string contactUserId,

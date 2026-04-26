@@ -141,15 +141,23 @@ builder.Services.AddSwaggerGen(o =>
 
 builder.Services.AddCors(o =>
 {
+    // Desarrollo: cualquier origen. (Con credenciales no se puede usar AllowAnyOrigin().)
     o.AddPolicy("Dev", p =>
-        p.SetIsOriginAllowed(origin =>
-                Uri.TryCreate(origin, UriKind.Absolute, out var uri)
-                && (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
-                    || uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)))
+        p.SetIsOriginAllowed(_ => true)
             .AllowAnyHeader()
             .AllowAnyMethod()
             // SignalR negotiate + WebSockets from Vite (otro puerto) lo requieren.
             .AllowCredentials());
+
+    // Política anterior (solo localhost / 127.0.0.1):
+    // o.AddPolicy("Dev", p =>
+    //     p.SetIsOriginAllowed(origin =>
+    //             Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+    //             && (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+    //                 || uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)))
+    //         .AllowAnyHeader()
+    //         .AllowAnyMethod()
+    //         .AllowCredentials());
 });
 
 builder.Services.AddHealthChecks()

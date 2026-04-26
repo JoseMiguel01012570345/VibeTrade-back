@@ -411,6 +411,97 @@ public sealed class RouteSheetChatService(
         return true;
     }
 
+    /// <summary>
+    /// Notificaciones a teléfonos que resuelven a cuentas. <c>-1</c> = sin acceso a hilo/hoja o datos inválidos;
+    /// <c>0</c> = permitido pero nadie a quien notificar; <c>&gt;0</c> = avisos enviados.
+    /// </summary>
+    public async Task<int> NotifyPreselectedTransportistasAsync(
+        string editorUserId,
+        string threadId,
+        string routeSheetId,
+        IReadOnlyList<string> rawPhones,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        var rsid = (routeSheetId ?? "").Trim();
+        var eid = (editorUserId ?? "").Trim();
+        if (tid.Length < 4 || rsid.Length < 1 || eid.Length < 2)
+            return -1;
+        if (rawPhones is null || rawPhones.Count == 0)
+            return -1;
+
+        var thread = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (thread is null
+            || thread.DeletedAtUtc is not null
+            || !ChatThreadAccess.UserCanSeeThread(eid, thread))
+            return -1;
+
+        var sheetRow = await db.ChatRouteSheets.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
+                cancellationToken);
+        if (sheetRow is null)
+            return -1;
+
+        var title = TruncateRouteSheetTitle(sheetRow.Payload.Titulo);
+        var offerId = (thread.OfferId ?? "").Trim();
+        if (offerId.Length < 2)
+            return -1;
+
+        var editor = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == eid, cancellationToken);
+        if (editor is null)
+            return -1;
+        var authorLabel = (editor.DisplayName ?? "").Trim();
+        if (authorLabel.Length == 0)
+            authorLabel = "Participante";
+        var authorTrust = editor.TrustScore;
+
+        var messageBase = title.Length > 0
+            ? $"Te indicaron como contacto de transporte en la hoja de ruta «{title}». Abrí el chat de la operación para ver el detalle del tramo."
+            : "Te indicaron como contacto de transporte en una hoja de ruta. Abrí el chat de la operación para ver el detalle del tramo.";
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var n = 0;
+        foreach (var raw in rawPhones)
+        {
+            var digits = DigitsOnly(raw);
+            if (digits.Length < 6)
+                continue;
+            var acc = await db.UserAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.PhoneDigits == digits, cancellationToken);
+            if (acc is null)
+                continue;
+            var uid = (acc.Id ?? "").Trim();
+            if (uid.Length < 2 || string.Equals(uid, eid, StringComparison.Ordinal))
+                continue;
+            if (!seen.Add(uid))
+                continue;
+            await chat.NotifyRouteSheetPreselectedTransportistaAsync(
+                new RouteSheetPreselectedTransportistaNotificationArgs(
+                    uid,
+                    tid,
+                    offerId,
+                    rsid,
+                    messageBase,
+                    authorLabel,
+                    authorTrust,
+                    eid),
+                cancellationToken);
+            n++;
+        }
+
+        return n;
+    }
+
+    private static string DigitsOnly(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw))
+            return "";
+        return string.Concat(raw.Where(char.IsDigit));
+    }
+
     private static string? ResolveCarrierKeyInEditAck(
         IReadOnlyDictionary<string, string> byCarrier,
         string viewerId)

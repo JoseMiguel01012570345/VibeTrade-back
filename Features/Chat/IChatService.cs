@@ -107,6 +107,11 @@ public interface IChatService
         RouteTramoSellerExpelledNotificationArgs request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Transportista con cuenta por teléfono cargado en la hoja: aviso de que fue indicado en un tramo (edición de hoja).</summary>
+    Task NotifyRouteSheetPreselectedTransportistaAsync(
+        RouteSheetPreselectedTransportistaNotificationArgs request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Participantes del hilo (<c>JoinThread</c>) y, si aplica, la ficha emergente (<c>JoinOffer</c> con <c>emo_*</c>): suscripciones de tramo actualizadas.
     /// <c>Change</c>: <c>request</c>, <c>accept</c>, <c>reject</c>.

@@ -25,4 +25,15 @@ public interface IRouteSheetChatService
         string routeSheetId,
         bool accept,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Aviso in-app a cuentas registradas cuyo teléfono figura en <paramref name="rawPhones"/> (p. ej. tramos de la hoja).
+    /// Requiere acceso al hilo.
+    /// </summary>
+    Task<int> NotifyPreselectedTransportistasAsync(
+        string editorUserId,
+        string threadId,
+        string routeSheetId,
+        IReadOnlyList<string> rawPhones,
+        CancellationToken cancellationToken = default);
 }

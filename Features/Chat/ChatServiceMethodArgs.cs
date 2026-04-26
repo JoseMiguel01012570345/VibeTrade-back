@@ -73,6 +73,17 @@ public sealed record RouteTramoSubscriptionsBroadcastArgs(
     string ActorUserId,
     string? EmergentPublicationOfferId = null);
 
+/// <summary>Quien editó la hoja indica un teléfono de transportista registrado: aviso in-app (no requiere estar en el hilo aún).</summary>
+public sealed record RouteSheetPreselectedTransportistaNotificationArgs(
+    string RecipientUserId,
+    string ThreadId,
+    string OfferId,
+    string RouteSheetId,
+    string MessagePreview,
+    string AuthorLabel,
+    int AuthorTrust,
+    string SenderUserId);
+
 public sealed record PostChatMessageArgs(
     string SenderUserId,
     string ThreadId,

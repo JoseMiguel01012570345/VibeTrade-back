@@ -433,6 +433,41 @@ public sealed class ChatController(
         return NoContent();
     }
 
+    public sealed record NotifyPreselectedBody(string[]? Phones);
+
+    /// <summary>
+    /// Tras guardar la hoja: notifica a usuarios registrados cuyo teléfono aparece en <c>phones</c> (mismo criterio que tramos de la hoja).
+    /// </summary>
+    [HttpPost("threads/{threadId}/route-sheets/{routeSheetId}/notify-preselected")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(NotifyPreselectedResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostNotifyRouteSheetPreselected(
+        string threadId,
+        string routeSheetId,
+        [FromBody] NotifyPreselectedBody? body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        if (body?.Phones is null || body.Phones.Length == 0)
+            return BadRequest(new { error = "invalid_body", message = "Indicá al menos un teléfono." });
+        var n = await routeSheets.NotifyPreselectedTransportistasAsync(
+            userId,
+            threadId,
+            routeSheetId,
+            body.Phones,
+            cancellationToken);
+        if (n < 0)
+            return NotFound(new { error = "not_found", message = "Hilo o hoja no encontrados, o sin permiso." });
+        return Ok(new NotifyPreselectedResult(n));
+    }
+
+    public sealed record NotifyPreselectedResult(int NotifiedCount);
+
     /// <summary>Elimina una hoja de ruta persistida y retira la señal emergente asociada.</summary>
     [HttpDelete("threads/{threadId}/route-sheets/{routeSheetId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

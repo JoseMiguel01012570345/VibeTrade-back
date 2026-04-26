@@ -488,6 +488,52 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
             cancellationToken);
     }
 
+    public async Task NotifyRouteSheetPreselectedTransportistaAsync(
+        RouteSheetPreselectedTransportistaNotificationArgs request,
+        CancellationToken cancellationToken = default)
+    {
+        var rid = (request.RecipientUserId ?? "").Trim();
+        var tid = (request.ThreadId ?? "").Trim();
+        var oid = (request.OfferId ?? "").Trim();
+        var rsid = (request.RouteSheetId ?? "").Trim();
+        if (rid.Length < 2 || tid.Length < 4 || oid.Length < 2 || rsid.Length < 1)
+            return;
+
+        var preview = request.MessagePreview.Length > 500
+            ? request.MessagePreview[..500] + "…"
+            : request.MessagePreview;
+        var meta = System.Text.Json.JsonSerializer.Serialize(new { routeSheetId = rsid });
+        var now = DateTimeOffset.UtcNow;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = rid,
+            ThreadId = tid,
+            MessageId = null,
+            OfferId = oid,
+            MessagePreview = preview,
+            AuthorStoreName = (request.AuthorLabel ?? "").Trim().Length > 0 ? request.AuthorLabel.Trim() : "Participante",
+            AuthorTrustScore = request.AuthorTrust,
+            SenderUserId = (request.SenderUserId ?? "").Trim(),
+            CreatedAtUtc = now,
+            ReadAtUtc = null,
+            Kind = "route_sheet_presel",
+            MetaJson = meta,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
+            "notificationCreated",
+            new
+            {
+                kind = "route_sheet_presel",
+                threadId = tid,
+                offerId = oid,
+                routeSheetId = rsid,
+            },
+            cancellationToken);
+    }
+
     public Task BroadcastRouteTramoSubscriptionsChangedAsync(
         RouteTramoSubscriptionsBroadcastArgs request,
         CancellationToken cancellationToken = default)
