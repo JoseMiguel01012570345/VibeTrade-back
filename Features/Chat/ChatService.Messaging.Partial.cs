@@ -36,7 +36,23 @@ public sealed partial class ChatService
             labelCache[uid] = await GetParticipantAuthorLabelAsync(t, uid, cancellationToken);
         }
 
-        return msgs.Select(m => ChatMessageDtoFactory.FromRow(m, labelCache[m.SenderUserId])).ToList();
+        var myExpected = (await GetMessageRecipientUserIdsAsync(t, userId, cancellationToken))
+            .ToList();
+
+        return msgs.Select(
+            m =>
+            {
+                var label = labelCache[m.SenderUserId];
+                if (m.SenderUserId != userId)
+                    return ChatMessageDtoFactory.FromRow(m, label);
+                var gr = ChatGroupReceiptsJsonUtil.Parse(m.GroupReceiptsJson);
+                IReadOnlyList<string> expected = ChatMessageStatusUpdateCore
+                    .MergedExpectedIds(gr, myExpected);
+                if (expected.Count <= 1)
+                    return ChatMessageDtoFactory.FromRow(m, label);
+                var display = ChatMessageStatusUpdateCore.OutgoingGroupDisplayStatus(expected, gr);
+                return ChatMessageDtoFactory.FromRowWithStatus(m, display, label);
+            }).ToList();
     }
 
     private async Task<IReadOnlyList<ReplyQuoteDto>?> BuildReplyQuotesAsync(
@@ -132,6 +148,13 @@ public sealed partial class ChatService
         var recipients = (await GetMessageRecipientUserIdsAsync(thread, senderUserId, cancellationToken))
             .ToList();
         AttachGroupReceiptsJsonForMultiRecipientMessage(row, recipients);
+        if (recipients.Count > 0
+            && await AllRecipientAccountsHaveValidSessionAsync(recipients, cancellationToken))
+        {
+            ChatMessageStatusUpdateCore.ApplyAllRecipientsSessionActiveAsDelivered(
+                row, recipients, now);
+        }
+
         await NotifyRecipientsInThreadForMessageAsync(
             recipients, thread, row, preview, senderUserId, cancellationToken);
 
@@ -157,6 +180,40 @@ public sealed partial class ChatService
             return;
         var gr = new ChatMessageGroupReceipts { ExpectedRecipientIds = new List<string>(recipients) };
         row.GroupReceiptsJson = ChatGroupReceiptsJsonUtil.Serialize(gr);
+    }
+
+    /// <summary>
+    /// Cada integrante de <paramref name="recipients"/> con sesión de auth activa
+    /// (<c>auth_sessions.ExpiresAt</c> y <c>UserJson.id</c>).
+    /// </summary>
+    private async Task<bool> AllRecipientAccountsHaveValidSessionAsync(
+        IReadOnlyList<string> recipients,
+        CancellationToken cancellationToken)
+    {
+        if (recipients is not { Count: > 0 })
+            return false;
+        var utcNow = DateTimeOffset.UtcNow;
+        var userJsonBlobs = await db.AuthSessions.AsNoTracking()
+            .Where(s => s.ExpiresAt > utcNow)
+            .Select(s => s.UserJson)
+            .ToListAsync(cancellationToken);
+        var onlineUserIds = new List<string>(userJsonBlobs.Count);
+        foreach (var j in userJsonBlobs)
+        {
+            try
+            {
+                using var d = JsonDocument.Parse(j);
+                if (d.RootElement.TryGetProperty("id", out var id) && id.GetString() is { Length: > 0 } s)
+                    onlineUserIds.Add(s);
+            }
+            catch
+            {
+                // JSON inválido: ignorar
+            }
+        }
+
+        return recipients.All(
+            r => ChatMessageStatusUpdateCore.InExpectedList(r, onlineUserIds));
     }
 
     private async Task NotifyRecipientsInThreadForMessageAsync(
@@ -413,6 +470,7 @@ public sealed partial class ChatService
 
         var now = DateTimeOffset.UtcNow;
         var before = m.Status;
+        var groupReceiptsJsonBefore = m.GroupReceiptsJson;
 
         if (expected.Count == 1)
         {
@@ -430,7 +488,8 @@ public sealed partial class ChatService
 
         await db.SaveChangesAsync(cancellationToken);
         var dto = ChatMessageDtoFactory.FromRow(m);
-        await HubBroadcastMessageStatusIfChangedAsync(t, tid, m, before, cancellationToken);
+        await HubBroadcastMessageStatusIfChangedAsync(
+            t, tid, m, before, groupReceiptsJsonBefore, cancellationToken);
         return dto;
     }
 
@@ -438,12 +497,42 @@ public sealed partial class ChatService
         ChatThreadRow t,
         string tid,
         ChatMessageRow m,
-        ChatMessageStatus before,
+        ChatMessageStatus statusBefore,
+        string? groupReceiptsJsonBefore,
         CancellationToken cancellationToken)
     {
-        if (m.Status == before)
+        var jsonUnchanged = string.Equals(
+            (groupReceiptsJsonBefore ?? string.Empty).Trim(),
+            (m.GroupReceiptsJson ?? string.Empty).Trim(),
+            StringComparison.Ordinal);
+        if (m.Status == statusBefore && jsonUnchanged)
             return;
-        var hubSt = m.Status == ChatMessageStatus.Read ? "read" : "delivered";
+
+        var fromRecipients = (await GetMessageRecipientUserIdsAsync(t, m.SenderUserId, cancellationToken))
+            .ToList();
+        var grAfter = ChatGroupReceiptsJsonUtil.Parse(m.GroupReceiptsJson);
+        var grBefore = ChatGroupReceiptsJsonUtil.Parse(groupReceiptsJsonBefore);
+        IReadOnlyList<string> expectedAfter = ChatMessageStatusUpdateCore
+            .MergedExpectedIds(grAfter, fromRecipients);
+        IReadOnlyList<string> expectedBefore = ChatMessageStatusUpdateCore
+            .MergedExpectedIds(grBefore, fromRecipients);
+
+        string hubSt;
+        if (expectedAfter.Count <= 1)
+        {
+            hubSt = m.Status == ChatMessageStatus.Read ? "read" : "delivered";
+        }
+        else
+        {
+            var dAfter = ChatMessageStatusUpdateCore.OutgoingGroupDisplayStatus(
+                expectedAfter, grAfter);
+            var dBefore = ChatMessageStatusUpdateCore.OutgoingGroupDisplayStatus(
+                expectedBefore, grBefore);
+            if (dAfter == dBefore)
+                return;
+            hubSt = dAfter == ChatMessageStatus.Read ? "read" : "delivered";
+        }
+
         await HubSendToThreadParticipantsAsync(
             t,
             "messageStatusChanged",

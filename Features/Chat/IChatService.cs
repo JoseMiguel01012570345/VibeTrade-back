@@ -194,6 +194,14 @@ public interface IChatService
         UpdateChatMessageStatusArgs request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Tras el login: aplica <c>delivered</c> a mensajes de otros aún no reconocidos; el hub notifica a los emisores.
+    /// </summary>
+    /// <returns>Cantidad de actualizaciones aplicadas (no op si ya constaba en recibos).</returns>
+    Task<int> AckAllPendingIncomingDeliveredAsync(
+        string userId,
+        CancellationToken cancellationToken = default);
+
     /// <param name="fromUtc">Inicio del rango (inclusive), UTC.</param>
     /// <param name="toUtc">Fin del rango (inclusive), UTC.</param>
     Task<IReadOnlyList<ChatNotificationDto>> ListNotificationsAsync(

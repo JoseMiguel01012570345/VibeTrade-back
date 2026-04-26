@@ -814,11 +814,6 @@ public sealed class RouteTramoSubscriptionService(
             return false;
         var digits = (core.Carrier.PhoneDigits ?? "").Trim();
         var stops = PreselMatchStops(core.Payload, digits, request.StopIdRestrict);
-        foreach (var stop in stops)
-        {
-            // Log relevant fields for each stop (customize as needed)
-            Console.WriteLine($"StopId: {stop.Id}, Orden: {stop.Orden}, TelefonoTransportista: {stop.TelefonoTransportista}, TransportInvitedStoreServiceId: {stop.TransportInvitedStoreServiceId}, TransportInvitedServiceSummary: {stop.TransportInvitedServiceSummary}");
-        }
 
         if (stops.Count == 0)
             return false;

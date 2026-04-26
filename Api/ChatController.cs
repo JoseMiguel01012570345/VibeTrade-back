@@ -70,6 +70,25 @@ public sealed class ChatController(
         return Ok(list);
     }
 
+    /// <summary>
+    /// Llamar tras iniciar sesión: reconoce en bloque <c>delivered</c> de mensajes entrantes pendientes
+    /// para que el emisor y el hub reflejen la entrega.
+    /// </summary>
+    [HttpPost("ack-pending-delivery-on-login")]
+    [ProducesResponseType(typeof(AckPendingDeliveryOnLoginResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<AckPendingDeliveryOnLoginResult>> PostAckPendingDeliveryOnLogin(
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var n = await chat.AckAllPendingIncomingDeliveredAsync(userId, cancellationToken);
+        return Ok(new AckPendingDeliveryOnLoginResult(n));
+    }
+
+    public sealed record AckPendingDeliveryOnLoginResult(int Applied);
+
     /// <summary>Obtiene el hilo visible para el usuario y la oferta indicada.</summary>
     [HttpGet("threads/by-offer/{offerId}")]
     [ProducesResponseType(typeof(ChatThreadDto), StatusCodes.Status200OK)]

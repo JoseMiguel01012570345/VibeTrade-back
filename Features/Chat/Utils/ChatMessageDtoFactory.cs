@@ -18,6 +18,21 @@ public static class ChatMessageDtoFactory
             m.UpdatedAtUtc,
             senderDisplayLabel);
 
+    /// <summary>GET mensajes: ticks del emisor en grupo según recibos (ver <see cref="ChatMessageStatusUpdateCore.OutgoingGroupDisplayStatus"/>).</summary>
+    public static ChatMessageDto FromRowWithStatus(
+        ChatMessageRow m,
+        ChatMessageStatus displayStatus,
+        string? senderDisplayLabel = null) =>
+        new(
+            m.Id,
+            m.ThreadId,
+            m.SenderUserId,
+            m.Payload,
+            displayStatus,
+            m.CreatedAtUtc,
+            m.UpdatedAtUtc,
+            senderDisplayLabel);
+
     public static ChatThreadDto FromThread(
         ChatThreadRow t,
         string? buyerDisplayName = null,
