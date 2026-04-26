@@ -1,9 +1,7 @@
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
-using VibeTrade.Backend.Features.Market.Utils;
 
 namespace VibeTrade.Backend.Features.Recommendations;
 
@@ -43,9 +41,9 @@ public sealed class RecommendationService(
         if (pageIds.Length == 0)
             return RecommendationBatchResponse.Empty(batchSize, ScoreThreshold);
 
-        var offers = await BuildOffersJsonForIdsAsync(pageIds, cancellationToken);
-        await offerEngagement.EnrichOffersJsonAsync(offers, "u:" + userId, cancellationToken);
-        var storeBadges = await BuildStoreBadgesJsonAsync(pageIds, candidates, cancellationToken);
+        var offers = await BuildOffersViewForIdsAsync(pageIds, cancellationToken);
+        await offerEngagement.EnrichHomeOffersAsync(offers, "u:" + userId, cancellationToken);
+        var storeBadges = await BuildStoreBadgesViewAsync(pageIds, candidates, cancellationToken);
         return new RecommendationBatchResponse(pageIds, offers, storeBadges, batchSize, ScoreThreshold);
     }
 
@@ -188,7 +186,7 @@ public sealed class RecommendationService(
             .AnyAsync(s => s.Id == offerId, cancellationToken);
     }
 
-    private async Task<JsonObject> BuildStoreBadgesJsonAsync(
+    private async Task<Dictionary<string, StoreProfileWorkspaceData>> BuildStoreBadgesViewAsync(
         IReadOnlyList<string> pageOfferIds,
         IReadOnlyDictionary<string, OfferCandidate> candidates,
         CancellationToken cancellationToken)
@@ -200,21 +198,21 @@ public sealed class RecommendationService(
                 ids.Add(c.StoreId);
         }
         if (ids.Count == 0)
-            return new JsonObject();
+            return new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
 
         var rows = await db.Stores.AsNoTracking()
             .Where(s => ids.Contains(s.Id))
             .ToListAsync(cancellationToken);
-        var o = new JsonObject();
+        var o = new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
         foreach (var row in rows)
-            o[row.Id] = MarketCatalogStoreBadgeJson.FromStoreRow(row);
+            o[row.Id] = StoreProfileWorkspaceData.FromStoreRow(row);
         return o;
     }
 
-    private Task<JsonObject> BuildOffersJsonForIdsAsync(
+    private Task<Dictionary<string, HomeOfferViewDto>> BuildOffersViewForIdsAsync(
         IReadOnlyList<string> idsInOrder,
         CancellationToken cancellationToken) =>
-        RecommendationBatchOfferLoader.BuildOffersJsonInOrderAsync(db, idsInOrder, cancellationToken);
+        RecommendationBatchOfferLoader.BuildOffersViewInOrderAsync(db, idsInOrder, cancellationToken);
 
     private static string ToStorageValue(RecommendationInteractionType eventType) =>
         eventType switch

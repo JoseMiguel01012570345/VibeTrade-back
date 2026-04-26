@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -106,16 +104,13 @@ public sealed class MarketController(
             .ThenBy(s => s.Category)
             .ToListAsync(cancellationToken);
 
-        var arr = new JsonArray();
-        foreach (var s in services)
+        var list = services.Select(s => new
         {
-            var o = MarketCatalogRowJsonSerialization.ServiceToJson(s);
-            if (s.Store is not null)
-                o["storeName"] = s.Store.Name ?? "";
-            arr.Add(o);
-        }
+            service = MarketCatalogRowViewFactory.ServiceFromRow(s),
+            storeName = s.Store?.Name ?? "",
+        }).ToList();
 
-        return Ok(new JsonObject { ["services"] = arr });
+        return Ok(new { services = list });
     }
 
     /// <summary>
@@ -195,9 +190,8 @@ public sealed class MarketController(
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> GetWorkspace(CancellationToken cancellationToken)
     {
-        using var doc = await marketWorkspace.GetOrSeedAsync(cancellationToken);
-        var json = doc.RootElement.GetRawText();
-        return Content(json, "application/json");
+        var root = await marketWorkspace.GetOrSeedAsync(cancellationToken);
+        return Ok(root);
     }
 
     /// <summary>Lista de tiendas desde tablas relacionales (<c>stores</c>).</summary>
@@ -205,8 +199,8 @@ public sealed class MarketController(
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetWorkspaceStores(CancellationToken cancellationToken)
     {
-        using var doc = await marketWorkspace.GetStoresSnapshotAsync(cancellationToken);
-        return Content(doc.RootElement.GetRawText(), "application/json");
+        var snapshot = await marketWorkspace.GetStoresSnapshotAsync(cancellationToken);
+        return Ok(snapshot);
     }
 
     /// <summary>
@@ -219,22 +213,17 @@ public sealed class MarketController(
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> PutWorkspaceStores([FromBody] JsonDocument body, CancellationToken cancellationToken)
+    public async Task<IActionResult> PutWorkspaceStores(
+        [FromBody] WorkspaceStorePutRequest body,
+        CancellationToken cancellationToken)
     {
-        JsonDocument toSave;
         try
         {
-            toSave = MarketWorkspaceStoresPutBodyNormalizer.Normalize(body);
+            await marketWorkspace.SaveStoreProfilesAsync(body, cancellationToken);
         }
         catch (ArgumentException)
         {
-            body.Dispose();
             return BadRequest(new { error = "invalid_stores_body", message = "Indicá la tienda con un campo \"id\" o usá la forma \"stores\".{...}." });
-        }
-
-        try
-        {
-            await marketWorkspace.SaveStoreProfilesAsync(toSave, cancellationToken);
         }
         catch (DuplicateStoreNameException)
         {
@@ -258,7 +247,9 @@ public sealed class MarketController(
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> PutWorkspaceCatalogs([FromBody] JsonDocument body, CancellationToken cancellationToken)
+    public async Task<IActionResult> PutWorkspaceCatalogs(
+        [FromBody] WorkspaceStoreCatalogsPutRequest body,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -292,7 +283,7 @@ public sealed class MarketController(
     public async Task<IActionResult> PutStoreProduct(
         string storeId,
         string productId,
-        [FromBody] JsonDocument body,
+        [FromBody] StoreProductPutRequest body,
         CancellationToken cancellationToken)
     {
         var userId = BearerUserId.FromRequest(auth, Request);
@@ -300,7 +291,7 @@ public sealed class MarketController(
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         try
         {
-            var r = await catalog.UpsertStoreProductAsync(storeId, productId, userId, body.RootElement, cancellationToken);
+            var r = await catalog.UpsertStoreProductAsync(storeId, productId, userId, body, cancellationToken);
             return MapCatalogUpsert(r);
         }
         catch (CatalogCurrencyValidationException ex)
@@ -343,7 +334,7 @@ public sealed class MarketController(
     public async Task<IActionResult> PutStoreService(
         string storeId,
         string serviceId,
-        [FromBody] JsonDocument body,
+        [FromBody] StoreServicePutRequest body,
         CancellationToken cancellationToken)
     {
         var userId = BearerUserId.FromRequest(auth, Request);
@@ -351,7 +342,7 @@ public sealed class MarketController(
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         try
         {
-            var r = await catalog.UpsertStoreServiceAsync(storeId, serviceId, userId, body.RootElement, cancellationToken);
+            var r = await catalog.UpsertStoreServiceAsync(storeId, serviceId, userId, body, cancellationToken);
             return MapCatalogUpsert(r);
         }
         catch (CatalogCurrencyValidationException ex)
@@ -468,7 +459,7 @@ public sealed class MarketController(
 
             await chat.BroadcastOfferCommentsUpdatedAsync(offerOid, cancellationToken);
 
-            return Content(item.ToJsonString(), "application/json");
+            return Ok(item);
         }
         catch (ArgumentException ex)
         {
@@ -489,8 +480,8 @@ public sealed class MarketController(
         if (qa is null)
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
         var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
-        var enriched = await offerEngagement.EnrichOfferQaJsonAsync(offerId, qa, likerKey, cancellationToken);
-        return Content(enriched ?? "[]", "application/json");
+        var enriched = await offerEngagement.EnrichOfferQaListAsync(offerId, qa, likerKey, cancellationToken);
+        return Ok(enriched);
     }
 
     /// <summary>Hidrata ficha y tienda (p. ej. enlace directo a <c>/offer/…</c> sin pasar por el home).</summary>
@@ -504,12 +495,10 @@ public sealed class MarketController(
         if (card is null)
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
         var oid = offerId.Trim();
-        // `Offer` viene de BuildOffersJsonInOrder: el JsonObject sigue con padre; hay que clonarlo antes de otro contenedor.
-        var offerNode = (JsonObject)JsonNode.Parse(card.Value.Offer.ToJsonString())!;
-        var offers = new JsonObject { [oid] = offerNode };
+        var offers = new Dictionary<string, HomeOfferViewDto>(StringComparer.Ordinal) { [oid] = card.Value.Offer };
         var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
-        await offerEngagement.EnrichOffersJsonAsync(offers, likerKey, cancellationToken);
-        if (offers[oid] is not JsonObject enriched)
+        await offerEngagement.EnrichHomeOffersAsync(offers, likerKey, cancellationToken);
+        if (!offers.TryGetValue(oid, out var enriched))
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
         return Ok(new { offer = enriched, store = card.Value.Store });
     }
@@ -624,7 +613,9 @@ public sealed class MarketController(
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> PutWorkspaceInquiries([FromBody] JsonDocument body, CancellationToken cancellationToken)
+    public async Task<IActionResult> PutWorkspaceInquiries(
+        [FromBody] WorkspaceInquiriesPutRequest body,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -653,89 +644,42 @@ public sealed class MarketController(
         [FromBody] StoreDetailBody? body,
         CancellationToken cancellationToken)
     {
-        using var doc = await marketWorkspace.GetStoreDetailAsync(storeId, cancellationToken);
-        if (doc is null)
+        var root = await marketWorkspace.GetStoreDetailAsync(storeId, cancellationToken);
+        if (root is null)
             return NotFound();
-        var root = JsonNode.Parse(doc.RootElement.GetRawText())!.AsObject();
         if (body is not null && (body.ViewerUserId is not null || body.ViewerRole is not null))
         {
-            root["viewer"] = new JsonObject
+            root.Viewer = new StoreDetailViewerView
             {
-                ["userId"] = body.ViewerUserId is null ? null : JsonValue.Create(body.ViewerUserId),
-                ["role"] = body.ViewerRole is null ? null : JsonValue.Create(body.ViewerRole),
+                UserId = body.ViewerUserId,
+                Role = body.ViewerRole,
             };
         }
 
-        if (root["store"] is JsonObject storeObj &&
-            storeObj.TryGetPropertyValue("ownerUserId", out var ouNode) &&
-            ouNode is JsonValue ouVal &&
-            ouVal.TryGetValue<string>(out var ownerId) &&
-            !string.IsNullOrWhiteSpace(ownerId))
+        if (!string.IsNullOrWhiteSpace(root.Store.OwnerUserId))
         {
+            var ownerId = root.Store.OwnerUserId!.Trim();
             var snap = await userAccountSync.GetProfileSnapshotByUserIdAsync(ownerId, cancellationToken);
             if (snap is not null)
             {
-                root["owner"] = new JsonObject
+                root.Owner = new StoreDetailOwnerView
                 {
-                    ["id"] = snap.Id,
-                    ["name"] = snap.DisplayName,
-                    ["avatarUrl"] = snap.AvatarUrl is { } a ? JsonValue.Create(a) : null,
-                    ["trustScore"] = snap.TrustScore,
+                    Id = snap.Id,
+                    Name = snap.DisplayName,
+                    AvatarUrl = snap.AvatarUrl,
+                    TrustScore = snap.TrustScore,
                 };
             }
         }
 
-        if (root["catalog"] is JsonObject catalogObj)
-        {
-            // Los ítems del catálogo ya tienen padre en el árbol JSON; hay que clonar para EnrichOffersJsonAsync
-            // y volcar las propiedades enriquecidas sobre los nodos originales.
-            var offersMap = new JsonObject();
-            var originalsByOfferId = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
-            void AddOffersFromCatalogArray(string arrayKey)
-            {
-                if (!catalogObj.TryGetPropertyValue(arrayKey, out var arrNode) || arrNode is not JsonArray arr)
-                    return;
-                foreach (var node in arr)
-                {
-                    if (node is not JsonObject itemObj)
-                        continue;
-                    if (!itemObj.TryGetPropertyValue("id", out var idNode) || idNode is not JsonValue idVal)
-                        continue;
-                    var pid = idVal.GetValue<string>()?.Trim() ?? "";
-                    if (pid.Length < 2)
-                        continue;
-                    originalsByOfferId[pid] = itemObj;
-                    offersMap[pid] = JsonNode.Parse(itemObj.ToJsonString())!.AsObject();
-                }
-            }
+        var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
+        await offerEngagement.EnrichStoreCatalogBlockEngagementAsync(
+            root.Catalog.Products,
+            root.Catalog.Services,
+            likerKey,
+            cancellationToken);
 
-            AddOffersFromCatalogArray("products");
-            AddOffersFromCatalogArray("services");
-            var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
-            await offerEngagement.EnrichOffersJsonAsync(offersMap, likerKey, cancellationToken);
-            foreach (var kv in offersMap)
-            {
-                if (kv.Value is not JsonObject enriched)
-                    continue;
-                if (!originalsByOfferId.TryGetValue(kv.Key, out var original))
-                    continue;
-                // Copiar escalares: no reasignar JsonNode entre árboles (evita "node already has a parent").
-                if (enriched.TryGetPropertyValue("publicCommentCount", out var pcNode)
-                    && pcNode is JsonValue pcVal
-                    && pcVal.TryGetValue<int>(out var nComments))
-                    original["publicCommentCount"] = nComments;
-                if (enriched.TryGetPropertyValue("offerLikeCount", out var olNode)
-                    && olNode is JsonValue olVal
-                    && olVal.TryGetValue<int>(out var nLikes))
-                    original["offerLikeCount"] = nLikes;
-                if (enriched.TryGetPropertyValue("viewerLikedOffer", out var vlNode)
-                    && vlNode is JsonValue vlVal
-                    && vlVal.TryGetValue<bool>(out var liked))
-                    original["viewerLikedOffer"] = liked;
-            }
-        }
-
-        return Content(root.ToJsonString(), "application/json");
+        return Ok(root);
     }
 
     private IActionResult MapCatalogUpsert(StoreCatalogUpsertResult r) =>

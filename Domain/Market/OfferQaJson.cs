@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
@@ -31,12 +30,6 @@ public static class OfferQaJson
         {
             return new List<OfferQaComment>();
         }
-    }
-
-    public static JsonNode ToJsonNode(IReadOnlyList<OfferQaComment> items)
-    {
-        var json = JsonSerializer.Serialize(items ?? Array.Empty<OfferQaComment>(), SerializerOptions);
-        return JsonNode.Parse(json) ?? new JsonArray();
     }
 
     public static ValueConverter<List<OfferQaComment>, string> CreateEfConverter() =>

@@ -1,9 +1,7 @@
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
-using VibeTrade.Backend.Features.Market.Utils;
 
 namespace VibeTrade.Backend.Features.Recommendations;
 
@@ -48,7 +46,7 @@ public sealed class GuestRecommendationService(
         var guestViewer = new UserAccount
         {
             Id = gid,
-            SavedOfferIdsJson = "[]",
+            SavedOfferIds = new List<string>(),
         };
 
         var v2Ids = await feedV2.TryBuildOrderedOfferIdsAsync(
@@ -93,13 +91,13 @@ public sealed class GuestRecommendationService(
         if (filtered.Length == 0)
             return RecommendationBatchResponse.Empty(batchSize, RecommendationService.ScoreThreshold);
 
-        var offers = await RecommendationBatchOfferLoader.BuildOffersJsonInOrderAsync(db, filtered, cancellationToken);
-        await offerEngagement.EnrichOffersJsonAsync(offers, "g:" + gid, cancellationToken);
+        var offers = await RecommendationBatchOfferLoader.BuildOffersViewInOrderAsync(db, filtered, cancellationToken);
+        await offerEngagement.EnrichHomeOffersAsync(offers, "g:" + gid, cancellationToken);
         var storeBadges = await BuildStoreBadgesFromCandidatesAsync(filtered, candidates, cancellationToken);
         return new RecommendationBatchResponse(filtered, offers, storeBadges, batchSize, RecommendationService.ScoreThreshold);
     }
 
-    private async Task<JsonObject> BuildStoreBadgesFromCandidatesAsync(
+    private async Task<Dictionary<string, StoreProfileWorkspaceData>> BuildStoreBadgesFromCandidatesAsync(
         IReadOnlyList<string> pageOfferIds,
         IReadOnlyDictionary<string, OfferCandidate> candidates,
         CancellationToken cancellationToken)
@@ -111,14 +109,14 @@ public sealed class GuestRecommendationService(
                 ids.Add(c.StoreId);
         }
         if (ids.Count == 0)
-            return new JsonObject();
+            return new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
 
         var rows = await db.Stores.AsNoTracking()
             .Where(s => ids.Contains(s.Id))
             .ToListAsync(cancellationToken);
-        var o = new JsonObject();
+        var o = new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
         foreach (var row in rows)
-            o[row.Id] = MarketCatalogStoreBadgeJson.FromStoreRow(row);
+            o[row.Id] = StoreProfileWorkspaceData.FromStoreRow(row);
         return o;
     }
 }

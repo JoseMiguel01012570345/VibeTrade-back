@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Utils;
 
 namespace VibeTrade.Backend.Infrastructure.DemoData;
@@ -92,7 +93,7 @@ public static class DemoDataSeed
                 DisplayName = string.IsNullOrWhiteSpace(u.DisplayName) ? u.Id : u.DisplayName.Trim(),
                 PhoneDisplay = string.IsNullOrWhiteSpace(u.PhoneDisplay) ? null : u.PhoneDisplay.Trim(),
                 AvatarUrl = string.IsNullOrWhiteSpace(u.AvatarUrl) ? null : u.AvatarUrl.Trim(),
-                SavedOfferIdsJson = "[]",
+                SavedOfferIds = new List<string>(),
                 TrustScore = u.TrustScore,
                 CreatedAt = now,
                 UpdatedAt = now,
@@ -104,7 +105,6 @@ public static class DemoDataSeed
                     continue;
 
                 var norm = MarketStoreNameNormalizer.Normalize(store.Name);
-                var categoriesJson = JsonSerializer.Serialize(store.Categories ?? new List<string>());
                 db.Stores.Add(new StoreRow
                 {
                     Id = store.Id.Trim(),
@@ -114,7 +114,7 @@ public static class DemoDataSeed
                     Verified = store.Verified,
                     TransportIncluded = store.TransportIncluded,
                     TrustScore = store.TrustScore,
-                    CategoriesJson = categoriesJson,
+                    Categories = store.Categories?.ToList() ?? new List<string>(),
                     Pitch = string.IsNullOrWhiteSpace(store.Pitch) ? "" : store.Pitch.Trim(),
                     JoinedAtMs = store.JoinedAtMs > 0 ? store.JoinedAtMs : now.ToUnixTimeMilliseconds(),
                     LocationLatitude = store.Location?.Lat,
@@ -142,7 +142,7 @@ public static class DemoDataSeed
                         Condition = p.Condition,
                         Price = p.Price,
                         MonedaPrecio = string.IsNullOrWhiteSpace(p.MonedaPrecio) ? null : p.MonedaPrecio,
-                        MonedasJson = p.MonedasJson,
+                        Monedas = CatalogJsonColumnParsing.StringListOrEmpty(p.MonedasJson).ToList(),
                         TaxesShippingInstall = string.IsNullOrWhiteSpace(p.TaxesShippingInstall)
                             ? null
                             : p.TaxesShippingInstall,
@@ -151,8 +151,8 @@ public static class DemoDataSeed
                         ContentIncluded = p.ContentIncluded,
                         UsageConditions = p.UsageConditions,
                         Published = p.Published,
-                        PhotoUrlsJson = p.PhotoUrlsJson,
-                        CustomFieldsJson = p.CustomFieldsJson,
+                        PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(p.PhotoUrlsJson).ToList(),
+                        CustomFields = CatalogJsonColumnParsing.CustomFieldsListOrEmpty(p.CustomFieldsJson).ToList(),
                         OfferQa = new List<OfferQaComment>(),
                         UpdatedAt = now,
                     });
@@ -174,9 +174,12 @@ public static class DemoDataSeed
                         NoIncluye = s.NoIncluye,
                         Entregables = s.Entregables,
                         PropIntelectual = s.PropIntelectual,
-                        MonedasJson = s.MonedasJson,
-                        CustomFieldsJson = s.CustomFieldsJson,
-                        PhotoUrlsJson = s.PhotoUrlsJson,
+                        Monedas = CatalogJsonColumnParsing.StringListOrEmpty(s.MonedasJson).ToList(),
+                        CustomFields = CatalogJsonColumnParsing.CustomFieldsListOrEmpty(s.CustomFieldsJson).ToList(),
+                        PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(s.PhotoUrlsJson).ToList(),
+                        Riesgos = new(),
+                        Dependencias = new(),
+                        Garantias = new(),
                         OfferQa = new List<OfferQaComment>(),
                         UpdatedAt = now,
                     });

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
@@ -16,9 +15,8 @@ public sealed class SavedOffersService(AppDbContext db) : ISavedOffersService
         if (row is null)
             return Array.Empty<string>();
 
-        var ids = ParseIds(row.SavedOfferIdsJson);
         var outList = new List<string>();
-        foreach (var id in ids)
+        foreach (var id in NormalizeIds(row.SavedOfferIds))
         {
             var owner = await GetOwnerUserIdForOfferIdAsync(id, cancellationToken);
             if (owner is null)
@@ -51,11 +49,11 @@ public sealed class SavedOffersService(AppDbContext db) : ISavedOffersService
         if (row is null)
             return (SavedOfferMutationError.UserNotFound, Array.Empty<string>());
 
-        var list = ParseIds(row.SavedOfferIdsJson);
+        var list = NormalizeIds(row.SavedOfferIds);
         if (!list.Contains(pid, StringComparer.Ordinal))
             list.Add(pid);
 
-        row.SavedOfferIdsJson = JsonSerializer.Serialize(list);
+        row.SavedOfferIds = list;
         row.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
 
@@ -72,9 +70,9 @@ public sealed class SavedOffersService(AppDbContext db) : ISavedOffersService
         if (row is null)
             return null;
 
-        var list = ParseIds(row.SavedOfferIdsJson);
+        var list = NormalizeIds(row.SavedOfferIds);
         var next = list.Where(x => !string.Equals(x, pid, StringComparison.Ordinal)).ToList();
-        row.SavedOfferIdsJson = JsonSerializer.Serialize(next);
+        row.SavedOfferIds = next;
         row.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         return next;
@@ -119,24 +117,14 @@ public sealed class SavedOffersService(AppDbContext db) : ISavedOffersService
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    private static List<string> ParseIds(string json)
+    private static List<string> NormalizeIds(IReadOnlyList<string>? ids)
     {
-        if (string.IsNullOrWhiteSpace(json))
+        if (ids is not { Count: > 0 })
             return new List<string>();
-        try
-        {
-            var parsed = JsonSerializer.Deserialize<List<string>>(json);
-            if (parsed is null)
-                return new List<string>();
-            return parsed
-                .Select(x => x.Trim())
-                .Where(x => x.Length > 0)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-        }
-        catch
-        {
-            return new List<string>();
-        }
+        return ids
+            .Select(x => (x ?? "").Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 }

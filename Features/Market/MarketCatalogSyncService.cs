@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
@@ -17,21 +15,21 @@ public sealed partial class MarketCatalogSyncService(
     IChatService chat) : IMarketCatalogSyncService
 {
     public Task ApplyStoreProfilesFromWorkspaceAsync(
-        JsonElement workspaceRoot,
+        MarketWorkspaceState workspaceRoot,
         CancellationToken cancellationToken = default) =>
         ApplyCoreAsync(workspaceRoot, storeProfiles: true, catalogs: false, offerQa: false, cancellationToken);
 
     public Task ApplyStoreCatalogsFromWorkspaceAsync(
-        JsonElement workspaceRoot,
+        MarketWorkspaceState workspaceRoot,
         CancellationToken cancellationToken = default) =>
         ApplyCoreAsync(workspaceRoot, storeProfiles: false, catalogs: true, offerQa: false, cancellationToken);
 
     public Task ApplyOfferInquiriesFromWorkspaceAsync(
-        JsonElement workspaceRoot,
+        MarketWorkspaceState workspaceRoot,
         CancellationToken cancellationToken = default) =>
         ApplyCoreAsync(workspaceRoot, storeProfiles: false, catalogs: false, offerQa: true, cancellationToken);
 
-    public async Task<JsonObject?> AppendOfferInquiryAsync(
+    public async Task<OfferQaComment?> AppendOfferInquiryAsync(
         string offerId,
         string text,
         string? parentId,
@@ -81,7 +79,7 @@ public sealed partial class MarketCatalogSyncService(
             eList.Insert(0, newItem);
             emergent.OfferQa = eList;
             await db.SaveChangesAsync(cancellationToken);
-            return JsonSerializer.SerializeToNode(newItem, OfferQaJson.SerializerOptions) as JsonObject;
+            return newItem;
         }
 
         var product = await db.StoreProducts.FindAsync([offerId], cancellationToken);
@@ -94,7 +92,7 @@ public sealed partial class MarketCatalogSyncService(
             product.OfferQa = list;
             product.UpdatedAt = now;
             await db.SaveChangesAsync(cancellationToken);
-            return JsonSerializer.SerializeToNode(newItem, OfferQaJson.SerializerOptions) as JsonObject;
+            return newItem;
         }
 
         var service = await db.StoreServices.FindAsync([offerId], cancellationToken);
@@ -107,7 +105,7 @@ public sealed partial class MarketCatalogSyncService(
             service.OfferQa = list;
             service.UpdatedAt = now;
             await db.SaveChangesAsync(cancellationToken);
-            return JsonSerializer.SerializeToNode(newItem, OfferQaJson.SerializerOptions) as JsonObject;
+            return newItem;
         }
 
         return null;

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Chat.Utils;
 
@@ -57,10 +58,10 @@ public sealed partial class ChatService
 
     private async Task<IReadOnlyList<ReplyQuoteDto>?> BuildReplyQuotesAsync(
         ChatThreadRow thread,
-        JsonElement requestPayload,
+        PostChatMessageBody body,
         CancellationToken cancellationToken)
     {
-        var ids = ChatReplyToIdsFromPayload.ReadList(requestPayload);
+        var ids = ChatReplyToIdsFromPayload.ReadList(body);
         if (ids is null || ids.Count == 0)
             return null;
 
@@ -184,7 +185,7 @@ public sealed partial class ChatService
 
     /// <summary>
     /// Cada integrante de <paramref name="recipients"/> con sesión de auth activa
-    /// (<c>auth_sessions.ExpiresAt</c> y <c>UserJson.id</c>).
+    /// (<c>auth_sessions.ExpiresAt</c> y <c>User.id</c> en la entidad mapeada).
     /// </summary>
     private async Task<bool> AllRecipientAccountsHaveValidSessionAsync(
         IReadOnlyList<string> recipients,
@@ -193,23 +194,16 @@ public sealed partial class ChatService
         if (recipients is not { Count: > 0 })
             return false;
         var utcNow = DateTimeOffset.UtcNow;
-        var userJsonBlobs = await db.AuthSessions.AsNoTracking()
+        var sessionUsers = await db.AuthSessions.AsNoTracking()
             .Where(s => s.ExpiresAt > utcNow)
-            .Select(s => s.UserJson)
+            .Select(s => s.User)
             .ToListAsync(cancellationToken);
-        var onlineUserIds = new List<string>(userJsonBlobs.Count);
-        foreach (var j in userJsonBlobs)
+        var onlineUserIds = new List<string>(sessionUsers.Count);
+        foreach (var u in sessionUsers)
         {
-            try
-            {
-                using var d = JsonDocument.Parse(j);
-                if (d.RootElement.TryGetProperty("id", out var id) && id.GetString() is { Length: > 0 } s)
-                    onlineUserIds.Add(s);
-            }
-            catch
-            {
-                // JSON inválido: ignorar
-            }
+            var id = (u.Id ?? "").Trim();
+            if (id.Length > 0)
+                onlineUserIds.Add(id);
         }
 
         return recipients.All(
@@ -256,14 +250,9 @@ public sealed partial class ChatService
             || !await UserCanAccessThreadRowAsync(senderUserId, t, cancellationToken))
             return null;
 
-        var payload = request.Payload;
-        if (payload.ValueKind != JsonValueKind.Object
-            || !payload.TryGetProperty("type", out var typeEl)
-            || typeEl.ValueKind != JsonValueKind.String)
-            return null;
-
-        var type = typeEl.GetString();
-        if (string.IsNullOrEmpty(type))
+        var body = request.Message;
+        var type = (body.Type ?? "").Trim();
+        if (type.Length == 0)
             return null;
 
         if (senderUserId != t.BuyerUserId
@@ -273,11 +262,11 @@ public sealed partial class ChatService
 
         return type switch
         {
-            "text" => await PostTextChatMessageAsync(senderUserId, t, payload, cancellationToken),
-            "audio" => await PostAudioChatMessageAsync(senderUserId, t, payload, cancellationToken),
-            "image" => await PostImageChatMessageAsync(senderUserId, t, payload, cancellationToken),
-            "doc" => await PostSingleDocChatMessageAsync(senderUserId, t, payload, cancellationToken),
-            "docs" => await PostDocsBundleChatMessageAsync(senderUserId, t, payload, cancellationToken),
+            "text" => await PostTextChatMessageAsync(senderUserId, t, body, cancellationToken),
+            "audio" => await PostAudioChatMessageAsync(senderUserId, t, body, cancellationToken),
+            "image" => await PostImageChatMessageAsync(senderUserId, t, body, cancellationToken),
+            "doc" => await PostSingleDocChatMessageAsync(senderUserId, t, body, cancellationToken),
+            "docs" => await PostDocsBundleChatMessageAsync(senderUserId, t, body, cancellationToken),
             _ => null,
         };
     }
@@ -285,24 +274,18 @@ public sealed partial class ChatService
     private async Task<ChatMessageDto?> PostTextChatMessageAsync(
         string senderUserId,
         ChatThreadRow t,
-        JsonElement payload,
+        PostChatMessageBody body,
         CancellationToken cancellationToken)
     {
-        if (!payload.TryGetProperty("text", out var textEl))
-            return null;
-        var text = (textEl.GetString() ?? "").Trim();
+        var text = (body.Text ?? "").Trim();
         if (text.Length == 0 || text.Length > 12_000)
             return null;
 
         string? offerQaId = null;
-        if (payload.TryGetProperty("offerQaId", out var oqEl) && oqEl.ValueKind == JsonValueKind.String)
-        {
-            var oqs = oqEl.GetString();
-            if (!string.IsNullOrWhiteSpace(oqs))
-                offerQaId = oqs!.Trim();
-        }
+        if (body.OfferQaId is { } oqs && !string.IsNullOrWhiteSpace(oqs))
+            offerQaId = oqs.Trim();
 
-        var quotes = await BuildReplyQuotesAsync(t, payload, cancellationToken);
+        var quotes = await BuildReplyQuotesAsync(t, body, cancellationToken);
         var payloadObj = new ChatTextPayload
         {
             Text = text,
@@ -315,26 +298,23 @@ public sealed partial class ChatService
     private async Task<ChatMessageDto?> PostAudioChatMessageAsync(
         string senderUserId,
         ChatThreadRow t,
-        JsonElement payload,
+        PostChatMessageBody body,
         CancellationToken cancellationToken)
     {
-        if (!payload.TryGetProperty("url", out var urlEl) || urlEl.ValueKind != JsonValueKind.String)
-            return null;
-        var url = urlEl.GetString() ?? "";
+        var url = body.Url ?? "";
         if (!ChatMediaUrlRules.IsAllowedPersisted(url))
             return null;
 
-        if (!payload.TryGetProperty("seconds", out var secEl))
+        if (body.Seconds is not { } sec)
             return null;
-        var seconds = secEl.TryGetInt32(out var s) ? s : 0;
-        if (seconds is < 1 or > 3600)
+        if (sec is < 1 or > 3600)
             return null;
 
-        var quotes = await BuildReplyQuotesAsync(t, payload, cancellationToken);
+        var quotes = await BuildReplyQuotesAsync(t, body, cancellationToken);
         var payloadObj = new ChatAudioPayload
         {
             Url = url,
-            Seconds = seconds,
+            Seconds = sec,
             ReplyQuotes = quotes,
         };
         return await InsertChatMessageAsync(t, senderUserId, payloadObj, cancellationToken);
@@ -343,12 +323,12 @@ public sealed partial class ChatService
     private async Task<ChatMessageDto?> PostImageChatMessageAsync(
         string senderUserId,
         ChatThreadRow t,
-        JsonElement payload,
+        PostChatMessageBody body,
         CancellationToken cancellationToken)
     {
-        if (!ChatPostPayloadValidation.TryParseAndValidateImagePayload(payload, out var parsed) || parsed is null)
+        if (!ChatPostPayloadValidation.TryParseAndValidateImagePayload(body, out var parsed) || parsed is null)
             return null;
-        var quotes = await BuildReplyQuotesAsync(t, payload, cancellationToken);
+        var quotes = await BuildReplyQuotesAsync(t, body, cancellationToken);
         var payloadObj = new ChatImagePayload
         {
             Images = parsed.Images,
@@ -362,40 +342,28 @@ public sealed partial class ChatService
     private async Task<ChatMessageDto?> PostSingleDocChatMessageAsync(
         string senderUserId,
         ChatThreadRow t,
-        JsonElement payload,
+        PostChatMessageBody body,
         CancellationToken cancellationToken)
     {
-        ChatDocPayload parsed;
-        try
-        {
-            parsed = JsonSerializer.Deserialize<ChatDocPayload>(payload.GetRawText(), ChatMessageJson.Options)
-                     ?? throw new JsonException();
-        }
-        catch
-        {
+        if (string.IsNullOrWhiteSpace(body.Name) || body.Name.Length > 500)
             return null;
-        }
-
-        if (string.IsNullOrWhiteSpace(parsed.Name) || parsed.Name.Length > 500)
+        if (body.Url is not null && !ChatMediaUrlRules.IsAllowedPersisted(body.Url))
+            return null;
+        if (body.Kind is not ("pdf" or "doc" or "other"))
+            return null;
+        if (string.IsNullOrWhiteSpace(body.Size))
+            return null;
+        if (body.Caption is { Length: > 4000 })
             return null;
 
-        if (parsed.Url is not null && !ChatMediaUrlRules.IsAllowedPersisted(parsed.Url))
-            return null;
-
-        if (parsed.Kind is not ("pdf" or "doc" or "other"))
-            return null;
-
-        if (parsed.Caption is { Length: > 4000 })
-            return null;
-
-        var quotes = await BuildReplyQuotesAsync(t, payload, cancellationToken);
+        var quotes = await BuildReplyQuotesAsync(t, body, cancellationToken);
         var payloadObj = new ChatDocPayload
         {
-            Name = parsed.Name.Trim(),
-            Size = parsed.Size.Trim(),
-            Kind = parsed.Kind,
-            Url = parsed.Url,
-            Caption = parsed.Caption,
+            Name = body.Name.Trim(),
+            Size = body.Size.Trim(),
+            Kind = body.Kind!,
+            Url = body.Url,
+            Caption = body.Caption,
             ReplyQuotes = quotes,
         };
         return await InsertChatMessageAsync(t, senderUserId, payloadObj, cancellationToken);
@@ -404,12 +372,12 @@ public sealed partial class ChatService
     private async Task<ChatMessageDto?> PostDocsBundleChatMessageAsync(
         string senderUserId,
         ChatThreadRow t,
-        JsonElement payload,
+        PostChatMessageBody body,
         CancellationToken cancellationToken)
     {
-        if (!ChatPostPayloadValidation.TryParseAndValidateDocsBundlePayload(payload, out var parsed) || parsed is null)
+        if (!ChatPostPayloadValidation.TryParseAndValidateDocsBundlePayload(body, out var parsed) || parsed is null)
             return null;
-        var quotes = await BuildReplyQuotesAsync(t, payload, cancellationToken);
+        var quotes = await BuildReplyQuotesAsync(t, body, cancellationToken);
         var payloadObj = new ChatDocsBundlePayload
         {
             Documents = parsed.Documents,

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Features.Market.Utils;
 
@@ -10,7 +9,7 @@ public sealed partial class MarketCatalogSyncService
         string storeId,
         string productId,
         string userId,
-        JsonElement product,
+        StoreProductPutRequest product,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -22,11 +21,8 @@ public sealed partial class MarketCatalogSyncService
         if (store.OwnerUserId != userId)
             return StoreCatalogUpsertResult.Forbidden;
 
-        if (product.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
-        {
-            if (idEl.GetString() != productId)
-                return StoreCatalogUpsertResult.IdMismatch;
-        }
+        if (product.Id != productId)
+            return StoreCatalogUpsertResult.IdMismatch;
 
         var existing = await db.StoreProducts.IgnoreQueryFilters()
             .AsNoTracking()
@@ -74,7 +70,7 @@ public sealed partial class MarketCatalogSyncService
         string storeId,
         string serviceId,
         string userId,
-        JsonElement service,
+        StoreServicePutRequest service,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -86,11 +82,8 @@ public sealed partial class MarketCatalogSyncService
         if (store.OwnerUserId != userId)
             return StoreCatalogUpsertResult.Forbidden;
 
-        if (service.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
-        {
-            if (idEl.GetString() != serviceId)
-                return StoreCatalogUpsertResult.IdMismatch;
-        }
+        if (service.Id != serviceId)
+            return StoreCatalogUpsertResult.IdMismatch;
 
         var existing = await db.StoreServices.IgnoreQueryFilters()
             .AsNoTracking()

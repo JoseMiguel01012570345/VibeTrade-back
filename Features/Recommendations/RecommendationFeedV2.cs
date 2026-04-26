@@ -1,9 +1,8 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Search;
 
 namespace VibeTrade.Backend.Features.Recommendations;
@@ -279,7 +278,11 @@ public sealed class RecommendationFeedV2(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        var saved = ParseSavedOfferIds(viewer.SavedOfferIdsJson).ToHashSet(StringComparer.Ordinal);
+        var saved = new HashSet<string>(
+            viewer.SavedOfferIds
+                .Select(x => (x ?? "").Trim())
+                .Where(x => x.Length > 0),
+            StringComparer.Ordinal);
 
         var userOrdered = await BuildUserOfferOrderedListAsync(userEvents, saved, viewerUserId, cancellationToken);
         var contactOrdered = await BuildContactOfferOrderedListAsync(contactEvents, viewerUserId, cancellationToken);
@@ -837,7 +840,7 @@ public sealed class RecommendationFeedV2(
         {
             p.Name, p.Category, p.Model, p.ShortDescription, p.MainBenefit, p.TechnicalSpecs,
             p.Condition, p.Price, p.Availability, p.WarrantyReturn, p.ContentIncluded,
-            p.UsageConditions, p.CustomFieldsJson,
+            p.UsageConditions, CustomFieldsPlain(p.CustomFields),
         };
         return string.Join(' ', parts.Where(s => !string.IsNullOrWhiteSpace(s)));
     }
@@ -847,28 +850,31 @@ public sealed class RecommendationFeedV2(
         var parts = new[]
         {
             s.Category, s.TipoServicio, s.Descripcion, s.Incluye, s.NoIncluye, s.Entregables,
-            s.PropIntelectual, s.RiesgosJson, s.DependenciasJson, s.GarantiasJson, s.CustomFieldsJson,
+            s.PropIntelectual, ServiceRiesgosPlain(s.Riesgos), ServiceDependenciasPlain(s.Dependencias),
+            ServiceGarantiasPlain(s.Garantias), CustomFieldsPlain(s.CustomFields),
         };
         return string.Join(' ', parts.Where(x => !string.IsNullOrWhiteSpace(x)));
     }
 
-    private static IEnumerable<string> ParseSavedOfferIds(string json)
+    private static string CustomFieldsPlain(IReadOnlyList<StoreCustomFieldBody>? list)
     {
-        if (string.IsNullOrWhiteSpace(json))
-            return Array.Empty<string>();
-        try
-        {
-            return JsonSerializer.Deserialize<List<string>>(json)?
-                       .Where(x => !string.IsNullOrWhiteSpace(x))
-                       .Select(x => x.Trim())
-                       .Distinct(StringComparer.Ordinal)
-                       .ToArray()
-                   ?? Array.Empty<string>();
-        }
-        catch
-        {
-            return Array.Empty<string>();
-        }
+        if (list is not { Count: > 0 })
+            return "";
+        return string.Join(' ', list.Select(f => string.Join(' ', f.Title, f.Body, f.AttachmentNote).Trim())
+            .Where(s => s.Length > 0));
+    }
+
+    private static string ServiceRiesgosPlain(ServiceRiesgosBody? r) =>
+        r is { Enabled: true, Items: { Count: > 0 } } ? string.Join(' ', r.Items) : "";
+
+    private static string ServiceDependenciasPlain(ServiceDependenciasBody? b) =>
+        b is { Enabled: true, Items: { Count: > 0 } } ? string.Join(' ', b.Items) : "";
+
+    private static string ServiceGarantiasPlain(ServiceGarantiasBody? g)
+    {
+        if (g is not { Enabled: true })
+            return "";
+        return (g.Texto ?? "").Trim();
     }
 
     private static double EventWeight(string eventType) =>

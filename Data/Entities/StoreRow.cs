@@ -22,8 +22,8 @@ public sealed class StoreRow
 
     public string? AvatarUrl { get; set; }
 
-    /// <summary>Categorías (JSON array de strings en jsonb).</summary>
-    public string CategoriesJson { get; set; } = "[]";
+    /// <summary>Categorías (jsonb: columna <c>CategoriesJson</c>).</summary>
+    public List<string> Categories { get; set; } = new();
 
     /// <summary>Descripción del catálogo (pitch).</summary>
     public string Pitch { get; set; } = "";

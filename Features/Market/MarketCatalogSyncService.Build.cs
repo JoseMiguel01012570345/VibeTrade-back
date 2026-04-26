@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Features.Market.Utils;
 
@@ -7,18 +5,20 @@ namespace VibeTrade.Backend.Features.Market;
 
 public sealed partial class MarketCatalogSyncService
 {
-    public async Task<JsonObject> BuildStoresJsonObjectAsync(CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, StoreProfileWorkspaceData>> BuildStoresViewAsync(
+        CancellationToken cancellationToken = default)
     {
-        var o = new JsonObject();
+        var o = new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
         var list = await db.Stores.AsNoTracking().ToListAsync(cancellationToken);
         foreach (var s in list)
-            o[s.Id] = MarketCatalogStoreBadgeJson.FromStoreRow(s);
+            o[s.Id] = StoreProfileWorkspaceData.FromStoreRow(s);
         return o;
     }
 
-    public async Task<JsonObject> BuildStoreCatalogsJsonObjectAsync(CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, StoreCatalogBlockView>> BuildStoreCatalogsViewAsync(
+        CancellationToken cancellationToken = default)
     {
-        var root = new JsonObject();
+        var root = new Dictionary<string, StoreCatalogBlockView>(StringComparer.Ordinal);
         var storeIds = await db.Stores.AsNoTracking().Select(s => s.Id).ToListAsync(cancellationToken);
         foreach (var storeId in storeIds)
         {
@@ -26,19 +26,19 @@ public sealed partial class MarketCatalogSyncService
             var products = await db.StoreProducts.AsNoTracking().Where(p => p.StoreId == storeId).ToListAsync(cancellationToken);
             var services = await db.StoreServices.AsNoTracking().Where(s => s.StoreId == storeId).ToListAsync(cancellationToken);
 
-            root[storeId] = new JsonObject
+            root[storeId] = new StoreCatalogBlockView
             {
-                ["pitch"] = store.Pitch,
-                ["joinedAt"] = store.JoinedAtMs,
-                ["products"] = new JsonArray(products.Select(MarketCatalogRowJsonSerialization.ProductToJson).ToArray<JsonNode?>()),
-                ["services"] = new JsonArray(services.Select(MarketCatalogRowJsonSerialization.ServiceToJson).ToArray<JsonNode?>()),
+                Pitch = store.Pitch,
+                JoinedAt = store.JoinedAtMs,
+                Products = products.Select(MarketCatalogRowViewFactory.ProductFromRow).ToList(),
+                Services = services.Select(MarketCatalogRowViewFactory.ServiceFromRow).ToList(),
             };
         }
 
         return root;
     }
 
-    public async Task<JsonDocument?> GetStoreDetailDocumentAsync(
+    public async Task<StoreWithCatalogDetailView?> GetStoreDetailViewAsync(
         string storeId,
         CancellationToken cancellationToken = default)
     {
@@ -49,15 +49,16 @@ public sealed partial class MarketCatalogSyncService
         var products = await db.StoreProducts.AsNoTracking().Where(p => p.StoreId == storeId).ToListAsync(cancellationToken);
         var services = await db.StoreServices.AsNoTracking().Where(s => s.StoreId == storeId).ToListAsync(cancellationToken);
 
-        var catalog = new JsonObject
+        return new StoreWithCatalogDetailView
         {
-            ["pitch"] = store.Pitch,
-            ["joinedAt"] = store.JoinedAtMs,
-            ["products"] = new JsonArray(products.Select(MarketCatalogRowJsonSerialization.ProductToJson).ToArray<JsonNode?>()),
-            ["services"] = new JsonArray(services.Select(MarketCatalogRowJsonSerialization.ServiceToJson).ToArray<JsonNode?>()),
+            Store = StoreProfileWorkspaceData.FromStoreRow(store),
+            Catalog = new StoreCatalogBlockView
+            {
+                Pitch = store.Pitch,
+                JoinedAt = store.JoinedAtMs,
+                Products = products.Select(MarketCatalogRowViewFactory.ProductFromRow).ToList(),
+                Services = services.Select(MarketCatalogRowViewFactory.ServiceFromRow).ToList(),
+            },
         };
-
-        var root = new JsonObject { ["store"] = MarketCatalogStoreBadgeJson.FromStoreRow(store), ["catalog"] = catalog };
-        return JsonDocument.Parse(root.ToJsonString());
     }
 }

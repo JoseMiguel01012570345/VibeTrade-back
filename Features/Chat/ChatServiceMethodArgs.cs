@@ -1,4 +1,3 @@
-using System.Text.Json;
 using VibeTrade.Backend.Data;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -110,7 +109,7 @@ public sealed record SellerStoreTrustPenaltyNotificationArgs(
 public sealed record PostChatMessageArgs(
     string SenderUserId,
     string ThreadId,
-    JsonElement Payload);
+    PostChatMessageBody Message);
 
 public sealed record PostAgreementAnnouncementArgs(
     string SellerUserId,

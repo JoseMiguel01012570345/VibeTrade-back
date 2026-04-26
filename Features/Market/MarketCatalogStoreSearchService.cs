@@ -1,6 +1,4 @@
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using VibeTrade.Backend.Data;
@@ -16,22 +14,13 @@ public sealed class MarketCatalogStoreSearchService(
     AppDbContext db,
     ILogger<MarketCatalogStoreSearchService> logger) : IMarketCatalogStoreSearchService
 {
-    /// <summary>
-    /// Evita anidar <see cref="JsonObject"/> en el DTO de respuesta: en algunos caminos STJ omitía o aplanaba propiedades
-    /// (<c>emergentRouteParadas</c>, flags) y el cliente perdía tramos para el mapa.
-    /// </summary>
-    private static JsonElement? JsonObjectToJsonElement(JsonObject? jo)
+    private static string OfferIdForDedupeKey(CatalogSearchItemOffer? offer)
     {
-        if (jo is null) return null;
-        using var doc = JsonDocument.Parse(jo.ToJsonString());
-        return doc.RootElement.Clone();
-    }
-
-    private static string OfferIdForDedupeKey(JsonElement? offer)
-    {
-        if (offer is not { ValueKind: JsonValueKind.Object } o) return "";
-        if (!o.TryGetProperty("id", out var idNode) || idNode.ValueKind != JsonValueKind.String) return "";
-        return idNode.GetString() ?? "";
+        if (offer is null) return "";
+        if (offer.Product is { } p) return p.Id;
+        if (offer.Service is { } s) return s.Id;
+        if (offer.Emergent is { } e) return e.Id;
+        return "";
     }
 
     private sealed record StoreSearchContext(
@@ -194,7 +183,7 @@ public sealed class MarketCatalogStoreSearchService(
         var likePrefix = AutocompleteLikePrefix(query);
         var patterns = BuildIlikePatterns(query);
         var perPattern = AutocompletePerPatternTake(maxCandidatesPerKind, patterns.Count);
-        var storeRows = new List<(string? Name, string? CategoriesJson)>(maxCandidatesPerKind);
+        var storeRows = new List<(string? Name, IReadOnlyList<string> Categories)>(maxCandidatesPerKind);
         var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var pat in patterns)
@@ -213,7 +202,7 @@ public sealed class MarketCatalogStoreSearchService(
 
             var slice = await qStores
                 .OrderByDescending(s => s.TrustScore)
-                .Select(s => new { s.Name, s.CategoriesJson })
+                .Select(s => new { s.Name, s.Categories })
                 .Take(takeThis)
                 .ToListAsync(cancellationToken);
 
@@ -222,7 +211,7 @@ public sealed class MarketCatalogStoreSearchService(
                 var n = r.Name;
                 if (string.IsNullOrWhiteSpace(n)) continue;
                 if (!seenNames.Add(n)) continue;
-                storeRows.Add((r.Name, r.CategoriesJson));
+                storeRows.Add((r.Name, r.Categories));
             }
         }
 
@@ -232,7 +221,7 @@ public sealed class MarketCatalogStoreSearchService(
             return storeRows
                 .Where(x =>
                 {
-                    var cj = (x.CategoriesJson ?? "").ToLowerInvariant();
+                    var cj = string.Join(" ", x.Categories ?? Array.Empty<string>()).ToLowerInvariant();
                     return cj.Length > 0 && catLowerParts.Any(c => cj.Contains(c, StringComparison.Ordinal));
                 })
                 .Select(x => x.Name)
@@ -552,7 +541,7 @@ public sealed class MarketCatalogStoreSearchService(
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Product,
                     storeBadge,
-                    JsonObjectToJsonElement(BuildProductOfferJson(pr)),
+                    new CatalogSearchItemOffer { Product = BuildSlimProductOffer(pr) },
                     pp,
                     ps,
                     hit.DistanceKm));
@@ -565,7 +554,7 @@ public sealed class MarketCatalogStoreSearchService(
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Service,
                     storeBadge,
-                    JsonObjectToJsonElement(BuildServiceOfferJson(sv)),
+                    new CatalogSearchItemOffer { Service = BuildSlimServiceOffer(sv) },
                     pp,
                     ps,
                     hit.DistanceKm));
@@ -588,15 +577,16 @@ public sealed class MarketCatalogStoreSearchService(
                 emergentLiveSheetsByKey.TryGetValue(
                     RecommendationBatchOfferLoader.EmergentOfferRouteSheetKey(emRow.ThreadId, emRow.RouteSheetId),
                     out var liveRoutePayload);
+                var emergent = EmergentRoutePublicationViewFactory.Create(
+                    emRow,
+                    emPr,
+                    emSv,
+                    orphanFallback,
+                    liveRoutePayload);
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Emergent,
                     storeBadge,
-                    JsonObjectToJsonElement(RecommendationBatchOfferLoader.ToEmergentRoutePublicationJson(
-                        emRow,
-                        emPr,
-                        emSv,
-                        orphanFallback,
-                        liveRoutePayload)),
+                    new CatalogSearchItemOffer { Emergent = emergent },
                     pp,
                     ps,
                     hit.DistanceKm));
@@ -667,73 +657,38 @@ public sealed class MarketCatalogStoreSearchService(
             row.TrustScore,
             row.OwnerUserId,
             string.IsNullOrEmpty(row.AvatarUrl) ? null : row.AvatarUrl,
-            ParseStoreCategories(row.CategoriesJson),
+            ParseStoreCategories(row.Categories),
             loc,
             string.IsNullOrWhiteSpace(row.Pitch) ? null : row.Pitch.Trim(),
             string.IsNullOrWhiteSpace(row.WebsiteUrl) ? null : row.WebsiteUrl.Trim());
     }
 
-    private static IReadOnlyList<string> ParseStoreCategories(string? categoriesJson)
-    {
-        if (string.IsNullOrWhiteSpace(categoriesJson))
-            return Array.Empty<string>();
-        try
-        {
-            using var doc = JsonDocument.Parse(categoriesJson);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array)
-                return Array.Empty<string>();
-            var list = new List<string>();
-            foreach (var el in doc.RootElement.EnumerateArray())
-            {
-                if (el.ValueKind != JsonValueKind.String)
-                    continue;
-                var s = el.GetString();
-                if (!string.IsNullOrEmpty(s))
-                    list.Add(s);
-            }
-            return list;
-        }
-        catch
-        {
-            return Array.Empty<string>();
-        }
-    }
+    private static IReadOnlyList<string> ParseStoreCategories(IReadOnlyList<string>? categories) =>
+        CatalogJsonColumnParsing.StringListOrEmpty(categories);
 
-    private static JsonObject BuildProductOfferJson(StoreProductRow p)
-    {
-        var o = new JsonObject
+    private static CatalogSearchSlimProductOffer BuildSlimProductOffer(StoreProductRow p) =>
+        new()
         {
-            ["id"] = p.Id,
-            ["kind"] = "product",
-            ["name"] = p.Name,
-            ["category"] = p.Category,
-            ["price"] = p.Price,
-            ["currency"] = p.MonedaPrecio,
+            Id = p.Id,
+            Kind = "product",
+            Name = p.Name,
+            Category = p.Category,
+            Price = p.Price,
+            Currency = p.MonedaPrecio,
+            AcceptedCurrencies = CatalogJsonColumnParsing.StringListOrEmpty(p.Monedas),
+            PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(p.PhotoUrls),
+            ShortDescription = string.IsNullOrEmpty(p.ShortDescription) ? null : p.ShortDescription,
         };
-        try { o["acceptedCurrencies"] = JsonNode.Parse(p.MonedasJson) ?? new JsonArray(); }
-        catch { o["acceptedCurrencies"] = new JsonArray(); }
-        try { o["photoUrls"] = JsonNode.Parse(p.PhotoUrlsJson) ?? new JsonArray(); }
-        catch { o["photoUrls"] = new JsonArray(); }
-        if (!string.IsNullOrEmpty(p.ShortDescription))
-            o["shortDescription"] = p.ShortDescription;
-        return o;
-    }
 
-    private static JsonObject BuildServiceOfferJson(StoreServiceRow s)
-    {
-        var o = new JsonObject
+    private static CatalogSearchSlimServiceOffer BuildSlimServiceOffer(StoreServiceRow s) =>
+        new()
         {
-            ["id"] = s.Id,
-            ["kind"] = "service",
-            ["category"] = s.Category,
-            ["tipoServicio"] = s.TipoServicio,
+            Id = s.Id,
+            Kind = "service",
+            Category = s.Category,
+            TipoServicio = s.TipoServicio,
+            AcceptedCurrencies = CatalogJsonColumnParsing.StringListOrEmpty(s.Monedas),
+            PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(s.PhotoUrls),
+            Descripcion = string.IsNullOrEmpty(s.Descripcion) ? null : s.Descripcion,
         };
-        try { o["acceptedCurrencies"] = JsonNode.Parse(s.MonedasJson) ?? new JsonArray(); }
-        catch { o["acceptedCurrencies"] = new JsonArray(); }
-        try { o["photoUrls"] = JsonNode.Parse(s.PhotoUrlsJson) ?? new JsonArray(); }
-        catch { o["photoUrls"] = new JsonArray(); }
-        if (!string.IsNullOrEmpty(s.Descripcion))
-            o["descripcion"] = s.Descripcion;
-        return o;
-    }
 }

@@ -1,4 +1,5 @@
 using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Data.Entities;
 
@@ -30,8 +31,8 @@ public sealed class StoreProductRow
     /// <summary>Moneda en la que está expresado el precio (código ISO; una sola).</summary>
     public string? MonedaPrecio { get; set; }
 
-    /// <summary>Array JSON de códigos de moneda aceptados para el pago.</summary>
-    public string MonedasJson { get; set; } = "[]";
+    /// <summary>Códigos de moneda aceptados (jsonb: <c>MonedasJson</c>).</summary>
+    public List<string> Monedas { get; set; } = new();
 
     public string? TaxesShippingInstall { get; set; }
 
@@ -44,13 +45,13 @@ public sealed class StoreProductRow
 
     public string UsageConditions { get; set; } = "";
 
-    /// <summary>Array JSON de URLs.</summary>
-    public string PhotoUrlsJson { get; set; } = "[]";
+    /// <summary>URLs (jsonb: <c>PhotoUrlsJson</c>).</summary>
+    public List<string> PhotoUrls { get; set; } = new();
 
     public bool Published { get; set; }
 
-    /// <summary>Lista de campos personalizados (JSON, alineado a StoreCustomField[]).</summary>
-    public string CustomFieldsJson { get; set; } = "[]";
+    /// <summary>Campos personalizados (jsonb: <c>CustomFieldsJson</c>).</summary>
+    public List<StoreCustomFieldBody> CustomFields { get; set; } = new();
 
     /// <summary>Preguntas y respuestas públicas (jsonb <c>OfferQaJson</c>).</summary>
     public List<OfferQaComment> OfferQa { get; set; } = new();

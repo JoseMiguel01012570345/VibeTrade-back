@@ -1,47 +1,42 @@
-using System.Text.Json;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Features.Market.Utils;
 
 internal static class MarketStoreRowWorkspaceMapper
 {
-    public static void ApplyFields(JsonElement el, StoreRow row, DateTimeOffset now)
+    public static void ApplyFields(StoreProfileWorkspaceData el, StoreRow row, DateTimeOffset now)
     {
-        var ownerUserId = el.TryGetProperty("ownerUserId", out var ou) && ou.ValueKind == JsonValueKind.String
-            ? ou.GetString()!
-            : "unknown";
+        var d = el;
+        var ownerUserId = string.IsNullOrWhiteSpace(d.OwnerUserId) ? "unknown" : d.OwnerUserId.Trim();
         row.OwnerUserId = ownerUserId;
-        row.Name = MarketCatalogJsonHelpers.GetString(el, "name") ?? row.Name;
+        row.Name = d.Name?.Trim() ?? row.Name;
         row.NormalizedName = MarketStoreNameNormalizer.Normalize(row.Name);
-        row.Verified = el.TryGetProperty("verified", out var v) && v.ValueKind == JsonValueKind.True;
-        row.TransportIncluded = el.TryGetProperty("transportIncluded", out var t) &&
-                                t.ValueKind == JsonValueKind.True;
-        row.TrustScore = el.TryGetProperty("trustScore", out var ts) && ts.TryGetInt32(out var ti) ? ti : row.TrustScore;
-        row.AvatarUrl = MarketCatalogJsonHelpers.GetString(el, "avatarUrl");
-        row.CategoriesJson = MarketCatalogJsonHelpers.SerializeStringArray(el, "categories");
+        row.Verified = d.Verified == true;
+        row.TransportIncluded = d.TransportIncluded == true;
+        row.TrustScore = d.TrustScore ?? row.TrustScore;
+        row.AvatarUrl = d.AvatarUrl;
+        row.Categories = d.Categories is { Count: > 0 } cats
+            ? cats.ToList()
+            : new List<string>();
         row.UpdatedAt = now;
-        var pitch = MarketCatalogJsonHelpers.GetString(el, "pitch");
-        if (pitch != null)
-            row.Pitch = pitch.Trim();
-        row.WebsiteUrl = MarketWebsiteUrlNormalizer.TryNormalize(MarketCatalogJsonHelpers.GetString(el, "websiteUrl"));
-        ApplyLocation(el, row);
+        if (d.Pitch is { } p)
+            row.Pitch = p.Trim();
+        row.WebsiteUrl = MarketWebsiteUrlNormalizer.TryNormalize(d.WebsiteUrl);
+        ApplyLocation(d, row);
     }
 
-    public static void ApplyLocation(JsonElement storeEl, StoreRow row)
+    private static void ApplyLocation(StoreProfileWorkspaceData d, StoreRow row)
     {
         row.LocationLatitude = null;
         row.LocationLongitude = null;
-        if (!storeEl.TryGetProperty("location", out var loc) || loc.ValueKind != JsonValueKind.Object)
+        var loc = d.Location;
+        if (loc is null) return;
+        if (!double.IsFinite(loc.Lat) || loc.Lat < -90 || loc.Lat > 90)
             return;
-        if (!loc.TryGetProperty("lat", out var latEl) || !latEl.TryGetDouble(out var lat))
+        if (!double.IsFinite(loc.Lng) || loc.Lng < -180 || loc.Lng > 180)
             return;
-        if (!loc.TryGetProperty("lng", out var lngEl) || !lngEl.TryGetDouble(out var lng))
-            return;
-        if (!double.IsFinite(lat) || lat < -90 || lat > 90)
-            return;
-        if (!double.IsFinite(lng) || lng < -180 || lng > 180)
-            return;
-        row.LocationLatitude = lat;
-        row.LocationLongitude = lng;
+        row.LocationLatitude = loc.Lat;
+        row.LocationLongitude = loc.Lng;
     }
 }

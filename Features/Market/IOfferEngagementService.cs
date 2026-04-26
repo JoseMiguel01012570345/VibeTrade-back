@@ -1,17 +1,31 @@
-using System.Text.Json.Nodes;
 using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Features.Market;
 
 public interface IOfferEngagementService
 {
-    /// <summary>Añade <c>publicCommentCount</c>, <c>offerLikeCount</c>, <c>viewerLikedOffer</c> a cada oferta.</summary>
-    Task EnrichOffersJsonAsync(JsonObject offers, string? likerKey, CancellationToken cancellationToken = default);
+    Task EnrichHomeOffersAsync(
+        Dictionary<string, HomeOfferViewDto> offers,
+        string? likerKey,
+        CancellationToken cancellationToken = default);
 
-    /// <summary>Array QA con <c>likeCount</c> y <c>viewerLiked</c> por ítem.</summary>
-    Task<string?> EnrichOfferQaJsonAsync(string offerId, IReadOnlyList<OfferQaComment> qa, string? likerKey, CancellationToken cancellationToken = default);
+    /// <summary>Engagement (likes, conteo de comentarios) sobre filas de <see cref="StoreCatalogBlockView"/> (detalle de tienda).</summary>
+    Task EnrichStoreCatalogBlockEngagementAsync(
+        IReadOnlyList<StoreProductCatalogRowView> products,
+        IReadOnlyList<StoreServiceCatalogRowView> services,
+        string? likerKey,
+        CancellationToken cancellationToken = default);
 
-    Task<(bool Liked, int LikeCount)> ToggleOfferLikeAsync(string offerId, string likerKey, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<OfferQaItemResponseDto>> EnrichOfferQaListAsync(
+        string offerId,
+        IReadOnlyList<OfferQaComment> qa,
+        string? likerKey,
+        CancellationToken cancellationToken = default);
+
+    Task<(bool Liked, int LikeCount)> ToggleOfferLikeAsync(
+        string offerId,
+        string likerKey,
+        CancellationToken cancellationToken = default);
 
     Task<(bool Liked, int LikeCount)> ToggleQaCommentLikeAsync(
         string offerId,

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace VibeTrade.Backend.Features.Market.Utils;
@@ -26,18 +25,6 @@ internal static class MarketCatalogTransportServiceRules
         return false;
     }
 
-    public static bool HasAtLeastOnePhoto(string? photoUrlsJson)
-    {
-        var raw = (photoUrlsJson ?? "").Trim();
-        if (raw.Length < 3) return false;
-        try
-        {
-            var arr = JsonSerializer.Deserialize<List<string>>(raw);
-            return arr is { Count: > 0 } && arr.Exists(s => !string.IsNullOrWhiteSpace(s));
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
+    public static bool HasAtLeastOnePhoto(IReadOnlyList<string>? photoUrls) =>
+        photoUrls is { Count: > 0 } && photoUrls.Any(s => !string.IsNullOrWhiteSpace(s));
 }

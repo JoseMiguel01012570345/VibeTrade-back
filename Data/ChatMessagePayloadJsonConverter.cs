@@ -4,8 +4,9 @@ using System.Text.Json.Serialization;
 namespace VibeTrade.Backend.Data;
 
 /// <summary>
-/// Evita <see cref="JsonPolymorphic"/> en la raíz (fallos con filas legacy o metadatos raros de STJ);
+/// Evita <see cref="JsonPolymorphicAttribute"/> en la raíz (fallos con filas legacy o metadatos raros de STJ);
 /// deserializa por <c>type</c> a tipos concretos con opciones simples.
+/// El lector requiere un único anclaje; el cuerpo resultante se convierte a tipos C# sin exponer <c>JsonElement</c> hacia arriba.
 /// </summary>
 internal sealed class ChatMessagePayloadJsonConverter : JsonConverter<ChatMessagePayload>
 {

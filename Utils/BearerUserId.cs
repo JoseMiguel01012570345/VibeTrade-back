@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using VibeTrade.Backend.Features.Auth;
 
@@ -15,11 +14,9 @@ public static class BearerUserId
 
     public static string? FromAuthorizationHeader(IAuthService auth, string? authorizationHeader)
     {
-        if (!auth.TryGetUserByToken(authorizationHeader, out var user))
+        if (!auth.TryGetUserByToken(authorizationHeader, out var user) || user is null)
             return null;
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.String)
-            return null;
-        var id = idEl.GetString();
+        var id = user.Id;
         if (string.IsNullOrWhiteSpace(id))
             return null;
         id = id.Trim();

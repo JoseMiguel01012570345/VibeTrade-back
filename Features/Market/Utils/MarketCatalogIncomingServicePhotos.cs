@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 
@@ -7,27 +6,32 @@ namespace VibeTrade.Backend.Features.Market.Utils;
 internal static class MarketCatalogIncomingServicePhotos
 {
     /// <summary>Filtra <c>photoUrls</c> de servicios a solo imágenes (media API o URLs permitidas).</summary>
-    public static async Task<string> FilterToStoredImageJsonAsync(
+    public static async Task<List<string>> FilterToStoredImageListAsync(
         AppDbContext db,
-        JsonElement photoUrlsArray,
+        IReadOnlyList<string>? photoUrls,
         CancellationToken cancellationToken)
     {
-        if (photoUrlsArray.ValueKind != JsonValueKind.Array)
-            return "[]";
+        if (photoUrls is not { Count: > 0 })
+            return new List<string>();
 
-        var raw = new List<string>();
-        foreach (var el in photoUrlsArray.EnumerateArray())
+        var raw = new List<string>(photoUrls.Count);
+        foreach (var u0 in photoUrls)
         {
-            if (el.ValueKind != JsonValueKind.String)
-                continue;
-            var u = (el.GetString() ?? "").Trim();
-            if (u.Length > 0)
-                raw.Add(u);
+            var u = (u0 ?? "").Trim();
+            if (u.Length > 0) raw.Add(u);
         }
 
         if (raw.Count == 0)
-            return "[]";
+            return new List<string>();
 
+        return await FilterRawUrlListToStoredImageListAsync(db, raw, cancellationToken);
+    }
+
+    private static async Task<List<string>> FilterRawUrlListToStoredImageListAsync(
+        AppDbContext db,
+        List<string> raw,
+        CancellationToken cancellationToken)
+    {
         var mediaIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var u in raw)
         {
@@ -63,6 +67,6 @@ internal static class MarketCatalogIncomingServicePhotos
                 kept.Add(u);
         }
 
-        return JsonSerializer.Serialize(kept);
+        return kept;
     }
 }

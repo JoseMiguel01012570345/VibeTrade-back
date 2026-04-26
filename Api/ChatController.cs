@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Auth;
@@ -209,7 +208,7 @@ public sealed class ChatController(
 
     /// <summary>Envía un mensaje (texto, imagen, etc.) según el shape JSON esperado por el servicio.</summary>
     /// <param name="threadId">Id del hilo.</param>
-    /// <param name="payload">Objeto de mensaje (tipo, cuerpo, citas, etc.).</param>
+    /// <param name="body">Mensaje (tipos: text, audio, image, doc, docs y opcional replyToIds).</param>
     /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpPost("threads/{threadId}/messages")]
     [Consumes("application/json")]
@@ -219,13 +218,13 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> PostMessage(
         string threadId,
-        [FromBody] JsonElement payload,
+        [FromBody] PostChatMessageBody body,
         CancellationToken cancellationToken)
     {
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
-        var msg = await chat.PostMessageAsync(new PostChatMessageArgs(userId, threadId, payload), cancellationToken);
+        var msg = await chat.PostMessageAsync(new PostChatMessageArgs(userId, threadId, body), cancellationToken);
         if (msg is null)
             return NotFound(new { error = "not_found", message = "Hilo no encontrado o mensaje inválido." });
         return Ok(msg);

@@ -21,18 +21,15 @@ public sealed class BootstrapController(IBootstrapService bootstrap, IAuthServic
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
         string? viewerPhoneDigits = null;
-        if (auth.TryGetUserByToken(Request.Headers.Authorization, out var user)
-            && user.TryGetProperty("phone", out var ph)
-            && ph.ValueKind == System.Text.Json.JsonValueKind.String)
+        if (auth.TryGetUserByToken(Request.Headers.Authorization, out var user) && !string.IsNullOrEmpty(user?.Phone))
         {
-            viewerPhoneDigits = new string(ph.GetString()!.Where(char.IsDigit).ToArray());
+            viewerPhoneDigits = new string(user.Phone.Where(char.IsDigit).ToArray());
         }
         if (string.IsNullOrWhiteSpace(viewerPhoneDigits))
             return Unauthorized();
 
-        using var doc = await bootstrap.GetBootstrapAsync(viewerPhoneDigits, cancellationToken);
-        var json = doc.RootElement.GetRawText();
-        return Content(json, "application/json");
+        var root = await bootstrap.GetBootstrapAsync(viewerPhoneDigits, cancellationToken);
+        return Ok(root);
     }
 }
 
@@ -54,8 +51,7 @@ public sealed class GuestBootstrapController(IGuestBootstrapService bootstrap) :
         if (gid.Length < 8)
             return BadRequest(new { error = "invalid_guest_id", message = "guestId requerido." });
 
-        using var doc = await bootstrap.GetGuestBootstrapAsync(gid, cancellationToken);
-        var json = doc.RootElement.GetRawText();
-        return Content(json, "application/json");
+        var root = await bootstrap.GetGuestBootstrapAsync(gid, cancellationToken);
+        return Ok(root);
     }
 }

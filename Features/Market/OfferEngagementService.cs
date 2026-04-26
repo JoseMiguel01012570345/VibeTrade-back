@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
@@ -37,12 +35,15 @@ public sealed class OfferEngagementService(
         return await db.StoreServices.AsNoTracking().AnyAsync(s => s.Id == oid, cancellationToken);
     }
 
-    public async Task EnrichOffersJsonAsync(JsonObject offers, string? likerKey, CancellationToken cancellationToken = default)
+    public async Task EnrichHomeOffersAsync(
+        Dictionary<string, HomeOfferViewDto> offers,
+        string? likerKey,
+        CancellationToken cancellationToken = default)
     {
         if (offers.Count == 0)
             return;
 
-        var ids = offers.Select(kv => kv.Key).ToList();
+        var ids = offers.Keys.ToList();
         var likeCounts = await db.OfferLikes.AsNoTracking()
             .Where(x => ids.Contains(x.OfferId))
             .GroupBy(x => x.OfferId)
@@ -61,19 +62,77 @@ public sealed class OfferEngagementService(
 
         foreach (var kv in offers)
         {
-            if (kv.Value is not JsonObject obj)
-                continue;
             var oid = kv.Key;
-            var n = 0;
-            if (obj.TryGetPropertyValue("qa", out var qaNode) && qaNode is JsonArray qaArr)
-                n = qaArr.Count;
-            obj["publicCommentCount"] = n;
-            obj["offerLikeCount"] = likeCounts.GetValueOrDefault(oid, 0);
-            obj["viewerLikedOffer"] = viewerOfferIds is not null && viewerOfferIds.Contains(oid);
+            var obj = kv.Value;
+            var n = obj.Qa?.Count ?? 0;
+            obj.PublicCommentCount = n;
+            obj.OfferLikeCount = likeCounts.GetValueOrDefault(oid, 0);
+            obj.ViewerLikedOffer = viewerOfferIds is not null && viewerOfferIds.Contains(oid);
         }
     }
 
-    public async Task<string?> EnrichOfferQaJsonAsync(
+    public async Task EnrichStoreCatalogBlockEngagementAsync(
+        IReadOnlyList<StoreProductCatalogRowView> products,
+        IReadOnlyList<StoreServiceCatalogRowView> services,
+        string? likerKey,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = new List<string>(products.Count + services.Count);
+        foreach (var p in products)
+        {
+            var oid = p.Id?.Trim() ?? "";
+            if (oid.Length >= 2)
+                ids.Add(oid);
+        }
+
+        foreach (var s in services)
+        {
+            var oid = s.Id?.Trim() ?? "";
+            if (oid.Length >= 2)
+                ids.Add(oid);
+        }
+
+        if (ids.Count == 0)
+            return;
+
+        var likeCounts = await db.OfferLikes.AsNoTracking()
+            .Where(x => ids.Contains(x.OfferId))
+            .GroupBy(x => x.OfferId)
+            .Select(g => new { OfferId = g.Key, C = g.Count() })
+            .ToDictionaryAsync(x => x.OfferId, x => x.C, StringComparer.Ordinal, cancellationToken);
+
+        HashSet<string>? viewerOfferIds = null;
+        if (!string.IsNullOrEmpty(likerKey))
+        {
+            var liked = await db.OfferLikes.AsNoTracking()
+                .Where(x => ids.Contains(x.OfferId) && x.LikerKey == likerKey)
+                .Select(x => x.OfferId)
+                .ToListAsync(cancellationToken);
+            viewerOfferIds = liked.ToHashSet(StringComparer.Ordinal);
+        }
+
+        foreach (var p in products)
+        {
+            var oid = p.Id?.Trim() ?? "";
+            if (oid.Length < 2)
+                continue;
+            p.PublicCommentCount = p.Qa?.Count ?? 0;
+            p.OfferLikeCount = likeCounts.GetValueOrDefault(oid, 0);
+            p.ViewerLikedOffer = viewerOfferIds is not null && viewerOfferIds.Contains(oid);
+        }
+
+        foreach (var s in services)
+        {
+            var oid = s.Id?.Trim() ?? "";
+            if (oid.Length < 2)
+                continue;
+            s.PublicCommentCount = s.Qa?.Count ?? 0;
+            s.OfferLikeCount = likeCounts.GetValueOrDefault(oid, 0);
+            s.ViewerLikedOffer = viewerOfferIds is not null && viewerOfferIds.Contains(oid);
+        }
+    }
+
+    public async Task<IReadOnlyList<OfferQaItemResponseDto>> EnrichOfferQaListAsync(
         string offerId,
         IReadOnlyList<OfferQaComment> qa,
         string? likerKey,
@@ -81,34 +140,30 @@ public sealed class OfferEngagementService(
     {
         var oid = (offerId ?? "").Trim();
         if (oid.Length < 2)
-            return null;
+            return Array.Empty<OfferQaItemResponseDto>();
 
-        JsonArray? arr;
-        try
+        var list = new List<OfferQaItemResponseDto>(qa.Count);
+        foreach (var c in qa)
         {
-            var root = JsonNode.Parse(OfferQaJson.ToJsonb(qa.ToList()));
-            arr = root as JsonArray;
-        }
-        catch
-        {
-            arr = new JsonArray();
-        }
-
-        if (arr is null || arr.Count == 0)
-            return arr?.ToJsonString() ?? "[]";
-
-        var commentIds = new List<string>();
-        foreach (var node in arr)
-        {
-            if (node is not JsonObject o || !o.TryGetPropertyValue("id", out var idNode) || idNode is not JsonValue idVal)
-                continue;
-            var cid = idVal.GetValue<string>()?.Trim() ?? "";
-            if (cid.Length > 0)
-                commentIds.Add(cid);
+            list.Add(new OfferQaItemResponseDto
+            {
+                Id = c.Id,
+                Text = c.Text,
+                Question = c.Question,
+                ParentId = c.ParentId,
+                AskedBy = c.AskedBy,
+                Author = c.Author,
+                CreatedAt = c.CreatedAt,
+                Answer = c.Answer,
+            });
         }
 
+        if (list.Count == 0)
+            return list;
+
+        var commentIds = list.Select(x => x.Id).Where(id => id.Length > 0).ToList();
         if (commentIds.Count == 0)
-            return arr.ToJsonString();
+            return list;
 
         var likeCounts = await db.OfferQaCommentLikes.AsNoTracking()
             .Where(x => x.OfferId == oid && commentIds.Contains(x.QaCommentId))
@@ -125,18 +180,14 @@ public sealed class OfferEngagementService(
                 .ToListAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
         }
 
-        foreach (var node in arr)
+        foreach (var o in list)
         {
-            if (node is not JsonObject o || !o.TryGetPropertyValue("id", out var idNode) || idNode is not JsonValue idVal)
-                continue;
-            var cid = idVal.GetValue<string>()?.Trim() ?? "";
-            if (cid.Length == 0)
-                continue;
-            o["likeCount"] = likeCounts.GetValueOrDefault(cid, 0);
-            o["viewerLiked"] = viewerLikedIds is not null && viewerLikedIds.Contains(cid);
+            var cid = o.Id;
+            o.LikeCount = likeCounts.GetValueOrDefault(cid, 0);
+            o.ViewerLiked = viewerLikedIds is not null && viewerLikedIds.Contains(cid);
         }
 
-        return arr.ToJsonString();
+        return list;
     }
 
     public async Task<(bool Liked, int LikeCount)> ToggleOfferLikeAsync(

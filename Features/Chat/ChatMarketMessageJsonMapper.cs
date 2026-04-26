@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using VibeTrade.Backend.Data;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -8,7 +7,7 @@ namespace VibeTrade.Backend.Features.Chat;
 /// </summary>
 public static class ChatMarketMessageJsonMapper
 {
-    public static JsonObject ToMarketMessage(ChatMessageDto m, string viewerUserId)
+    public static ChatThreadMessageView ToMarketMessage(ChatMessageDto m, string viewerUserId)
     {
         var from = m.SenderUserId == viewerUserId ? "me" : "other";
         var at = m.CreatedAtUtc.ToUnixTimeMilliseconds();
@@ -39,7 +38,7 @@ public static class ChatMarketMessageJsonMapper
         _ => "sent",
     };
 
-    private static JsonObject MapText(
+    private static ChatThreadMessageView MapText(
         string id,
         string from,
         long at,
@@ -47,218 +46,201 @@ public static class ChatMarketMessageJsonMapper
         string chatStatus,
         ChatTextPayload p)
     {
-        var obj = new JsonObject
+        var v = new ChatThreadMessageView
         {
-            ["id"] = id,
-            ["from"] = from,
-            ["type"] = "text",
-            ["text"] = p.Text,
-            ["at"] = at,
-            ["read"] = read,
-            ["chatStatus"] = chatStatus,
+            Id = id,
+            From = from,
+            Type = "text",
+            Text = p.Text,
+            At = at,
+            Read = read,
+            ChatStatus = chatStatus,
         };
         if (!string.IsNullOrEmpty(p.OfferQaId))
-            obj["offerQaId"] = p.OfferQaId;
-        AppendReplyQuotes(obj, p.ReplyQuotes);
-        return obj;
+            v.OfferQaId = p.OfferQaId;
+        AppendReplyQuotes(v, p.ReplyQuotes);
+        return v;
     }
 
-    private static JsonObject MapAudio(string id, string from, long at, bool read, ChatAudioPayload p)
+    private static ChatThreadMessageView MapAudio(string id, string from, long at, bool read, ChatAudioPayload p)
     {
-        var obj = new JsonObject
+        var v = new ChatThreadMessageView
         {
-            ["id"] = id,
-            ["from"] = from,
-            ["type"] = "audio",
-            ["url"] = p.Url,
-            ["seconds"] = p.Seconds,
-            ["at"] = at,
-            ["read"] = read,
+            Id = id,
+            From = from,
+            Type = "audio",
+            Url = p.Url,
+            Seconds = p.Seconds,
+            At = at,
+            Read = read,
         };
-        AppendReplyQuotes(obj, p.ReplyQuotes);
-        return obj;
+        AppendReplyQuotes(v, p.ReplyQuotes);
+        return v;
     }
 
-    private static JsonObject MapImage(string id, string from, long at, bool read, ChatImagePayload p)
+    private static ChatThreadMessageView MapImage(string id, string from, long at, bool read, ChatImagePayload p)
     {
-        var images = new JsonArray();
-        foreach (var img in p.Images)
-            images.Add(new JsonObject { ["url"] = img.Url });
-
-        var obj = new JsonObject
+        var v = new ChatThreadMessageView
         {
-            ["id"] = id,
-            ["from"] = from,
-            ["type"] = "image",
-            ["images"] = images,
-            ["at"] = at,
-            ["read"] = read,
+            Id = id,
+            From = from,
+            Type = "image",
+            Images = p.Images.Select(img => new ChatMessageImageView { Url = img.Url }).ToList(),
+            At = at,
+            Read = read,
         };
         if (!string.IsNullOrEmpty(p.Caption))
-            obj["caption"] = p.Caption;
+            v.Caption = p.Caption;
         if (p.EmbeddedAudio is { } ea)
         {
-            obj["embeddedAudio"] = new JsonObject
+            v.EmbeddedAudio = new ChatMessageEmbeddedAudioView
             {
-                ["url"] = ea.Url,
-                ["seconds"] = ea.Seconds,
+                Url = ea.Url,
+                Seconds = ea.Seconds,
             };
         }
-        AppendReplyQuotes(obj, p.ReplyQuotes);
-        return obj;
+        AppendReplyQuotes(v, p.ReplyQuotes);
+        return v;
     }
 
-    private static JsonObject MapDoc(string id, string from, long at, bool read, ChatDocPayload p)
+    private static ChatThreadMessageView MapDoc(string id, string from, long at, bool read, ChatDocPayload p)
     {
-        var obj = new JsonObject
+        var v = new ChatThreadMessageView
         {
-            ["id"] = id,
-            ["from"] = from,
-            ["type"] = "doc",
-            ["name"] = p.Name,
-            ["size"] = p.Size,
-            ["kind"] = p.Kind,
-            ["at"] = at,
-            ["read"] = read,
+            Id = id,
+            From = from,
+            Type = "doc",
+            Name = p.Name,
+            Size = p.Size,
+            Kind = p.Kind,
+            At = at,
+            Read = read,
         };
         if (!string.IsNullOrEmpty(p.Url))
-            obj["url"] = p.Url;
+            v.Url = p.Url;
         if (!string.IsNullOrEmpty(p.Caption))
-            obj["caption"] = p.Caption;
-        AppendReplyQuotes(obj, p.ReplyQuotes);
-        return obj;
+            v.Caption = p.Caption;
+        AppendReplyQuotes(v, p.ReplyQuotes);
+        return v;
     }
 
-    private static JsonObject MapDocs(string id, string from, long at, bool read, ChatDocsBundlePayload p)
+    private static ChatThreadMessageView MapDocs(string id, string from, long at, bool read, ChatDocsBundlePayload p)
     {
-        var docs = new JsonArray();
-        foreach (var el in p.Documents)
-        {
-            var one = new JsonObject
+        var docs = p.Documents
+            .Select(el => new ChatMessageDocView
             {
-                ["name"] = el.Name,
-                ["size"] = el.Size,
-                ["kind"] = el.Kind,
-            };
-            if (!string.IsNullOrEmpty(el.Url))
-                one["url"] = el.Url;
-            docs.Add(one);
-        }
-
-        var obj = new JsonObject
+                Name = el.Name,
+                Size = el.Size,
+                Kind = el.Kind,
+                Url = string.IsNullOrEmpty(el.Url) ? null : el.Url,
+            })
+            .ToList();
+        var v = new ChatThreadMessageView
         {
-            ["id"] = id,
-            ["from"] = from,
-            ["type"] = "docs",
-            ["documents"] = docs,
-            ["at"] = at,
-            ["read"] = read,
+            Id = id,
+            From = from,
+            Type = "docs",
+            Documents = docs,
+            At = at,
+            Read = read,
         };
         if (!string.IsNullOrEmpty(p.Caption))
-            obj["caption"] = p.Caption;
+            v.Caption = p.Caption;
         if (p.EmbeddedAudio is { } ea)
         {
-            obj["embeddedAudio"] = new JsonObject
+            v.EmbeddedAudio = new ChatMessageEmbeddedAudioView
             {
-                ["url"] = ea.Url,
-                ["seconds"] = ea.Seconds,
+                Url = ea.Url,
+                Seconds = ea.Seconds,
             };
         }
-        AppendReplyQuotes(obj, p.ReplyQuotes);
-        return obj;
+        AppendReplyQuotes(v, p.ReplyQuotes);
+        return v;
     }
 
-    private static void AppendReplyQuotes(JsonObject obj, IReadOnlyList<ReplyQuoteDto>? quotes)
+    private static void AppendReplyQuotes(ChatThreadMessageView obj, IReadOnlyList<ReplyQuoteDto>? quotes)
     {
         if (quotes is null || quotes.Count == 0)
             return;
-        var outArr = new JsonArray();
+        var outList = new List<ChatReplyQuoteView>();
         foreach (var el in quotes)
         {
             if (string.IsNullOrEmpty(el.MessageId) || el.Author is null || el.Preview is null)
                 continue;
-            outArr.Add(new JsonObject
+            outList.Add(new ChatReplyQuoteView
             {
-                ["id"] = el.MessageId,
-                ["author"] = el.Author,
-                ["preview"] = el.Preview,
+                Id = el.MessageId,
+                Author = el.Author,
+                Preview = el.Preview,
             });
         }
-        if (outArr.Count > 0)
-            obj["replyQuotes"] = outArr;
+        if (outList.Count > 0)
+            obj.ReplyQuotes = outList;
     }
 
-    private static JsonObject MapAgreement(
+    private static ChatThreadMessageView MapAgreement(
         string id,
         string from,
         long at,
         bool read,
         string chatStatus,
-        ChatAgreementPayload p)
-    {
-        return new JsonObject
+        ChatAgreementPayload p) =>
+        new()
         {
-            ["id"] = id,
-            ["from"] = from,
-            ["type"] = "agreement",
-            ["agreementId"] = p.AgreementId,
-            ["title"] = p.Title,
-            ["at"] = at,
-            ["read"] = read,
-            ["chatStatus"] = chatStatus,
+            Id = id,
+            From = from,
+            Type = "agreement",
+            AgreementId = p.AgreementId,
+            Title = p.Title,
+            At = at,
+            Read = read,
+            ChatStatus = chatStatus,
         };
-    }
 
-    private static JsonObject MapCertificate(
+    private static ChatThreadMessageView MapCertificate(
         string id,
         string from,
         long at,
         bool read,
         string chatStatus,
-        ChatCertificatePayload p)
-    {
-        return new JsonObject
+        ChatCertificatePayload p) =>
+        new()
         {
-            ["id"] = id,
-            ["from"] = from,
-            ["type"] = "text",
-            ["text"] = string.IsNullOrEmpty(p.Body) ? p.Title : $"{p.Title}: {p.Body}",
-            ["at"] = at,
-            ["read"] = read,
-            ["chatStatus"] = chatStatus,
+            Id = id,
+            From = from,
+            Type = "text",
+            Text = string.IsNullOrEmpty(p.Body) ? p.Title : $"{p.Title}: {p.Body}",
+            At = at,
+            Read = read,
+            ChatStatus = chatStatus,
         };
-    }
 
-    private static JsonObject MapSystemText(string id, long at, bool read, ChatSystemTextPayload p)
-    {
-        return new JsonObject
+    private static ChatThreadMessageView MapSystemText(string id, long at, bool read, ChatSystemTextPayload p) =>
+        new()
         {
-            ["id"] = id,
-            ["from"] = "system",
-            ["type"] = "text",
-            ["text"] = p.Text,
-            ["at"] = at,
-            ["read"] = read,
+            Id = id,
+            From = "system",
+            Type = "text",
+            Text = p.Text,
+            At = at,
+            Read = read,
         };
-    }
 
-    private static JsonObject TextFallback(
+    private static ChatThreadMessageView TextFallback(
         string id,
         string from,
         long at,
         bool read,
         string chatStatus,
-        string text)
-    {
-        return new JsonObject
+        string text) =>
+        new()
         {
-            ["id"] = id,
-            ["from"] = from,
-            ["type"] = "text",
-            ["text"] = text,
-            ["at"] = at,
-            ["read"] = read,
-            ["chatStatus"] = chatStatus,
+            Id = id,
+            From = from,
+            Type = "text",
+            Text = text,
+            At = at,
+            Read = read,
+            ChatStatus = chatStatus,
         };
-    }
 }

@@ -7,7 +7,6 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.OpenApi.Models;
 using VibeTrade.Backend.Api.Swagger;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Bootstrap;
 using VibeTrade.Backend.Features.Chat;

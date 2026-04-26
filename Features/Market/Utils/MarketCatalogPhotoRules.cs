@@ -1,5 +1,5 @@
-using System.Text.Json;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Features.Market.Utils;
 
@@ -64,19 +64,16 @@ internal static class MarketCatalogPhotoRules
                lower.EndsWith(".svg", StringComparison.Ordinal);
     }
 
-    public static List<string> CollectDisplayablePhotoUrls(string photoUrlsJson)
+    public static List<string> CollectDisplayablePhotoUrls(IReadOnlyList<string>? photoUrls)
     {
         var list = new List<string>();
+        if (photoUrls is not { Count: > 0 })
+            return list;
         try
         {
-            using var doc = JsonDocument.Parse(photoUrlsJson ?? "[]");
-            if (doc.RootElement.ValueKind != JsonValueKind.Array)
-                return list;
-            foreach (var el in doc.RootElement.EnumerateArray())
+            foreach (var u0 in photoUrls)
             {
-                if (el.ValueKind != JsonValueKind.String)
-                    continue;
-                var u = (el.GetString() ?? "").Trim();
+                var u = (u0 ?? "").Trim();
                 if (u.Length == 0 || !IsDisplayableCatalogImageUrl(u))
                     continue;
                 list.Add(u);
@@ -90,36 +87,24 @@ internal static class MarketCatalogPhotoRules
         return list;
     }
 
-    public static void AppendDisplayableImageUrlsFromCustomFieldsJson(
-        string? customFieldsJson,
+    public static void AppendDisplayableImageUrlsFromCustomFields(
+        IReadOnlyList<StoreCustomFieldBody>? customFields,
         List<string> list,
         HashSet<string> seen)
     {
         try
         {
-            using var doc = JsonDocument.Parse(customFieldsJson ?? "[]");
-            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            if (customFields is not { Count: > 0 })
                 return;
-            foreach (var field in doc.RootElement.EnumerateArray())
+            foreach (var field in customFields)
             {
-                if (field.ValueKind != JsonValueKind.Object)
+                if (field.Attachments is not { Count: > 0 } atts)
                     continue;
-                if (!MarketCatalogJsonHelpers.TryGetPropertyIgnoreCase(field, "attachments", out var atts) ||
-                    atts.ValueKind != JsonValueKind.Array)
-                    continue;
-                foreach (var att in atts.EnumerateArray())
+                foreach (var att in atts)
                 {
-                    if (att.ValueKind != JsonValueKind.Object)
+                    if (!string.Equals(att.Kind, "image", StringComparison.OrdinalIgnoreCase))
                         continue;
-                    if (!MarketCatalogJsonHelpers.TryGetPropertyIgnoreCase(att, "kind", out var kindEl) ||
-                        kindEl.ValueKind != JsonValueKind.String)
-                        continue;
-                    if (!string.Equals(kindEl.GetString(), "image", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    if (!MarketCatalogJsonHelpers.TryGetPropertyIgnoreCase(att, "url", out var urlEl) ||
-                        urlEl.ValueKind != JsonValueKind.String)
-                        continue;
-                    var u = (urlEl.GetString() ?? "").Trim();
+                    var u = (att.Url ?? "").Trim();
                     if (u.Length == 0 || !IsDisplayableCatalogImageUrl(u) || !seen.Add(u))
                         continue;
                     list.Add(u);
@@ -134,9 +119,9 @@ internal static class MarketCatalogPhotoRules
 
     public static List<string> CollectServiceOfferGalleryUrls(StoreServiceRow s)
     {
-        var list = CollectDisplayablePhotoUrls(s.PhotoUrlsJson);
+        var list = CollectDisplayablePhotoUrls(s.PhotoUrls);
         var seen = new HashSet<string>(list, StringComparer.Ordinal);
-        AppendDisplayableImageUrlsFromCustomFieldsJson(s.CustomFieldsJson, list, seen);
+        AppendDisplayableImageUrlsFromCustomFields(s.CustomFields, list, seen);
         return list;
     }
 }

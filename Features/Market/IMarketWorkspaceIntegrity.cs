@@ -1,7 +1,7 @@
-namespace VibeTrade.Backend.Domain.Market;
+namespace VibeTrade.Backend.Features.Market;
 
 public interface IMarketWorkspaceIntegrity
 {
     /// <summary>Valida forma mínima del workspace antes de persistir.</summary>
-    void ValidateOrThrow(System.Text.Json.JsonDocument document);
+    void ValidateOrThrow(MarketWorkspaceState document);
 }

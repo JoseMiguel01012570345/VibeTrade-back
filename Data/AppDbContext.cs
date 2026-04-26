@@ -38,7 +38,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.ToTable("market_workspaces");
             e.HasKey(x => x.Id);
-            e.Property(x => x.Payload).HasColumnType("jsonb");
+            e.Property(x => x.State)
+                .HasColumnName("Payload")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.MarketWorkspace())
+                .Metadata.SetValueComparer(EntityValueConversions.MarketWorkspaceComparer());
             e.Property(x => x.UpdatedAt);
         });
 
@@ -56,7 +60,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Instagram).HasMaxLength(256);
             e.Property(x => x.Telegram).HasMaxLength(256);
             e.Property(x => x.XAccount).HasMaxLength(256);
-            e.Property(x => x.SavedOfferIdsJson).HasColumnType("jsonb");
+            e.Property(x => x.SavedOfferIds)
+                .HasColumnName("SavedOfferIdsJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.StringList())
+                .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
             e.HasIndex(x => x.PhoneDigits)
                 .IsUnique()
                 .HasFilter("\"PhoneDigits\" IS NOT NULL");
@@ -79,7 +87,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasFilter("\"NormalizedName\" IS NOT NULL");
             // Can store `data:` URLs (base64), which frequently exceed 2048 chars.
             e.Property(x => x.AvatarUrl).HasColumnType("text");
-            e.Property(x => x.CategoriesJson).HasColumnType("jsonb");
+            e.Property(x => x.Categories)
+                .HasColumnName("CategoriesJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.StringList())
+                .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
             e.Property(x => x.Pitch);
             e.Property(x => x.WebsiteUrl).HasMaxLength(2048);
             e.HasIndex(x => x.OwnerUserId);
@@ -100,9 +112,21 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Id).HasMaxLength(64);
             e.Property(x => x.StoreId).HasMaxLength(64);
             e.Property(x => x.MonedaPrecio).HasMaxLength(16);
-            e.Property(x => x.MonedasJson).HasColumnType("jsonb");
-            e.Property(x => x.PhotoUrlsJson).HasColumnType("jsonb");
-            e.Property(x => x.CustomFieldsJson).HasColumnType("jsonb");
+            e.Property(x => x.Monedas)
+                .HasColumnName("MonedasJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.StringList())
+                .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
+            e.Property(x => x.PhotoUrls)
+                .HasColumnName("PhotoUrlsJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.StringList())
+                .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
+            e.Property(x => x.CustomFields)
+                .HasColumnName("CustomFieldsJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.CustomFields())
+                .Metadata.SetValueComparer(EntityValueConversions.CustomFieldsComparer());
             e.Property(x => x.OfferQa)
                 .HasColumnName("OfferQaJson")
                 .HasColumnType("jsonb")
@@ -119,12 +143,36 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasKey(x => x.Id);
             e.Property(x => x.Id).HasMaxLength(64);
             e.Property(x => x.StoreId).HasMaxLength(64);
-            e.Property(x => x.RiesgosJson).HasColumnType("jsonb");
-            e.Property(x => x.DependenciasJson).HasColumnType("jsonb");
-            e.Property(x => x.GarantiasJson).HasColumnType("jsonb");
-            e.Property(x => x.MonedasJson).HasColumnType("jsonb");
-            e.Property(x => x.CustomFieldsJson).HasColumnType("jsonb");
-            e.Property(x => x.PhotoUrlsJson).HasColumnType("jsonb");
+            e.Property(x => x.Riesgos)
+                .HasColumnName("RiesgosJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.ServiceRiesgos())
+                .Metadata.SetValueComparer(EntityValueConversions.ServiceRiesgosComparer());
+            e.Property(x => x.Dependencias)
+                .HasColumnName("DependenciasJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.ServiceDependencias())
+                .Metadata.SetValueComparer(EntityValueConversions.ServiceDependenciasComparer());
+            e.Property(x => x.Garantias)
+                .HasColumnName("GarantiasJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.ServiceGarantias())
+                .Metadata.SetValueComparer(EntityValueConversions.ServiceGarantiasComparer());
+            e.Property(x => x.Monedas)
+                .HasColumnName("MonedasJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.StringList())
+                .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
+            e.Property(x => x.CustomFields)
+                .HasColumnName("CustomFieldsJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.CustomFields())
+                .Metadata.SetValueComparer(EntityValueConversions.CustomFieldsComparer());
+            e.Property(x => x.PhotoUrls)
+                .HasColumnName("PhotoUrlsJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.StringList())
+                .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
             e.Property(x => x.OfferQa)
                 .HasColumnName("OfferQaJson")
                 .HasColumnType("jsonb")
@@ -152,7 +200,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.ToTable("auth_sessions");
             e.HasKey(x => x.Token);
             e.Property(x => x.Token).HasMaxLength(64);
-            e.Property(x => x.UserJson).HasColumnType("jsonb");
+            e.Property(x => x.User)
+                .HasColumnName("UserJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.SessionUser())
+                .Metadata.SetValueComparer(EntityValueConversions.SessionUserComparer());
             e.Property(x => x.ExpiresAt);
             e.Property(x => x.CreatedAt);
             e.HasIndex(x => x.ExpiresAt);

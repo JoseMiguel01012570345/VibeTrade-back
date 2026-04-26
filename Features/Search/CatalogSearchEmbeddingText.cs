@@ -1,15 +1,15 @@
 using System.Linq;
 using System.Text;
-using System.Text.Json;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Features.Search;
 
 /// <summary>
 /// Texto semántico para embedding TF‑IDF y campo <see cref="CatalogSearchDocument.SearchText"/>.
-/// Excluye coords, URLs de medios, ids, fechas, monedas ISO y scores; incluye descripciones y JSON léxico útil.
+/// Excluye coords, URLs de medios, ids, fechas, monedas ISO y scores; incluye descripciones.
 /// </summary>
 internal static class CatalogSearchEmbeddingText
 {
@@ -22,8 +22,8 @@ internal static class CatalogSearchEmbeddingText
         AppendLine(sb, "NormalizedName", s.NormalizedName);
         AppendLine(sb, "Pitch", s.Pitch);
         AppendLine(sb, "Website", s.WebsiteUrl);
-        AppendLine(sb, "Categories", CategoriesJsonToPlain(s.CategoriesJson));
-        AppendFoldedLine(sb, s.Name, s.NormalizedName, s.Pitch, CategoriesJsonToPlain(s.CategoriesJson));
+        AppendLine(sb, "Categories", CategoriesToPlain(s.Categories));
+        AppendFoldedLine(sb, s.Name, s.NormalizedName, s.Pitch, CategoriesToPlain(s.Categories));
         if (s.TransportIncluded)
             sb.AppendLine("TransportIncluded: envío incluido");
         return Normalize(sb.ToString());
@@ -34,7 +34,7 @@ internal static class CatalogSearchEmbeddingText
         var sb = new StringBuilder();
         AppendLine(sb, "StoreName", store.Name);
         AppendLine(sb, "StorePitch", store.Pitch);
-        AppendLine(sb, "Categories", CategoriesJsonToPlain(store.CategoriesJson));
+        AppendLine(sb, "Categories", CategoriesToPlain(store.Categories));
         AppendLine(sb, "Name", p.Name);
         AppendLine(sb, "Category", p.Category);
         AppendLine(sb, "Model", p.Model);
@@ -48,8 +48,8 @@ internal static class CatalogSearchEmbeddingText
         AppendLine(sb, "WarrantyReturn", p.WarrantyReturn);
         AppendLine(sb, "ContentIncluded", p.ContentIncluded);
         AppendLine(sb, "UsageConditions", p.UsageConditions);
-        AppendLine(sb, "CustomFields", p.CustomFieldsJson);
-        AppendLine(sb, "OfferQa", OfferQaJson.ToJsonb(p.OfferQa));
+        AppendLine(sb, "CustomFields", CustomFieldsToSearchText(p.CustomFields));
+        AppendLine(sb, "OfferQa", OfferQaToSearchText(p.OfferQa));
         AppendFoldedLine(sb, store.Name, p.Name, p.Category, p.ShortDescription);
         return Normalize(sb.ToString());
     }
@@ -59,7 +59,7 @@ internal static class CatalogSearchEmbeddingText
         var sb = new StringBuilder();
         AppendLine(sb, "StoreName", store.Name);
         AppendLine(sb, "StorePitch", store.Pitch);
-        AppendLine(sb, "Categories", CategoriesJsonToPlain(store.CategoriesJson));
+        AppendLine(sb, "Categories", CategoriesToPlain(store.Categories));
         AppendLine(sb, "Category", sv.Category);
         AppendLine(sb, "TipoServicio", sv.TipoServicio);
         AppendLine(sb, "Descripcion", sv.Descripcion);
@@ -67,11 +67,11 @@ internal static class CatalogSearchEmbeddingText
         AppendLine(sb, "NoIncluye", sv.NoIncluye);
         AppendLine(sb, "Entregables", sv.Entregables);
         AppendLine(sb, "PropIntelectual", sv.PropIntelectual);
-        AppendLine(sb, "Riesgos", sv.RiesgosJson);
-        AppendLine(sb, "Dependencias", sv.DependenciasJson);
-        AppendLine(sb, "Garantias", sv.GarantiasJson);
-        AppendLine(sb, "CustomFields", sv.CustomFieldsJson);
-        AppendLine(sb, "OfferQa", OfferQaJson.ToJsonb(sv.OfferQa));
+        AppendLine(sb, "Riesgos", ServiceRiesgosToSearchText(sv.Riesgos));
+        AppendLine(sb, "Dependencias", ServiceItemsBodyToSearchText(sv.Dependencias));
+        AppendLine(sb, "Garantias", ServiceGarantiasToSearchText(sv.Garantias));
+        AppendLine(sb, "CustomFields", CustomFieldsToSearchText(sv.CustomFields));
+        AppendLine(sb, "OfferQa", OfferQaToSearchText(sv.OfferQa));
         AppendFoldedLine(sb, store.Name, sv.TipoServicio, sv.Category, sv.Descripcion);
         return Normalize(sb.ToString());
     }
@@ -81,7 +81,7 @@ internal static class CatalogSearchEmbeddingText
         var sb = new StringBuilder();
         AppendLine(sb, "StoreName", store.Name);
         AppendLine(sb, "StorePitch", store.Pitch);
-        AppendLine(sb, "Categories", CategoriesJsonToPlain(store.CategoriesJson));
+        AppendLine(sb, "Categories", CategoriesToPlain(store.Categories));
         var snap = e.RouteSheetSnapshot ?? new EmergentRouteSheetSnapshot();
         AppendLine(sb, "EmergentTitulo", snap.Titulo);
         AppendLine(sb, "MercanciasResumen", snap.MercanciasResumen);
@@ -108,7 +108,7 @@ internal static class CatalogSearchEmbeddingText
             AppendLine(sb, "BaseServiceDescripcion", s.Descripcion);
         }
 
-        AppendLine(sb, "OfferQa", OfferQaJson.ToJsonb(e.OfferQa));
+        AppendLine(sb, "OfferQa", OfferQaToSearchText(e.OfferQa));
         AppendFoldedLine(
             sb,
             store.Name,
@@ -120,6 +120,59 @@ internal static class CatalogSearchEmbeddingText
             s?.Category);
         sb.AppendLine("EmergentRoutePublication: hoja de ruta publicada");
         return Normalize(sb.ToString());
+    }
+
+    private static string ServiceRiesgosToSearchText(ServiceRiesgosBody? r) =>
+        r is { Enabled: true, Items: { Count: > 0 } } ? string.Join(' ', r.Items) : "";
+
+    private static string ServiceItemsBodyToSearchText(ServiceDependenciasBody? b) =>
+        b is { Enabled: true, Items: { Count: > 0 } } ? string.Join(' ', b.Items) : "";
+
+    private static string ServiceGarantiasToSearchText(ServiceGarantiasBody? g) =>
+        g is { Enabled: true, Texto: { Length: > 0 } } ? (g.Texto ?? "").Trim() : "";
+
+    private static string CustomFieldsToSearchText(IReadOnlyList<StoreCustomFieldBody>? fields)
+    {
+        if (fields is not { Count: > 0 })
+            return "";
+        return string.Join(' ', fields.Select(FlattenCustomField));
+    }
+
+    private static string FlattenCustomField(StoreCustomFieldBody f)
+    {
+        var parts = new List<string>();
+        foreach (var s in new[] { f.Title, f.Body, f.AttachmentNote })
+        {
+            if (!string.IsNullOrWhiteSpace(s))
+                parts.Add(s.Trim());
+        }
+
+        if (f.Attachments is { Count: > 0 } a)
+        {
+            foreach (var x in a)
+            {
+                var t = (x.FileName + " " + x.Url).Trim();
+                if (t.Length > 0)
+                    parts.Add(t);
+            }
+        }
+
+        return string.Join(' ', parts);
+    }
+
+    private static string OfferQaToSearchText(IReadOnlyList<OfferQaComment>? items)
+    {
+        if (items is not { Count: > 0 })
+            return "";
+        return string.Join(
+            ' ',
+            items.Select(c =>
+            {
+                var parts = new List<string> { c.Text, c.Question, c.Answer }
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Select(s => s!);
+                return string.Join(' ', parts);
+            }));
     }
 
     private static void AppendFoldedLine(StringBuilder sb, params string?[] parts)
@@ -157,32 +210,13 @@ internal static class CatalogSearchEmbeddingText
         return s[..MaxFieldChars] + "…";
     }
 
-    private static string CategoriesJsonToPlain(string? json)
+    private static string CategoriesToPlain(IReadOnlyList<string>? categories)
     {
-        if (string.IsNullOrWhiteSpace(json))
-            return "";
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array)
-                return "";
-            var parts = new List<string>();
-            foreach (var el in doc.RootElement.EnumerateArray())
-            {
-                if (el.ValueKind == JsonValueKind.String)
-                {
-                    var t = el.GetString();
-                    if (!string.IsNullOrWhiteSpace(t))
-                        parts.Add(t.Trim());
-                }
-            }
-
-            return parts.Count == 0 ? "" : string.Join(' ', parts);
-        }
-        catch
-        {
-            return "";
-        }
+        var parts = CatalogJsonColumnParsing.StringListOrEmpty(categories)
+            .Select(t => t.Trim())
+            .Where(t => t.Length > 0)
+            .ToList();
+        return parts.Count == 0 ? "" : string.Join(' ', parts);
     }
 
     private static string Normalize(string s)

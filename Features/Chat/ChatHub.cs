@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat.Utils;
@@ -146,14 +145,13 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
             && TryGetBearerHeader(http, out var rawBearer)
             && !string.IsNullOrWhiteSpace(rawBearer))
         {
-            if (!auth.TryGetUserByToken(rawBearer, out var user)
-                || !user.TryGetProperty("id", out var idEl)
-                || idEl.ValueKind != JsonValueKind.String)
+            if (!auth.TryGetUserByToken(rawBearer, out var user) || user is null
+                || string.IsNullOrWhiteSpace(user.Id))
             {
                 return null;
             }
 
-            var id = (idEl.GetString() ?? "").Trim();
+            var id = user.Id.Trim();
             if (id.Length < 1)
                 return null;
 
@@ -194,13 +192,11 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
         if (http is null || !TryGetBearerHeader(http, out var bearerHeader))
             return false;
 
-        if (!auth.TryGetUserByToken(bearerHeader, out var user))
+        if (!auth.TryGetUserByToken(bearerHeader, out var user) || user is null
+            || string.IsNullOrWhiteSpace(user.Id))
             return false;
 
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.String)
-            return false;
-
-        userId = (idEl.GetString() ?? "").Trim();
+        userId = user.Id.Trim();
         return userId.Length > 0;
     }
 }

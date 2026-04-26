@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Auth;
@@ -18,11 +17,11 @@ public sealed class AuthController(
     IUserAccountSyncService userAccountSync,
     IUserContactsService contacts) : ControllerBase
 {
-    private static string? PhoneDigitsFromSessionUser(JsonElement user)
+    private static string? PhoneDigitsFromSessionUser(SessionUser? user)
     {
-        if (!user.TryGetProperty("phone", out var ph) || ph.ValueKind != JsonValueKind.String)
+        if (string.IsNullOrEmpty(user?.Phone))
             return null;
-        return new string(ph.GetString()!.Where(char.IsDigit).ToArray());
+        return new string(user.Phone.Where(char.IsDigit).ToArray());
     }
 
     public sealed record RequestCodeBody(string Phone, string? Mode = null);
@@ -31,9 +30,9 @@ public sealed class AuthController(
 
     public sealed record VerifyBody(string Phone, string Code, string? Mode = null);
 
-    public sealed record VerifyResponse(string SessionToken, JsonElement User);
+    public sealed record VerifyResponse(string SessionToken, SessionUser User);
 
-    public sealed record SessionResponse(JsonElement User);
+    public sealed record SessionResponse(SessionUser User);
 
     public sealed record PatchProfileBody(
         string? Name,
@@ -59,12 +58,9 @@ public sealed class AuthController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IReadOnlyList<UserContactDto>>> GetContacts(CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
+        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
             return Unauthorized();
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
-            return Unauthorized();
-        var userId = idEl.GetString()!;
-        var list = await contacts.ListAsync(userId, cancellationToken);
+        var list = await contacts.ListAsync(user.Id!, cancellationToken);
         return Ok(list);
     }
 
@@ -81,11 +77,9 @@ public sealed class AuthController(
         [FromBody] AddContactBody body,
         CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
+        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
             return Unauthorized();
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
-            return Unauthorized();
-        var userId = idEl.GetString()!;
+        var userId = user.Id!;
         try
         {
             var dto = await contacts.AddByPhoneAsync(userId, body.Phone ?? "", cancellationToken);
@@ -112,11 +106,9 @@ public sealed class AuthController(
         [FromQuery] string? phone,
         CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
+        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
             return Unauthorized();
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
-            return Unauthorized();
-        var userId = idEl.GetString()!;
+        var userId = user.Id!;
         try
         {
             var dto = await contacts.ResolveByPhoneAsync(userId, phone ?? "", cancellationToken);
@@ -139,11 +131,9 @@ public sealed class AuthController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteContact(string contactUserId, CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
+        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
             return Unauthorized();
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
-            return Unauthorized();
-        var userId = idEl.GetString()!;
+        var userId = user.Id!;
         if (string.IsNullOrWhiteSpace(contactUserId))
             return NotFound();
         var ok = await contacts.RemoveAsync(userId, contactUserId.Trim(), cancellationToken);
@@ -192,7 +182,7 @@ public sealed class AuthController(
         [FromBody] PatchProfileBody body,
         CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
+        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
             return Unauthorized();
         if (body is null)
             return BadRequest();
@@ -214,9 +204,7 @@ public sealed class AuthController(
                 return BadRequest("AvatarUrl debe ser /api/v1/media/{id}.");
         }
 
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
-            return BadRequest("Sesión sin id de usuario.");
-        var userId = idEl.GetString()!;
+        var userId = user.Id!;
 
         var phoneDigits = PhoneDigitsFromSessionUser(user);
         await userAccountSync.PatchProfileAsync(
@@ -236,7 +224,7 @@ public sealed class AuthController(
         if (snapshot is null)
             return BadRequest("No se pudo leer el perfil persistido.");
 
-        if (!auth.TrySyncSessionFromSnapshot(Request.Headers.Authorization, snapshot, out var updated))
+        if (!auth.TrySyncSessionFromSnapshot(Request.Headers.Authorization, snapshot, out var updated) || updated is null)
             return Unauthorized();
 
         return Ok(new SessionResponse(updated));
@@ -296,18 +284,17 @@ public sealed class AuthController(
 
         // If the dev auth generated a new id, but we already have a persisted account for this phone,
         // reuse the persisted id so ownerUserId and bootstrap filtering remain stable across restarts.
-        if (result.User.TryGetProperty("phone", out var ph) && ph.ValueKind == JsonValueKind.String)
+        if (!string.IsNullOrEmpty(result.User.Phone))
         {
-            var digits = new string(ph.GetString()!.Where(char.IsDigit).ToArray());
-            if (!string.IsNullOrEmpty(digits))
+            var digits = new string(result.User.Phone.Where(char.IsDigit).ToArray());
+            if (digits.Length > 0)
             {
                 var existingUser = await userAccountSync.GetProfileSnapshotAsync(digits, cancellationToken);
                 if (existingUser is not null
                     && !string.IsNullOrEmpty(existingUser.Id)
-                    && result.User.TryGetProperty("id", out var curIdEl)
-                    && curIdEl.ValueKind == JsonValueKind.String
-                    && curIdEl.GetString() != existingUser.Id
-                    && auth.TrySetSessionUserId("Bearer " + result.SessionToken, existingUser.Id, out var patched))
+                    && !string.IsNullOrEmpty(result.User.Id)
+                    && result.User.Id != existingUser.Id
+                    && auth.TrySetSessionUserId("Bearer " + result.SessionToken, existingUser.Id, out _))
                 {
                     // continue with patched user below
                 }   
@@ -316,17 +303,18 @@ public sealed class AuthController(
 
         // La sesión nueva nace solo con el usuario ad-hoc; fusionar BD (avatar, nombre, email, redes)
         // para que tras cerrar sesión y volver a entrar el cliente reciba el mismo perfil que GET session.
-        JsonElement userOut = result.User;
-        if (auth.TryGetUserByToken("Bearer " + result.SessionToken, out var userNow))
+        SessionUser userOut = result.User;
+        if (auth.TryGetUserByToken("Bearer " + result.SessionToken, out var userNow) && userNow is not null)
             userOut = userNow;
-        if (userOut.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+        if (!string.IsNullOrWhiteSpace(userOut.Id))
         {
-            var id = idEl.GetString()!;
+            var id = userOut.Id;
             var snapshot =
                 await userAccountSync.GetProfileSnapshotByUserIdAsync(id, cancellationToken)
                 ?? await userAccountSync.GetProfileSnapshotAsync(PhoneDigitsFromSessionUser(userOut), cancellationToken);
             if (snapshot is not null &&
-                auth.TrySyncSessionFromSnapshot("Bearer " + result.SessionToken, snapshot, out var merged))
+                auth.TrySyncSessionFromSnapshot("Bearer " + result.SessionToken, snapshot, out var merged) &&
+                merged is not null)
                 userOut = merged;
         }
 
@@ -339,17 +327,18 @@ public sealed class AuthController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<SessionResponse>> GetSession(CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
+        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || user is null)
             return Unauthorized();
 
-        if (user.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+        if (!string.IsNullOrWhiteSpace(user.Id))
         {
-            var id = idEl.GetString()!;
+            var id = user.Id;
             var snapshot =
                 await userAccountSync.GetProfileSnapshotByUserIdAsync(id, cancellationToken)
                 ?? await userAccountSync.GetProfileSnapshotAsync(PhoneDigitsFromSessionUser(user), cancellationToken);
             if (snapshot is not null &&
-                auth.TrySyncSessionFromSnapshot(Request.Headers.Authorization, snapshot, out var merged))
+                auth.TrySyncSessionFromSnapshot(Request.Headers.Authorization, snapshot, out var merged) &&
+                merged is not null)
                 user = merged;
         }
 

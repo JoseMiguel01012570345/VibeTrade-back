@@ -13,7 +13,7 @@ internal static class CatalogSearchDocumentFactory
             location = new LatLonGeoLocation { Lat = la, Lon = lo };
 
         var name = (store.Name ?? "").Trim();
-        var cats = StoreSearchCategoryParser.ParseCategories(store.CategoriesJson);
+        var cats = StoreSearchCategoryParser.ParseCategories(store.Categories);
         return new CatalogSearchDocument
         {
             Kind = CatalogSearchKinds.Store,

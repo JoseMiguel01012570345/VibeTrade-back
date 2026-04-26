@@ -1,11 +1,8 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Data.RouteSheets;
+using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market;
-using VibeTrade.Backend.Features.Market.Utils;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.SavedOffers;
 
@@ -19,15 +16,9 @@ public sealed class BootstrapService(
     IChatService chat,
     IRouteSheetChatService routeSheets) : IBootstrapService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    public async Task<BootstrapResponseDto> GetBootstrapAsync(string viewerPhoneDigits, CancellationToken cancellationToken = default)
     {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
-
-    public async Task<JsonDocument> GetBootstrapAsync(string viewerPhoneDigits, CancellationToken cancellationToken = default)
-    {
-        using var market = await marketWorkspace.GetOrSeedAsync(cancellationToken);
-        var marketObj = JsonNode.Parse(market.RootElement.GetRawText())!.AsObject();
+        var market = await marketWorkspace.GetOrSeedAsync(cancellationToken);
 
         var viewerDigits = new string(viewerPhoneDigits.Where(char.IsDigit).ToArray());
         if (string.IsNullOrWhiteSpace(viewerDigits))
@@ -36,7 +27,6 @@ public sealed class BootstrapService(
         var viewerUser = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(u => u.PhoneDigits == viewerDigits, cancellationToken);
 
-        // Filter stores by invariant phoneDigits (unique), not by ephemeral user.id.
         var storeIds = await db.Stores
             .AsNoTracking()
             .Where(s => s.Owner.PhoneDigits == viewerDigits)
@@ -44,46 +34,34 @@ public sealed class BootstrapService(
             .ToListAsync(cancellationToken);
         var keepStoreIds = new HashSet<string>(storeIds, StringComparer.Ordinal);
 
-        // stores + offers: datos globales del mercado (Home y exploración); no filtrar por dueño.
-        // storeCatalogs: vacío en bootstrap (se hidrata con POST stores/:id/detail).
-        marketObj["storeCatalogs"] = new JsonObject();
+        market.StoreCatalogs = new Dictionary<string, StoreCatalogBlockView>(StringComparer.Ordinal);
 
-        // threads: solo hilos del workspace cuya tienda es del vendedor (demo). Los chats de comprador
-        // usan storeId de la tienda ajena y se filtraban por completo → se pierden al recargar.
-        // Abajo fusionamos hilos persistidos (cth_*) desde PostgreSQL.
-        if (marketObj["threads"] is JsonObject threads)
+        if (market.Threads.Count > 0)
         {
-            var nextThreads = new JsonObject();
-            foreach (var kv in threads)
+            var nextThreads = new Dictionary<string, ChatThreadWorkspaceDto>(StringComparer.Ordinal);
+            foreach (var kv in market.Threads)
             {
-                if (kv.Value is not JsonObject th) continue;
-                var storeId = th["storeId"]?.GetValue<string>();
-                if (storeId is not null && keepStoreIds.Contains(storeId))
-                    nextThreads[kv.Key] = JsonNode.Parse(th.ToJsonString());
+                var th = kv.Value;
+                if (keepStoreIds.Contains(th.StoreId))
+                    nextThreads[kv.Key] = th;
             }
-            marketObj["threads"] = nextThreads;
+            market.Threads = nextThreads;
 
-            // routeOfferPublic depends on threadId
-            if (marketObj["routeOfferPublic"] is JsonObject rop)
+            if (market.RouteOfferPublic.Count > 0)
             {
-                var nextRop = new JsonObject();
-                foreach (var kv in rop)
+                var nextRop = new Dictionary<string, RouteOfferPublicEntryView>(StringComparer.Ordinal);
+                foreach (var kv in market.RouteOfferPublic)
                 {
-                    if (kv.Value is not JsonObject v) continue;
-                    var threadId = v["threadId"]?.GetValue<string>();
+                    var threadId = kv.Value.ThreadId;
                     if (threadId is not null && nextThreads.ContainsKey(threadId))
-                        nextRop[kv.Key] = JsonNode.Parse(v.ToJsonString());
+                        nextRop[kv.Key] = kv.Value;
                 }
-                marketObj["routeOfferPublic"] = nextRop;
+                market.RouteOfferPublic = nextRop;
             }
         }
 
-        if (viewerUser is not null && marketObj["threads"] is JsonObject mergedThreads)
-            await MergePersistedChatThreadsAsync(mergedThreads, marketObj, viewerUser.Id, cancellationToken);
-
-        const string reels =
-            """{"items":[],"initialComments":{},"initialLikeCounts":{}}""";
-        const string profileNames = "{}";
+        if (viewerUser is not null)
+            await MergePersistedChatThreadsAsync(market, viewerUser.Id, cancellationToken);
 
         var savedList = viewerUser is null
             ? Array.Empty<string>()
@@ -97,69 +75,53 @@ public sealed class BootstrapService(
 
         var bootRecOfferIds = recommendationFeed.OfferIds.Length > 0
             ? recommendationFeed.OfferIds
-            : recommendationFeed.Offers.Select(kv => kv.Key).ToArray();
-        // No pisar el feed global del mercado cuando el ranking devuelve vacío (p. ej. usuario nuevo):
-        // si no, el cliente pierde `market.offerIds` y el Home queda sin tarjetas.
+            : recommendationFeed.Offers.Keys.ToArray();
         if (bootRecOfferIds.Length > 0)
-            marketObj["offerIds"] = JsonSerializer.SerializeToNode(bootRecOfferIds, JsonOptions) ?? new JsonArray();
+            market.OfferIds = new List<string>(bootRecOfferIds);
 
-        var root = new JsonObject
+        return new BootstrapResponseDto
         {
-            ["market"] = marketObj,
-            ["reels"] = JsonNode.Parse(reels),
-            ["profileDisplayNames"] = JsonNode.Parse(profileNames),
-            ["savedOfferIds"] = JsonSerializer.SerializeToNode(savedList, JsonOptions) ?? new JsonArray(),
-            ["recommendations"] = JsonSerializer.SerializeToNode(recommendationFeed, JsonOptions),
+            Market = market,
+            Reels = new BootstrapReelsStateDto(),
+            ProfileDisplayNames = new Dictionary<string, string>(),
+            SavedOfferIds = savedList,
+            Recommendations = recommendationFeed,
         };
-
-        return JsonDocument.Parse(root.ToJsonString(JsonOptions));
     }
 
-    /// <summary>
-    /// Añade hilos <c>cth_*</c> del usuario (comprador o vendedor) con tienda/oferta desde tablas relacionales.
-    /// </summary>
     private async Task MergePersistedChatThreadsAsync(
-        JsonObject threadsOut,
-        JsonObject marketObj,
+        MarketWorkspaceState market,
         string viewerUserId,
         CancellationToken cancellationToken)
     {
+        var threadsOut = market.Threads;
         var summaries = await chat.ListThreadsForUserAsync(viewerUserId, cancellationToken);
         if (summaries.Count == 0)
             return;
 
-        var stores = marketObj["stores"] as JsonObject ?? new JsonObject();
-        marketObj["stores"] = stores;
-
-        var offers = marketObj["offers"] as JsonObject ?? new JsonObject();
-        marketObj["offers"] = offers;
+        var stores = market.Stores;
+        var offers = market.Offers;
 
         foreach (var summ in summaries)
         {
-            if (threadsOut.ContainsKey(summ.Id))
+            if (threadsOut.TryGetValue(summ.Id, out var existing))
             {
-                if (threadsOut[summ.Id] is JsonObject thNode)
-                {
-                    var rsExisting = await routeSheets.ListForThreadAsync(viewerUserId, summ.Id, cancellationToken);
-                    if (rsExisting is { Count: > 0 })
-                    {
-                        thNode["routeSheets"] = JsonSerializer.SerializeToNode(rsExisting, RouteSheetJson.Options)
-                            ?? new JsonArray();
-                    }
+                var rsExisting = await routeSheets.ListForThreadAsync(viewerUserId, summ.Id, cancellationToken);
+                if (rsExisting is { Count: > 0 })
+                    existing.RouteSheets = rsExisting;
 
-                    if (!string.IsNullOrWhiteSpace(summ.PartyExitedUserId))
-                        thNode["partyExitedUserId"] = summ.PartyExitedUserId.Trim();
-                    else
-                        thNode.Remove("partyExitedUserId");
-                    if (!string.IsNullOrWhiteSpace(summ.PartyExitedReason))
-                        thNode["partyExitedReason"] = summ.PartyExitedReason.Trim();
-                    else
-                        thNode.Remove("partyExitedReason");
-                    if (summ.PartyExitedAtUtc is { } partyAt)
-                        thNode["partyExitedAtUtc"] = JsonSerializer.SerializeToNode(partyAt, JsonOptions);
-                    else
-                        thNode.Remove("partyExitedAtUtc");
-                }
+                if (!string.IsNullOrWhiteSpace(summ.PartyExitedUserId))
+                    existing.PartyExitedUserId = summ.PartyExitedUserId.Trim();
+                else
+                    existing.PartyExitedUserId = null;
+                if (!string.IsNullOrWhiteSpace(summ.PartyExitedReason))
+                    existing.PartyExitedReason = summ.PartyExitedReason.Trim();
+                else
+                    existing.PartyExitedReason = null;
+                if (summ.PartyExitedAtUtc is { } partyAt)
+                    existing.PartyExitedAtUtc = partyAt;
+                else
+                    existing.PartyExitedAtUtc = null;
                 continue;
             }
 
@@ -169,58 +131,54 @@ public sealed class BootstrapService(
                 continue;
 
             if (!stores.ContainsKey(store.Id))
-                stores[store.Id] = MarketCatalogStoreBadgeJson.FromStoreRow(store);
+                stores[store.Id] = StoreProfileWorkspaceData.FromStoreRow(store);
 
             if (!offers.ContainsKey(summ.OfferId))
             {
                 var product = await db.StoreProducts.AsNoTracking()
                     .FirstOrDefaultAsync(p => p.Id == summ.OfferId, cancellationToken);
                 if (product is not null)
-                    offers[summ.OfferId] = MarketCatalogOfferJsonBuilder.ProductRowToOfferJson(product);
+                    offers[summ.OfferId] = HomeOfferViewFactory.FromProductRow(product);
                 else
                 {
                     var service = await db.StoreServices.AsNoTracking()
                         .FirstOrDefaultAsync(s => s.Id == summ.OfferId, cancellationToken);
                     if (service is not null)
-                        offers[summ.OfferId] = MarketCatalogOfferJsonBuilder.ServiceRowToOfferJson(service);
+                        offers[summ.OfferId] = HomeOfferViewFactory.FromServiceRow(service);
                 }
             }
 
-            var storeNode = MarketCatalogStoreBadgeJson.FromStoreRow(store);
+            var storeData = StoreProfileWorkspaceData.FromStoreRow(store);
             var msgs = await chat.ListMessagesAsync(viewerUserId, summ.Id, cancellationToken);
-            var messagesArr = new JsonArray();
-            foreach (var m in msgs)
-                messagesArr.Add(ChatMarketMessageJsonMapper.ToMarketMessage(m, viewerUserId));
+            var messages = msgs.Select(m => ChatMarketMessageJsonMapper.ToMarketMessage(m, viewerUserId)).ToList();
 
             var routeSheetsList = await routeSheets.ListForThreadAsync(viewerUserId, summ.Id, cancellationToken)
                 ?? Array.Empty<RouteSheetPayload>();
-            var routeSheetsNode = JsonSerializer.SerializeToNode(routeSheetsList, RouteSheetJson.Options)
-                ?? new JsonArray();
 
-            var thJson = new JsonObject
+            var th = new ChatThreadWorkspaceDto
             {
-                ["id"] = summ.Id,
-                ["offerId"] = summ.OfferId,
-                ["storeId"] = summ.StoreId,
-                ["buyerUserId"] = summ.BuyerUserId,
-                ["sellerUserId"] = summ.SellerUserId,
-                ["store"] = storeNode,
-                ["purchaseMode"] = summ.PurchaseMode,
-                ["messages"] = messagesArr,
-                ["contracts"] = new JsonArray(),
-                ["routeSheets"] = routeSheetsNode,
+                Id = summ.Id,
+                OfferId = summ.OfferId,
+                StoreId = summ.StoreId,
+                BuyerUserId = summ.BuyerUserId,
+                SellerUserId = summ.SellerUserId,
+                Store = storeData,
+                PurchaseMode = summ.PurchaseMode,
+                Messages = messages,
+                Contracts = new List<ChatThreadContractView>(),
+                RouteSheets = routeSheetsList,
             };
             if (!string.IsNullOrWhiteSpace(summ.BuyerDisplayName))
-                thJson["buyerDisplayName"] = summ.BuyerDisplayName.Trim();
+                th.BuyerDisplayName = summ.BuyerDisplayName.Trim();
             if (!string.IsNullOrWhiteSpace(summ.BuyerAvatarUrl))
-                thJson["buyerAvatarUrl"] = summ.BuyerAvatarUrl.Trim();
+                th.BuyerAvatarUrl = summ.BuyerAvatarUrl.Trim();
             if (!string.IsNullOrWhiteSpace(summ.PartyExitedUserId))
-                thJson["partyExitedUserId"] = summ.PartyExitedUserId.Trim();
+                th.PartyExitedUserId = summ.PartyExitedUserId.Trim();
             if (!string.IsNullOrWhiteSpace(summ.PartyExitedReason))
-                thJson["partyExitedReason"] = summ.PartyExitedReason.Trim();
+                th.PartyExitedReason = summ.PartyExitedReason.Trim();
             if (summ.PartyExitedAtUtc is { } pAt)
-                thJson["partyExitedAtUtc"] = JsonSerializer.SerializeToNode(pAt, JsonOptions);
-            threadsOut[summ.Id] = thJson;
+                th.PartyExitedAtUtc = pAt;
+            threadsOut[summ.Id] = th;
         }
     }
 }

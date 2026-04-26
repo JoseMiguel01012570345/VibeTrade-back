@@ -1,10 +1,8 @@
-using System.Text.Json;
-
 namespace VibeTrade.Backend.Features.Auth;
 
 public sealed record RequestCodeResult(int CodeLength, int ExpiresInSeconds, string? DevMockCode);
 
-public sealed record VerifyResult(string SessionToken, JsonElement User);
+public sealed record VerifyResult(string SessionToken, SessionUser User);
 
 public interface IAuthService
 {
@@ -12,14 +10,12 @@ public interface IAuthService
 
     Task<VerifyResult?> Verify(string phoneRaw, string code, CancellationToken cancellationToken);
 
-    bool TryGetUserByToken(string? bearerToken, out JsonElement user);
+    bool TryGetUserByToken(string? bearerToken, out SessionUser? user);
 
     bool RevokeSession(string? bearerToken);
 
-    /// <summary>Actualiza el JSON del usuario en la sesión persistida (p. ej. avatarUrl).</summary>
-    bool TrySetAvatarUrl(string? bearerToken, string avatarUrl, out JsonElement updatedUser);
+    bool TrySetAvatarUrl(string? bearerToken, string avatarUrl, out SessionUser? updatedUser);
 
-    /// <summary>Fusiona campos de perfil en el JSON de sesión; <c>null</c> = no modificar esa propiedad.</summary>
     bool TryPatchUserProfile(
         string? bearerToken,
         string? name,
@@ -28,11 +24,9 @@ public interface IAuthService
         string? telegram,
         string? xAccount,
         string? avatarUrl,
-        out JsonElement updatedUser);
+        out SessionUser? updatedUser);
 
-    /// <summary>Reemplaza en la sesión los campos persistidos según el snapshot de BD (fuente de verdad tras GET session / PATCH).</summary>
-    bool TrySyncSessionFromSnapshot(string? bearerToken, UserProfileSnapshot snapshot, out JsonElement updatedUser);
+    bool TrySyncSessionFromSnapshot(string? bearerToken, UserProfileSnapshot snapshot, out SessionUser? updatedUser);
 
-    /// <summary>Fuerza el <c>user.id</c> en la sesión (p. ej. alinear con el id persistido por teléfono).</summary>
-    bool TrySetSessionUserId(string? bearerToken, string userId, out JsonElement updatedUser);
+    bool TrySetSessionUserId(string? bearerToken, string userId, out SessionUser? updatedUser);
 }
