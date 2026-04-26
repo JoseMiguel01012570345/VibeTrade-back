@@ -103,6 +103,8 @@ public sealed class RouteSheetChatService(
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(userId, t))
             return false;
+        if (!string.Equals((t.SellerUserId ?? "").Trim(), (userId ?? "").Trim(), StringComparison.Ordinal))
+            return false;
 
         var rsId = (routeSheetId ?? "").Trim();
         if (rsId.Length == 0)
@@ -132,18 +134,24 @@ public sealed class RouteSheetChatService(
         merged.ThreadId = threadId;
         merged.Paradas ??= new List<RouteStopPayload>();
 
+        List<RouteTramoSubscriptionRow>? subsForSheet = null;
+        if (wasExistingSheet)
+        {
+            subsForSheet = await db.RouteTramoSubscriptions
+                .Where(x => x.ThreadId == threadId && x.RouteSheetId == rsId)
+                .ToListAsync(cancellationToken);
+            ApplyConfirmedSubscriptionStoreServicesToParadas(merged, subsForSheet);
+        }
+
         RouteSheetEditAckPayload? nextAck = null;
         HashSet<string>? affectedForNotice = null;
         List<RouteTramoSubscriptionRow>? confirmedRowsForNotice = null;
-        if (wasExistingSheet && oldSnapshot is not null)
+        if (wasExistingSheet && oldSnapshot is not null && subsForSheet is not null)
         {
-            var subs = await db.RouteTramoSubscriptions
-                .Where(x => x.ThreadId == threadId && x.RouteSheetId == rsId)
-                .ToListAsync(cancellationToken);
-            var confirmedOnSheet = subs
+            var confirmedOnSheet = subsForSheet
                 .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
                 .ToList();
-            var confirmedIds = RouteSheetEditAckComputation.ConfirmedCarrierIdsForSheet(subs, rsId);
+            var confirmedIds = RouteSheetEditAckComputation.ConfirmedCarrierIdsForSheet(subsForSheet, rsId);
             var affected = RouteSheetEditAckComputation.AffectedConfirmedCarrierIds(oldSnapshot, merged, confirmedOnSheet);
             affectedForNotice = affected;
             confirmedRowsForNotice = confirmedOnSheet;
@@ -188,6 +196,9 @@ public sealed class RouteSheetChatService(
                 row.DeletedByUserId = null;
             }
         }
+
+        if (subsForSheet is { Count: > 0 })
+            ApplyParadaInvitedServicesToSubscriptions(persisted, subsForSheet, now);
 
         await SyncEmergentOfferAsync(t, rsId, userId, published, persisted, cancellationToken);
         if (published)
@@ -275,6 +286,8 @@ public sealed class RouteSheetChatService(
     {
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(userId, t))
+            return false;
+        if (!string.Equals((t.SellerUserId ?? "").Trim(), (userId ?? "").Trim(), StringComparison.Ordinal))
             return false;
 
         var rsId = (routeSheetId ?? "").Trim();
@@ -535,6 +548,8 @@ public sealed class RouteSheetChatService(
             || thread.DeletedAtUtc is not null
             || !ChatThreadAccess.UserCanSeeThread(eid, thread))
             return -1;
+        if (!string.Equals((thread.SellerUserId ?? "").Trim(), eid, StringComparison.Ordinal))
+            return -1;
 
         var sheetRow = await db.ChatRouteSheets.AsNoTracking()
             .FirstOrDefaultAsync(
@@ -750,6 +765,75 @@ public sealed class RouteSheetChatService(
         p.RouteSheetEditAck = ack;
         row.Payload = CloneRoutePayload(p);
         row.UpdatedAtUtc = updatedAt;
+    }
+
+    /// <summary>
+    /// Si el PUT no trae <c>transportInvitedStoreServiceId</c> en un tramo ya confirmado, rellenamos desde la suscripción.
+    /// Si el cliente envía un id, no lo pisamos con el valor viejo de BD.
+    /// </summary>
+    private static void ApplyConfirmedSubscriptionStoreServicesToParadas(
+        RouteSheetPayload payload,
+        IReadOnlyList<RouteTramoSubscriptionRow> subs)
+    {
+        payload.Paradas ??= new List<RouteStopPayload>();
+        foreach (var sub in subs)
+        {
+            if (!string.Equals((sub.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var storeSvc = (sub.StoreServiceId ?? "").Trim();
+            if (storeSvc.Length == 0)
+                continue;
+            var parada = TryResolveParadaForSubscription(payload, sub);
+            if (parada is null)
+                continue;
+            var incomingInvited = (parada.TransportInvitedStoreServiceId ?? "").Trim();
+            if (incomingInvited.Length > 0)
+                continue;
+            parada.TransportInvitedStoreServiceId = storeSvc;
+            var label = (sub.TransportServiceLabel ?? "").Trim();
+            if (label.Length > 0)
+                parada.TransportInvitedServiceSummary = label;
+        }
+    }
+
+    /// <summary>
+    /// Alinea <see cref="RouteTramoSubscriptionRow.StoreServiceId"/> (y etiqueta) con el payload guardado en la hoja.
+    /// </summary>
+    private static void ApplyParadaInvitedServicesToSubscriptions(
+        RouteSheetPayload payload,
+        List<RouteTramoSubscriptionRow> subs,
+        DateTimeOffset now)
+    {
+        payload.Paradas ??= new List<RouteStopPayload>();
+        foreach (var sub in subs)
+        {
+            var parada = TryResolveParadaForSubscription(payload, sub);
+            if (parada is null)
+                continue;
+            var inv = (parada.TransportInvitedStoreServiceId ?? "").Trim();
+            var sum = (parada.TransportInvitedServiceSummary ?? "").Trim();
+            sub.StoreServiceId = inv.Length > 0 ? inv : null;
+            sub.TransportServiceLabel = sum;
+            sub.UpdatedAtUtc = now;
+        }
+    }
+
+    private static RouteStopPayload? TryResolveParadaForSubscription(
+        RouteSheetPayload payload,
+        RouteTramoSubscriptionRow sub)
+    {
+        payload.Paradas ??= new List<RouteStopPayload>();
+        var stopId = (sub.StopId ?? "").Trim();
+        if (stopId.Length > 0)
+        {
+            var byId = payload.Paradas.FirstOrDefault(p =>
+                string.Equals((p.Id ?? "").Trim(), stopId, StringComparison.Ordinal));
+            if (byId is not null)
+                return byId;
+        }
+        if (sub.StopOrden > 0)
+            return payload.Paradas.FirstOrDefault(p => p.Orden == sub.StopOrden);
+        return null;
     }
 
     private static void ClearTransportistaPhonesForSubs(

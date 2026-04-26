@@ -124,8 +124,8 @@ public interface IChatService
 
     /// <summary>
     /// Participantes del hilo (<c>JoinThread</c>) y, si aplica, la ficha emergente (<c>JoinOffer</c> con <c>emo_*</c>): suscripciones de tramo actualizadas.
-    /// <c>Change</c>: <c>request</c>, <c>accept</c>, <c>reject</c>.
-    /// <c>ActorUserId</c>: transportista que solicita, o vendedor que acepta/rechaza.
+    /// <c>Change</c>: <c>request</c>, <c>accept</c>, <c>reject</c>, <c>withdraw</c>, edición de hoja, <c>presel_decline</c> (transportista rechaza invitación por contacto en hoja).
+    /// <c>ActorUserId</c>: transportista que solicita o declina, o vendedor que acepta/rechaza solicitudes.
     /// </summary>
     Task BroadcastRouteTramoSubscriptionsChangedAsync(
         RouteTramoSubscriptionsBroadcastArgs request,

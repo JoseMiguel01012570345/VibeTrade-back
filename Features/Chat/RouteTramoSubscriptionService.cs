@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
@@ -20,6 +21,42 @@ public sealed class RouteTramoSubscriptionService(
 
     /// <summary>Marca en la hoja: el teléfono del tramo proviene de la invitación por contacto en la hoja.</summary>
     private const string PreselHojaContactoIndicado = "Contacto indicado en la hoja";
+
+    private static readonly JsonSerializerOptions TramoAcceptedMetaJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
+    /// <summary>Meta para notificación <c>route_tramo_subscribe_accepted</c> y enriquecimiento de UI (enlace a ficha).</summary>
+    private static string? BuildTramoAcceptedNotificationMetaJson(
+        string routeSheetId,
+        string carrierUserId,
+        IReadOnlyList<(string StopId, string? StoreServiceId)> stops)
+    {
+        if (stops.Count == 0)
+            return null;
+        var rs = (routeSheetId ?? "").Trim();
+        var cu = (carrierUserId ?? "").Trim();
+        if (rs.Length < 1 || cu.Length < 2)
+            return null;
+        var stopObjs = stops
+            .Select(t => new
+            {
+                stopId = (t.StopId ?? "").Trim(),
+                storeServiceId = string.IsNullOrWhiteSpace(t.StoreServiceId) ? null : t.StoreServiceId.Trim(),
+            })
+            .Where(x => x.stopId.Length > 0)
+            .ToList();
+        if (stopObjs.Count == 0)
+            return null;
+        var payload = new
+        {
+            routeSheetId = rs,
+            carrierUserId = cu,
+            stops = stopObjs,
+        };
+        return JsonSerializer.Serialize(payload, TramoAcceptedMetaJsonOptions);
+    }
 
     private readonly record struct SellerTramoKey(
         string ActorId,
@@ -290,6 +327,7 @@ public sealed class RouteTramoSubscriptionService(
         var payload = sheetRow.Payload;
         payload.Paradas ??= new List<RouteStopPayload>();
         var now = DateTimeOffset.UtcNow;
+        var metaStops = new List<(string StopId, string? StoreServiceId)>();
         foreach (var sub in toConfirm)
         {
             sub.Status = "confirmed";
@@ -305,6 +343,14 @@ public sealed class RouteTramoSubscriptionService(
                 tel = (parada.TelefonoTransportista ?? "").Trim();
             if (parada is not null && tel.Length > 0)
                 parada.TelefonoTransportista = tel;
+            if (parada is not null && !string.IsNullOrWhiteSpace(sub.StoreServiceId))
+            {
+                parada.TransportInvitedStoreServiceId = sub.StoreServiceId.Trim();
+                if (!string.IsNullOrWhiteSpace(sub.TransportServiceLabel))
+                    parada.TransportInvitedServiceSummary = sub.TransportServiceLabel.Trim();
+            }
+
+            metaStops.Add((sub.StopId, sub.StoreServiceId));
         }
 
         RouteSheetPayloadPersistence.ApplyPayloadAndTouch(sheetRow, payload, now);
@@ -325,6 +371,9 @@ public sealed class RouteTramoSubscriptionService(
         var sellerInboxPreview =
             $"Confirmaste el servicio de transporte de {carrierLabel} en esta operación. Abrí el chat para coordinar la hoja de ruta.";
 
+        var acceptedMeta =
+            BuildTramoAcceptedNotificationMetaJson(k.RouteSheetId, k.CarrierId, metaStops);
+
         await chat.NotifyRouteTramoSubscriptionAcceptedAsync(
             new RouteTramoSubscriptionAcceptedNotificationArgs(
                 k.CarrierId,
@@ -336,7 +385,8 @@ public sealed class RouteTramoSubscriptionService(
                 k.ActorId,
                 sellerInboxPreview,
                 carrierLabel,
-                carrierAcc?.TrustScore ?? 0),
+                carrierAcc?.TrustScore ?? 0,
+                acceptedMeta),
             cancellationToken);
 
         await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
@@ -764,11 +814,17 @@ public sealed class RouteTramoSubscriptionService(
             return false;
         var digits = (core.Carrier.PhoneDigits ?? "").Trim();
         var stops = PreselMatchStops(core.Payload, digits, request.StopIdRestrict);
+        foreach (var stop in stops)
+        {
+            // Log relevant fields for each stop (customize as needed)
+            Console.WriteLine($"StopId: {stop.Id}, Orden: {stop.Orden}, TelefonoTransportista: {stop.TelefonoTransportista}, TransportInvitedStoreServiceId: {stop.TransportInvitedStoreServiceId}, TransportInvitedServiceSummary: {stop.TransportInvitedServiceSummary}");
+        }
+
         if (stops.Count == 0)
             return false;
         return request.Accepted
             ? await PreselExecuteAcceptAsync(core, stops, cancellationToken)
-            : await PreselExecuteRejectAsync(core, cancellationToken);
+            : await PreselExecuteRejectAsync(core, stops, cancellationToken);
     }
 
     private async Task<PreselCore?> PreselLoadCoreAsync(
@@ -828,25 +884,24 @@ public sealed class RouteTramoSubscriptionService(
 
     private async Task<(string? StoreServiceId, string TransportServiceLabel)> ResolvePreselInvitedStoreServiceAsync(
         string carrierUserId,
-        RouteStopPayload? parada,
+        RouteStopPayload? stop,
         CancellationToken cancellationToken)
     {
-        var reqId = (parada?.TransportInvitedStoreServiceId ?? "").Trim();
+        var reqId = (stop?.TransportInvitedStoreServiceId ?? "").Trim();
         if (reqId.Length < 2)
             return (null, PreselHojaServicioTransporte);
 
         var row = await db.StoreServices.AsNoTracking()
             .Include(s => s.Store)
             .FirstOrDefaultAsync(s => s.Id == reqId, cancellationToken);
-        if (row is null || row.DeletedAtUtc is not null || row.Published != true)
+        // Mismo criterio que el catálogo: null = publicado; solo false oculta.
+        if (row is null || row.DeletedAtUtc is not null)
             return (null, PreselHojaServicioTransporte);
         var owner = (row.Store?.OwnerUserId ?? "").Trim();
-        if (!string.Equals(owner, carrierUserId, StringComparison.Ordinal))
+        if (!ChatThreadAccess.UserIdsMatchLoose(carrierUserId, owner))
             return (null, PreselHojaServicioTransporte);
-        if (row.Store is null || !row.Store.TransportIncluded)
-            return (null, PreselHojaServicioTransporte);
-
-        var label = (parada?.TransportInvitedServiceSummary ?? "").Trim();
+        
+        var label = (stop?.TransportInvitedServiceSummary ?? "").Trim();
         if (label.Length == 0)
         {
             var tipo = (row.TipoServicio ?? "").Trim();
@@ -906,6 +961,7 @@ public sealed class RouteTramoSubscriptionService(
         var payload = sheetRow.Payload;
         payload.Paradas ??= new List<RouteStopPayload>();
         var now = DateTimeOffset.UtcNow;
+        var preselMetaStops = new List<(string StopId, string? StoreServiceId)>();
 
         foreach (var stop in stops)
         {
@@ -913,12 +969,12 @@ public sealed class RouteTramoSubscriptionService(
             if (sid.Length < 1)
                 continue;
 
-            var parada = payload.Paradas.FirstOrDefault(p =>
-                string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
             string? stopFp = null;
-            if (parada is not null)
-                stopFp = RouteSheetEditAckComputation.RouteStopFingerprint(parada);
-            var (invSvc, invLabel) = await ResolvePreselInvitedStoreServiceAsync(uid, parada, cancellationToken);
+            if (stop is not null)
+                stopFp = RouteSheetEditAckComputation.RouteStopFingerprint(stop);
+
+            var (invSvc, invLabel) = await ResolvePreselInvitedStoreServiceAsync(uid, stop, cancellationToken);
+            preselMetaStops.Add((sid, invSvc));
 
             var existing = await db.RouteTramoSubscriptions
                 .FirstOrDefaultAsync(
@@ -967,11 +1023,11 @@ public sealed class RouteTramoSubscriptionService(
             if (tel.Length == 0)
                 tel = (subRow.CarrierPhoneSnapshot ?? "").Trim();
             if (tel.Length == 0)
-                tel = (parada?.TelefonoTransportista ?? "").Trim();
-            if (parada is not null && tel.Length > 0)
-                parada.TelefonoTransportista = tel;
-            if (parada is not null)
-                ApplyPreselAcceptedFieldsToParadaHoja(parada, invSvc, invLabel);
+                tel = (stop?.TelefonoTransportista ?? "").Trim();
+            if (stop is not null && tel.Length > 0)
+                stop.TelefonoTransportista = tel;
+            if (stop is not null)
+                ApplyPreselAcceptedFieldsToParadaHoja(stop, invSvc, invLabel);
         }
 
         RouteSheetPayloadPersistence.ApplyPayloadAndTouch(sheetRow, payload, now);
@@ -992,6 +1048,9 @@ public sealed class RouteTramoSubscriptionService(
         var sellerInboxPreview =
             $"Confirmaste el servicio de transporte de {carrierLabel} en esta operación. Abrí el chat para coordinar la hoja de ruta.";
 
+        var preselAcceptedMeta =
+            BuildTramoAcceptedNotificationMetaJson(rsid, uid, preselMetaStops);
+
         await chat.NotifyRouteTramoSubscriptionAcceptedAsync(
             new RouteTramoSubscriptionAcceptedNotificationArgs(
                 uid,
@@ -1003,7 +1062,8 @@ public sealed class RouteTramoSubscriptionService(
                 sellerId,
                 sellerInboxPreview,
                 carrierLabel,
-                core.Carrier.TrustScore),
+                core.Carrier.TrustScore,
+                preselAcceptedMeta),
             cancellationToken);
 
         await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
@@ -1014,11 +1074,79 @@ public sealed class RouteTramoSubscriptionService(
 
     private async Task<bool> PreselExecuteRejectAsync(
         PreselCore core,
+        IReadOnlyList<RouteStopPayload> stops,
         CancellationToken cancellationToken)
     {
         var sellerId = (core.Thread.SellerUserId ?? "").Trim();
         if (sellerId.Length < 2)
             return false;
+
+        var tid = core.Thread.Id;
+        var rsid = core.Rsid;
+        var uid = (core.Carrier.Id ?? "").Trim();
+        if (uid.Length < 2)
+            return false;
+
+        var sheetRow = await db.ChatRouteSheets
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
+                cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        if (sheetRow is not null)
+        {
+            var payload = sheetRow.Payload;
+            payload.Paradas ??= new List<RouteStopPayload>();
+            var stopIds = stops
+                .Select(s => (s.Id ?? "").Trim())
+                .Where(id => id.Length > 0)
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var stop in stops)
+            {
+                var sid = (stop.Id ?? "").Trim();
+                if (sid.Length < 1)
+                    continue;
+                var parada = RouteTramoParadaResolver.FindByStopIdOrOrden(
+                    payload.Paradas,
+                    sid,
+                    stop.Orden);
+                if (parada is not null)
+                {
+                    parada.TelefonoTransportista = null;
+                    parada.TransportInvitedStoreServiceId = null;
+                    parada.TransportInvitedServiceSummary = null;
+                }
+            }
+
+            if (stopIds.Count > 0)
+            {
+                var subsToReject = await db.RouteTramoSubscriptions
+                    .Where(x =>
+                        x.ThreadId == tid
+                        && x.RouteSheetId == rsid
+                        && x.CarrierUserId == uid
+                        && stopIds.Contains(x.StopId))
+                    .ToListAsync(cancellationToken);
+                foreach (var sub in subsToReject)
+                {
+                    sub.Status = "rejected";
+                    sub.StoreServiceId = null;
+                    sub.UpdatedAtUtc = now;
+                }
+            }
+
+            RouteSheetPayloadPersistence.ApplyPayloadAndTouch(sheetRow, payload, now);
+            await db.SaveChangesAsync(cancellationToken);
+
+            var emergentPubId = await EmergentIdForThreadSheetAsync(tid, rsid, cancellationToken);
+            await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
+                new RouteTramoSubscriptionsBroadcastArgs(
+                    tid,
+                    rsid,
+                    "presel_decline",
+                    uid,
+                    emergentPubId),
+                cancellationToken);
+        }
 
         var carrierName = (core.Carrier.DisplayName ?? "").Trim();
         if (carrierName.Length == 0)
@@ -1032,8 +1160,6 @@ public sealed class RouteTramoSubscriptionService(
         if (oid.Length < 2)
             return false;
 
-        var tid = core.Thread.Id;
-        var uid = core.Carrier.Id;
         await chat.NotifyRouteSheetPreselDeclinedByCarrierAsync(
             new RouteSheetPreselDeclinedByCarrierNotificationArgs(
                 sellerId,

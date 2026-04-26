@@ -60,7 +60,7 @@ internal static class MarketCatalogOfferJsonBuilder
 
         var accepted = TryParseArray(s.MonedasJson);
 
-        return new JsonObject
+        var o = new JsonObject
         {
             ["id"] = s.Id,
             ["storeId"] = s.StoreId,
@@ -73,6 +73,19 @@ internal static class MarketCatalogOfferJsonBuilder
             ["imageUrls"] = imageUrlsNode,
             ["qa"] = OfferQaJson.ToJsonNode(s.OfferQa),
         };
+        if (!string.IsNullOrWhiteSpace(s.Category))
+            o["category"] = s.Category.Trim();
+        if (!string.IsNullOrWhiteSpace(s.TipoServicio))
+            o["tipoServicio"] = s.TipoServicio.Trim();
+        if (!string.IsNullOrWhiteSpace(s.Incluye))
+            o["incluye"] = s.Incluye.Trim();
+        if (!string.IsNullOrWhiteSpace(s.NoIncluye))
+            o["noIncluye"] = s.NoIncluye.Trim();
+        if (!string.IsNullOrWhiteSpace(s.Entregables))
+            o["entregables"] = s.Entregables.Trim();
+        if (!string.IsNullOrWhiteSpace(s.PropIntelectual))
+            o["propIntelectual"] = s.PropIntelectual.Trim();
+        return o;
     }
 
     private static JsonNode TryParseArray(string? json)

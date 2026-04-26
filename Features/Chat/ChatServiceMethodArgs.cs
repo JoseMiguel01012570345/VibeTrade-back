@@ -35,6 +35,7 @@ public sealed record RouteTramoSubscriptionRequestNotificationArgs(
     string CarrierUserId,
     string? MetaJson = null);
 
+/// <summary>Notificación de tramo aceptado; <c>MetaJson</c> opcional: <c>routeSheetId</c>, <c>carrierUserId</c>, <c>stops</c> [{ <c>stopId</c>, <c>storeServiceId</c> }].</summary>
 public sealed record RouteTramoSubscriptionAcceptedNotificationArgs(
     string CarrierUserId,
     string ThreadId,
@@ -45,7 +46,8 @@ public sealed record RouteTramoSubscriptionAcceptedNotificationArgs(
     string? SellerInboxUserId = null,
     string? SellerInboxPreview = null,
     string? SellerInboxSubjectLabel = null,
-    int SellerInboxSubjectTrust = 0);
+    int SellerInboxSubjectTrust = 0,
+    string? MetaJson = null);
 
 public sealed record RouteTramoSubscriptionRejectedNotificationArgs(
     string CarrierUserId,

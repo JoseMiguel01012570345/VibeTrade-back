@@ -385,8 +385,9 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
 
         var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
         var now = DateTimeOffset.UtcNow;
+        var meta = string.IsNullOrWhiteSpace(request.MetaJson) ? null : request.MetaJson.Trim();
         await NotifyCarrierOfRouteTramoSubscriptionAcceptedCoreAsync(
-            cid, tid, preview, request.DeciderLabel, request.DeciderTrust, request.DeciderUserId, now, cancellationToken);
+            cid, tid, preview, request.DeciderLabel, request.DeciderTrust, request.DeciderUserId, now, meta, cancellationToken);
         await TryNotifyRouteTramoAcceptedSellerInboxAsync(
             tid,
             cid,
@@ -395,6 +396,7 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
             request.SellerInboxSubjectLabel,
             request.SellerInboxSubjectTrust,
             now,
+            meta,
             cancellationToken);
     }
 
@@ -406,6 +408,7 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         int deciderTrust,
         string deciderUserId,
         DateTimeOffset now,
+        string? metaJson,
         CancellationToken cancellationToken)
     {
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
@@ -423,7 +426,7 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
             CreatedAtUtc = now,
             ReadAtUtc = null,
             Kind = "route_tramo_subscribe_accepted",
-            MetaJson = null,
+            MetaJson = metaJson,
         });
         await db.SaveChangesAsync(cancellationToken);
         await hub.Clients.Group(ChatHubGroupNames.ForUser(carrierId)).SendAsync(
@@ -440,6 +443,7 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         string? sellerInboxSubjectLabel,
         int sellerInboxSubjectTrust,
         DateTimeOffset now,
+        string? metaJson,
         CancellationToken cancellationToken)
     {
         var sid = (sellerInboxUserId ?? "").Trim();
@@ -466,7 +470,7 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
             CreatedAtUtc = now,
             ReadAtUtc = null,
             Kind = "route_tramo_subscribe_accepted",
-            MetaJson = null,
+            MetaJson = metaJson,
         });
         await db.SaveChangesAsync(cancellationToken);
         await hub.Clients.Group(ChatHubGroupNames.ForUser(sid)).SendAsync(
