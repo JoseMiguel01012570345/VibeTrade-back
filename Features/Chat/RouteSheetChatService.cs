@@ -227,6 +227,16 @@ public sealed class RouteSheetChatService(
             else
                 notice = BuildRouteSheetEditedNoticeText(persisted);
 
+            if (oldSnapshot is not null
+                && confirmedRowsForNotice is { Count: > 0 }
+                && RouteSheetEditAckComputation.TryBuildTramoRenumberSystemNotice(
+                    oldSnapshot,
+                    persisted,
+                    confirmedRowsForNotice,
+                    out var renumberNotice)
+                && !string.IsNullOrWhiteSpace(renumberNotice))
+                notice += "\n\n" + renumberNotice.Trim();
+
             await chat.PostSystemThreadNoticeAsync(userId.Trim(), threadId, notice, cancellationToken);
         }
 

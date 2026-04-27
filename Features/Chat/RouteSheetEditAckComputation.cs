@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text.Json;
 using VibeTrade.Backend.Data.Entities;
@@ -53,11 +54,10 @@ public static class RouteSheetEditAckComputation
             mon = (p.MonedaPago ?? "").Trim(),
         });
 
-    /// <summary>Misma serialización que <see cref="RouteStopFingerprint"/> sin teléfono: acuse de edición solo si cambió otro dato del tramo.</summary>
+    /// <summary>Sin teléfono ni orden en lista: el acuse no debe dispararse solo por insertar tramos o reordenar índices.</summary>
     public static string RouteStopFingerprintExcludingPhone(RouteStopPayload p) =>
         JsonSerializer.Serialize(new
         {
-            orden = p.Orden,
             origen = (p.Origen ?? "").Trim(),
             destino = (p.Destino ?? "").Trim(),
             olat = (p.OrigenLat ?? "").Trim(),
@@ -136,6 +136,64 @@ public static class RouteSheetEditAckComputation
         }
 
         return affected;
+    }
+
+    /// <summary>
+    /// Tras guardar: mismas paradas por id y mismos datos de tramo; algún tramo con transportista confirmado pasó a otra posición (p. ej. inserción).
+    /// </summary>
+    public static bool TryBuildTramoRenumberSystemNotice(
+        RouteSheetPayload? oldSheet,
+        RouteSheetPayload newSheet,
+        IReadOnlyList<RouteTramoSubscriptionRow> confirmedSubsOnSheet,
+        [NotNullWhen(true)] out string? notice)
+    {
+        notice = null;
+        if (oldSheet is null)
+            return false;
+
+        var oldList = oldSheet.Paradas ?? [];
+        var newList = newSheet.Paradas ?? [];
+        var oldById = oldList
+            .Where(x => !string.IsNullOrWhiteSpace(x.Id))
+            .ToDictionary(x => x.Id.Trim(), StringComparer.Ordinal);
+        var newById = newList
+            .Where(x => !string.IsNullOrWhiteSpace(x.Id))
+            .ToDictionary(x => x.Id.Trim(), StringComparer.Ordinal);
+
+        foreach (var kv in oldById)
+        {
+            if (!newById.TryGetValue(kv.Key, out var newP))
+                return false;
+            if (!string.Equals(
+                    RouteStopFingerprintExcludingPhone(kv.Value),
+                    RouteStopFingerprintExcludingPhone(newP),
+                    StringComparison.Ordinal))
+                return false;
+        }
+
+        var anyConfirmedMoved = false;
+        foreach (var sub in confirmedSubsOnSheet)
+        {
+            if (!string.Equals((sub.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var sid = (sub.StopId ?? "").Trim();
+            if (sid.Length == 0)
+                continue;
+            if (!oldById.ContainsKey(sid) || !newById.ContainsKey(sid))
+                continue;
+            var io = oldList.FindIndex(x => string.Equals((x.Id ?? "").Trim(), sid, StringComparison.Ordinal));
+            var ni = newList.FindIndex(x => string.Equals((x.Id ?? "").Trim(), sid, StringComparison.Ordinal));
+            if (io >= 0 && ni >= 0 && io != ni)
+                anyConfirmedMoved = true;
+        }
+
+        if (!anyConfirmedMoved)
+            return false;
+
+        notice =
+            "La numeración de tramos en la hoja cambió (por ejemplo, al insertar un tramo). "
+            + "Los transportistas confirmados conservan el mismo recorrido asignado; solo cambia el número de tramo que ven en la lista.";
+        return true;
     }
 
     public static RouteSheetEditAckPayload? BuildNextEditAck(
