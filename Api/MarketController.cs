@@ -104,10 +104,34 @@ public sealed class MarketController(
             .ThenBy(s => s.Category)
             .ToListAsync(cancellationToken);
 
-        var list = services.Select(s => new
+        // Misma forma que el cliente (`publishedTransportServicesApi`): ficha plana + storeName, no anidada en `service`.
+        var list = services.Select(s =>
         {
-            service = MarketCatalogRowViewFactory.ServiceFromRow(s),
-            storeName = s.Store?.Name ?? "",
+            var v = MarketCatalogRowViewFactory.ServiceFromRow(s);
+            return new
+            {
+                v.Id,
+                v.StoreId,
+                storeName = s.Store?.Name ?? "",
+                v.Category,
+                v.TipoServicio,
+                v.Descripcion,
+                v.Incluye,
+                v.NoIncluye,
+                v.Entregables,
+                v.PropIntelectual,
+                v.Published,
+                v.Monedas,
+                v.CustomFields,
+                v.PhotoUrls,
+                v.Riesgos,
+                v.Dependencias,
+                v.Garantias,
+                v.Qa,
+                v.PublicCommentCount,
+                v.OfferLikeCount,
+                v.ViewerLikedOffer,
+            };
         }).ToList();
 
         return Ok(new { services = list });
