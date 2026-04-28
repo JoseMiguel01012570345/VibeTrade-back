@@ -1,9 +1,10 @@
 using System.Text;
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Data.RouteSheets;
+using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Search;
 
 namespace VibeTrade.Backend.Features.Market;
@@ -13,6 +14,15 @@ public sealed class MarketCatalogStoreSearchService(
     AppDbContext db,
     ILogger<MarketCatalogStoreSearchService> logger) : IMarketCatalogStoreSearchService
 {
+    private static string OfferIdForDedupeKey(CatalogSearchItemOffer? offer)
+    {
+        if (offer is null) return "";
+        if (offer.Product is { } p) return p.Id;
+        if (offer.Service is { } s) return s.Id;
+        if (offer.Emergent is { } e) return e.Id;
+        return "";
+    }
+
     private sealed record StoreSearchContext(
         int Take,
         int Skip,
@@ -173,7 +183,7 @@ public sealed class MarketCatalogStoreSearchService(
         var likePrefix = AutocompleteLikePrefix(query);
         var patterns = BuildIlikePatterns(query);
         var perPattern = AutocompletePerPatternTake(maxCandidatesPerKind, patterns.Count);
-        var storeRows = new List<(string? Name, string? CategoriesJson)>(maxCandidatesPerKind);
+        var storeRows = new List<(string? Name, IReadOnlyList<string> Categories)>(maxCandidatesPerKind);
         var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var pat in patterns)
@@ -192,7 +202,7 @@ public sealed class MarketCatalogStoreSearchService(
 
             var slice = await qStores
                 .OrderByDescending(s => s.TrustScore)
-                .Select(s => new { s.Name, s.CategoriesJson })
+                .Select(s => new { s.Name, s.Categories })
                 .Take(takeThis)
                 .ToListAsync(cancellationToken);
 
@@ -201,7 +211,7 @@ public sealed class MarketCatalogStoreSearchService(
                 var n = r.Name;
                 if (string.IsNullOrWhiteSpace(n)) continue;
                 if (!seenNames.Add(n)) continue;
-                storeRows.Add((r.Name, r.CategoriesJson));
+                storeRows.Add((r.Name, r.Categories));
             }
         }
 
@@ -211,7 +221,7 @@ public sealed class MarketCatalogStoreSearchService(
             return storeRows
                 .Where(x =>
                 {
-                    var cj = (x.CategoriesJson ?? "").ToLowerInvariant();
+                    var cj = string.Join(" ", x.Categories ?? Array.Empty<string>()).ToLowerInvariant();
                     return cj.Length > 0 && catLowerParts.Any(c => cj.Contains(c, StringComparison.Ordinal));
                 })
                 .Select(x => x.Name)
@@ -350,7 +360,13 @@ public sealed class MarketCatalogStoreSearchService(
     private static IReadOnlyList<string> ParseKindsParam(string? kinds)
     {
         if (string.IsNullOrWhiteSpace(kinds))
-            return new[] { CatalogSearchKinds.Store, CatalogSearchKinds.Product, CatalogSearchKinds.Service };
+            return
+            [
+                CatalogSearchKinds.Store,
+                CatalogSearchKinds.Product,
+                CatalogSearchKinds.Service,
+                CatalogSearchKinds.Emergent,
+            ];
 
         var parts = kinds
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -361,7 +377,10 @@ public sealed class MarketCatalogStoreSearchService(
         var ok = new List<string>(3);
         foreach (var p in parts)
         {
-            if (p == CatalogSearchKinds.Store || p == CatalogSearchKinds.Product || p == CatalogSearchKinds.Service)
+            if (p is CatalogSearchKinds.Store
+                or CatalogSearchKinds.Product
+                or CatalogSearchKinds.Service
+                or CatalogSearchKinds.Emergent)
                 ok.Add(p);
         }
 
@@ -406,11 +425,12 @@ public sealed class MarketCatalogStoreSearchService(
             var batchItems = await BuildCatalogSearchItemsFromElasticsearchHitsAsync(es.Hits, ctx, cancellationToken);
             foreach (var it in batchItems)
             {
+                var offerId = OfferIdForDedupeKey(it.Offer);
                 var key = it.Kind == CatalogSearchKinds.Store
-                    ? $"store:{it.Store["id"]}"
-                    : it.Offer is null
-                        ? $"x:{it.Store["id"]}"
-                        : $"{it.Kind}:{it.Offer["id"]}";
+                    ? $"store:{it.Store.Id}"
+                    : string.IsNullOrEmpty(offerId)
+                        ? $"x:{it.Store.Id}"
+                        : $"{it.Kind}:{offerId}";
 
                 if (!seenKeys.Add(key))
                     continue;
@@ -453,6 +473,41 @@ public sealed class MarketCatalogStoreSearchService(
             .Distinct()
             .ToList();
 
+        var emergentPublicationIds = hits
+            .Where(h => h.Kind == CatalogSearchKinds.Emergent && !string.IsNullOrEmpty(h.OfferId))
+            .Select(h => h.OfferId!)
+            .Distinct()
+            .ToList();
+        var emergentsById = emergentPublicationIds.Count == 0
+            ? new Dictionary<string, EmergentOfferRow>(StringComparer.Ordinal)
+            : await db.EmergentOffers.AsNoTracking()
+                .Where(e => emergentPublicationIds.Contains(e.Id)
+                    && e.RetractedAtUtc == null
+                    && db.ChatRouteSheets.Any(r =>
+                        r.ThreadId == e.ThreadId
+                        && r.RouteSheetId == e.RouteSheetId
+                        && r.DeletedAtUtc == null
+                        && r.PublishedToPlatform))
+                .ToDictionaryAsync(e => e.Id, cancellationToken);
+
+        var emergentLiveSheetsByKey = emergentPublicationIds.Count == 0
+            ? new Dictionary<string, RouteSheetPayload>(StringComparer.Ordinal)
+            : await RecommendationBatchOfferLoader.LoadLiveRouteSheetsForEmergentsAsync(
+                db,
+                emergentsById.Values.ToList(),
+                cancellationToken);
+
+        foreach (var em in emergentsById.Values)
+        {
+            var oid = (em.OfferId ?? "").Trim();
+            if (oid.Length == 0)
+                continue;
+            if (!productIds.Contains(oid, StringComparer.Ordinal))
+                productIds.Add(oid);
+            if (!serviceIds.Contains(oid, StringComparer.Ordinal))
+                serviceIds.Add(oid);
+        }
+
         var (publishedProductCountByStore, publishedServiceCountByStore, productsById, servicesById) =
             await LoadPublishedCountsForStoreIdsAsync(storeIds, productIds, serviceIds, cancellationToken);
 
@@ -463,7 +518,7 @@ public sealed class MarketCatalogStoreSearchService(
                 continue;
             publishedProductCountByStore.TryGetValue(row.Id, out var pp);
             publishedServiceCountByStore.TryGetValue(row.Id, out var ps);
-            var storeJson = BuildStoreBadgeJson(row);
+            var storeBadge = BuildStoreBadge(row);
 
             if (ctx.TrustMin is not null && row.TrustScore < ctx.TrustMin.Value)
                 continue;
@@ -472,7 +527,7 @@ public sealed class MarketCatalogStoreSearchService(
             {
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Store,
-                    storeJson,
+                    storeBadge,
                     null,
                     pp,
                     ps,
@@ -485,8 +540,8 @@ public sealed class MarketCatalogStoreSearchService(
             {
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Product,
-                    storeJson,
-                    BuildProductOfferJson(pr),
+                    storeBadge,
+                    new CatalogSearchItemOffer { Product = BuildSlimProductOffer(pr) },
                     pp,
                     ps,
                     hit.DistanceKm));
@@ -498,8 +553,40 @@ public sealed class MarketCatalogStoreSearchService(
             {
                 items.Add(new CatalogSearchItem(
                     CatalogSearchKinds.Service,
-                    storeJson,
-                    BuildServiceOfferJson(sv),
+                    storeBadge,
+                    new CatalogSearchItemOffer { Service = BuildSlimServiceOffer(sv) },
+                    pp,
+                    ps,
+                    hit.DistanceKm));
+                continue;
+            }
+
+            if (hit.Kind == CatalogSearchKinds.Emergent
+                && hit.OfferId is { } emoId
+                && emergentsById.TryGetValue(emoId, out var emRow))
+            {
+                productsById.TryGetValue(emRow.OfferId, out var emPr);
+                servicesById.TryGetValue(emRow.OfferId, out var emSv);
+                if (emPr is not null && !string.Equals(emPr.StoreId, row.Id, StringComparison.Ordinal))
+                    continue;
+                if (emPr is null && emSv is not null
+                                 && !string.Equals(emSv.StoreId, row.Id, StringComparison.Ordinal))
+                    continue;
+
+                var orphanFallback = emPr is null && emSv is null ? row.Id : null;
+                emergentLiveSheetsByKey.TryGetValue(
+                    RecommendationBatchOfferLoader.EmergentOfferRouteSheetKey(emRow.ThreadId, emRow.RouteSheetId),
+                    out var liveRoutePayload);
+                var emergent = EmergentRoutePublicationViewFactory.Create(
+                    emRow,
+                    emPr,
+                    emSv,
+                    orphanFallback,
+                    liveRoutePayload);
+                items.Add(new CatalogSearchItem(
+                    CatalogSearchKinds.Emergent,
+                    storeBadge,
+                    new CatalogSearchItemOffer { Emergent = emergent },
                     pp,
                     ps,
                     hit.DistanceKm));
@@ -557,64 +644,51 @@ public sealed class MarketCatalogStoreSearchService(
         return (publishedProductCountByStore, publishedServiceCountByStore, productsById, servicesById);
     }
 
-    private static JsonObject BuildStoreBadgeJson(StoreRow row)
+    private static CatalogSearchStoreBadge BuildStoreBadge(StoreRow row)
     {
-        var node = new JsonObject
-        {
-            ["id"] = row.Id,
-            ["name"] = row.Name,
-            ["verified"] = row.Verified,
-            ["transportIncluded"] = row.TransportIncluded,
-            ["trustScore"] = row.TrustScore,
-            ["ownerUserId"] = row.OwnerUserId,
-        };
-        if (!string.IsNullOrEmpty(row.AvatarUrl))
-            node["avatarUrl"] = row.AvatarUrl;
-
-        try { node["categories"] = JsonNode.Parse(row.CategoriesJson) ?? new JsonArray(); }
-        catch { node["categories"] = new JsonArray(); }
-
+        CatalogSearchStoreLocation? loc = null;
         if (row.LocationLatitude is { } la && row.LocationLongitude is { } lo)
-            node["location"] = new JsonObject { ["lat"] = la, ["lng"] = lo };
-
-        return node;
+            loc = new CatalogSearchStoreLocation(la, lo);
+        return new CatalogSearchStoreBadge(
+            row.Id,
+            row.Name,
+            row.Verified,
+            row.TransportIncluded,
+            row.TrustScore,
+            row.OwnerUserId,
+            string.IsNullOrEmpty(row.AvatarUrl) ? null : row.AvatarUrl,
+            ParseStoreCategories(row.Categories),
+            loc,
+            string.IsNullOrWhiteSpace(row.Pitch) ? null : row.Pitch.Trim(),
+            string.IsNullOrWhiteSpace(row.WebsiteUrl) ? null : row.WebsiteUrl.Trim());
     }
 
-    private static JsonObject BuildProductOfferJson(StoreProductRow p)
-    {
-        var o = new JsonObject
+    private static IReadOnlyList<string> ParseStoreCategories(IReadOnlyList<string>? categories) =>
+        CatalogJsonColumnParsing.StringListOrEmpty(categories);
+
+    private static CatalogSearchSlimProductOffer BuildSlimProductOffer(StoreProductRow p) =>
+        new()
         {
-            ["id"] = p.Id,
-            ["kind"] = "product",
-            ["name"] = p.Name,
-            ["category"] = p.Category,
-            ["price"] = p.Price,
-            ["currency"] = p.MonedaPrecio,
+            Id = p.Id,
+            Kind = "product",
+            Name = p.Name,
+            Category = p.Category,
+            Price = p.Price,
+            Currency = p.MonedaPrecio,
+            AcceptedCurrencies = CatalogJsonColumnParsing.StringListOrEmpty(p.Monedas),
+            PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(p.PhotoUrls),
+            ShortDescription = string.IsNullOrEmpty(p.ShortDescription) ? null : p.ShortDescription,
         };
-        try { o["acceptedCurrencies"] = JsonNode.Parse(p.MonedasJson) ?? new JsonArray(); }
-        catch { o["acceptedCurrencies"] = new JsonArray(); }
-        try { o["photoUrls"] = JsonNode.Parse(p.PhotoUrlsJson) ?? new JsonArray(); }
-        catch { o["photoUrls"] = new JsonArray(); }
-        if (!string.IsNullOrEmpty(p.ShortDescription))
-            o["shortDescription"] = p.ShortDescription;
-        return o;
-    }
 
-    private static JsonObject BuildServiceOfferJson(StoreServiceRow s)
-    {
-        var o = new JsonObject
+    private static CatalogSearchSlimServiceOffer BuildSlimServiceOffer(StoreServiceRow s) =>
+        new()
         {
-            ["id"] = s.Id,
-            ["kind"] = "service",
-            ["category"] = s.Category,
-            ["tipoServicio"] = s.TipoServicio,
+            Id = s.Id,
+            Kind = "service",
+            Category = s.Category,
+            TipoServicio = s.TipoServicio,
+            AcceptedCurrencies = CatalogJsonColumnParsing.StringListOrEmpty(s.Monedas),
+            PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(s.PhotoUrls),
+            Descripcion = string.IsNullOrEmpty(s.Descripcion) ? null : s.Descripcion,
         };
-        try { o["acceptedCurrencies"] = JsonNode.Parse(s.MonedasJson) ?? new JsonArray(); }
-        catch { o["acceptedCurrencies"] = new JsonArray(); }
-        try { o["photoUrls"] = JsonNode.Parse(s.PhotoUrlsJson) ?? new JsonArray(); }
-        catch { o["photoUrls"] = new JsonArray(); }
-        if (!string.IsNullOrEmpty(s.Descripcion))
-            o["descripcion"] = s.Descripcion;
-        return o;
-    }
 }

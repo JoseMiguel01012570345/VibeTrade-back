@@ -1,12 +1,10 @@
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
-using VibeTrade.Backend.Features.Market.Utils;
 
 namespace VibeTrade.Backend.Features.Market;
 
 public sealed partial class MarketCatalogSyncService
 {
-    public async Task<(JsonObject Offers, JsonArray OfferIds)> BuildPublishedOffersFeedAsync(
+    public async Task<(Dictionary<string, HomeOfferViewDto> Offers, List<string> OfferIds)> BuildPublishedOffersFeedAsync(
         CancellationToken cancellationToken = default)
     {
         var stores = await db.Stores.AsNoTracking()
@@ -19,27 +17,27 @@ public sealed partial class MarketCatalogSyncService
             .Where(s => s.Published == null || s.Published == true)
             .ToListAsync(cancellationToken);
 
-        var entries = new List<(DateTimeOffset at, string id, JsonObject offer)>(
+        var entries = new List<(DateTimeOffset at, string id, HomeOfferViewDto offer)>(
             capacity: products.Count + services.Count);
 
         foreach (var p in products)
         {
             if (!stores.ContainsKey(p.StoreId))
                 continue;
-            entries.Add((p.UpdatedAt, p.Id, MarketCatalogOfferJsonBuilder.ProductRowToOfferJson(p)));
+            entries.Add((p.UpdatedAt, p.Id, HomeOfferViewFactory.FromProductRow(p)));
         }
 
         foreach (var s in services)
         {
             if (!stores.ContainsKey(s.StoreId))
                 continue;
-            entries.Add((s.UpdatedAt, s.Id, MarketCatalogOfferJsonBuilder.ServiceRowToOfferJson(s)));
+            entries.Add((s.UpdatedAt, s.Id, HomeOfferViewFactory.FromServiceRow(s)));
         }
 
         entries.Sort((a, b) => b.at.CompareTo(a.at));
 
-        var offersObj = new JsonObject();
-        var ids = new JsonArray();
+        var offersObj = new Dictionary<string, HomeOfferViewDto>(StringComparer.Ordinal);
+        var ids = new List<string>();
         foreach (var (_, id, offer) in entries)
         {
             offersObj[id] = offer;

@@ -138,7 +138,7 @@ public sealed class ElasticsearchStoreSearchQuery(
         if (hasDistanceFilter)
         {
             s.Sort(so => so.GeoDistance(g => g
-                .Field(new Field(CatalogSearchDocument.ElasticsearchVtLocationField))
+                .Field(new Field(CatalogSearchDocument.ElasticsearchVtGeoPointField))
                 .Order(SortOrder.Asc)
                 .Unit(DistanceUnit.Kilometers)
                 .DistanceType(GeoDistanceType.Arc)
@@ -146,11 +146,6 @@ public sealed class ElasticsearchStoreSearchQuery(
                 {
                     GeoLocation.LatitudeLongitude(new LatLonGeoLocation { Lat = userLat, Lon = userLng }),
                 })));
-        }
-        else
-        {
-            s.Sort(so => so.Field((CatalogSearchDocument d) => d.TrustScore, f => f.Order(SortOrder.Desc)));
-            s.Sort(so => so.Field(new Field(CatalogSearchDocument.ElasticsearchVtCatalogSkField), f => f.Order(SortOrder.Asc)));
         }
     }
 
@@ -169,7 +164,9 @@ public sealed class ElasticsearchStoreSearchQuery(
         {
             var filters = new List<Action<QueryDescriptor<CatalogSearchDocument>>>(4);
 
-            if (kinds.Count is > 0 and < 3)
+            // Tienda, producto, servicio y emergente (hoja de ruta): filtrar salvo que vengan los cuatro.
+            const int catalogKindCount = 4;
+            if (kinds.Count > 0 && kinds.Count < catalogKindCount)
             {
                 filters.Add(f => f.Terms(t => t
                     .Field(fd => fd.Kind)
@@ -305,7 +302,7 @@ public sealed class ElasticsearchStoreSearchQuery(
             if (hasDistanceFilter)
             {
                 filters.Add(f => f.GeoDistance(g => g
-                    .Field(new Field(CatalogSearchDocument.ElasticsearchVtLocationField))
+                    .Field(new Field(CatalogSearchDocument.ElasticsearchVtGeoPointField))
                     .Distance($"{maxKm}km")
                     .Location(GeoLocation.LatitudeLongitude(
                         new LatLonGeoLocation { Lat = userLat, Lon = userLng }))));

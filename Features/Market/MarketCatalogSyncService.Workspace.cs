@@ -1,36 +1,37 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market.Utils;
+using VibeTrade.Backend.Features.Search;
 
 namespace VibeTrade.Backend.Features.Market;
 
 public sealed partial class MarketCatalogSyncService
 {
     private async Task ApplyCoreAsync(
-        JsonElement workspaceRoot,
+        MarketWorkspaceState workspaceRoot,
         bool storeProfiles,
         bool catalogs,
         bool offerQa,
         CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
-        var hasStores = MarketCatalogJsonHelpers.TryGetStoresObject(workspaceRoot, out var storesEl);
+        var hasStores = workspaceRoot.Stores.Count > 0;
 
         if (hasStores)
         {
-            var hasCatalogsObj = workspaceRoot.TryGetProperty("storeCatalogs", out var catalogsEl)
-                                 && catalogsEl.ValueKind == JsonValueKind.Object;
-            var catalogSync = catalogs && hasCatalogsObj;
+            var catalogSync = catalogs;
 
-            foreach (var prop in storesEl.EnumerateObject())
+            foreach (var kv in workspaceRoot.Stores)
             {
-                var storeId = prop.Name;
-                var el = prop.Value;
-                var ownerUserId = el.TryGetProperty("ownerUserId", out var ou) && ou.ValueKind == JsonValueKind.String
-                    ? ou.GetString()!
-                    : "unknown";
+                var storeId = kv.Key;
+                var el = kv.Value;
+                var ownerUserId = (el.OwnerUserId ?? "").Trim();
+                if (string.IsNullOrEmpty(ownerUserId))
+                    ownerUserId = "unknown";
 
                 await EnsureUserExistsAsync(ownerUserId, now, cancellationToken);
 
@@ -51,10 +52,12 @@ public sealed partial class MarketCatalogSyncService
                     MarketStoreRowWorkspaceMapper.ApplyFields(el, row, now);
                 }
 
-                if (catalogSync && catalogsEl.TryGetProperty(storeId, out var catEl) && catEl.ValueKind == JsonValueKind.Object)
+                if (catalogSync && workspaceRoot.StoreCatalogs.TryGetValue(storeId, out var catEl))
                 {
-                    row.Pitch = MarketCatalogJsonHelpers.GetString(catEl, "pitch") ?? "";
-                    row.JoinedAtMs = catEl.TryGetProperty("joinedAt", out var ja) && ja.TryGetInt64(out var jn) ? jn : row.JoinedAtMs;
+                    row.Pitch = catEl.Pitch ?? "";
+                    if (catEl.JoinedAt is { } joined)
+                        row.JoinedAtMs = joined;
+
                     row.UpdatedAt = now;
                     await SyncProductsAsync(storeId, catEl, now, cancellationToken);
                     await SyncServicesAsync(storeId, catEl, now, cancellationToken);
@@ -77,10 +80,78 @@ public sealed partial class MarketCatalogSyncService
             throw new DuplicateStoreNameException(null);
         }
 
+        if (offerQa)
+        {
+            foreach (var prop in workspaceRoot.Offers)
+                await chat.SyncOfferQaAnswersForOfferAsync(prop.Key, cancellationToken);
+        }
+
         if (hasStores && (storeProfiles || catalogs))
         {
-            var ids = storesEl.EnumerateObject().Select(p => p.Name).ToList();
+            var ids = workspaceRoot.Stores.Select(p => p.Key).ToList();
             await storeSearchIndex.UpsertStoresAsync(ids, cancellationToken);
+        }
+    }
+
+    private async Task SyncProductsAsync(
+        string storeId,
+        StoreCatalogBlockView catalogEl,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var arr = catalogEl.Products ?? Array.Empty<StoreProductCatalogRowView>();
+
+        var incomingIds = new HashSet<string>();
+        foreach (var o in arr)
+        {
+            if (!string.IsNullOrEmpty(o.Id))
+                incomingIds.Add(o.Id);
+        }
+
+        var stale = await db.StoreProducts
+            .Where(p => p.StoreId == storeId && !incomingIds.Contains(p.Id))
+            .ToListAsync(cancellationToken);
+        foreach (var p in stale)
+            p.DeletedAtUtc = now;
+
+        foreach (var item in arr)
+        {
+            var id = item.Id;
+            if (string.IsNullOrEmpty(id))
+                continue;
+            var p = item.ToPutRequest();
+            await UpsertSingleProductRowAsync(storeId, id, p, now, cancellationToken);
+        }
+    }
+
+    private async Task SyncServicesAsync(
+        string storeId,
+        StoreCatalogBlockView catalogEl,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var arr = catalogEl.Services ?? Array.Empty<StoreServiceCatalogRowView>();
+
+        var incomingIds = new HashSet<string>();
+        foreach (var o in arr)
+        {
+            if (!string.IsNullOrEmpty(o.Id))
+                incomingIds.Add(o.Id);
+        }
+
+        var stale = await db.StoreServices
+            .Where(s => s.StoreId == storeId && !incomingIds.Contains(s.Id))
+            .ToListAsync(cancellationToken);
+        foreach (var s in stale)
+            s.DeletedAtUtc = now;
+
+        foreach (var item in arr)
+        {
+            var id = item.Id;
+            if (string.IsNullOrEmpty(id))
+                continue;
+            var s = item.ToPutRequest();
+            await UpsertSingleServiceRowAsync(storeId, id, s, now, cancellationToken);
         }
     }
 
@@ -100,80 +171,17 @@ public sealed partial class MarketCatalogSyncService
         });
     }
 
-    private async Task SyncProductsAsync(
-        string storeId,
-        JsonElement catalogEl,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        if (!catalogEl.TryGetProperty("products", out var arr) || arr.ValueKind != JsonValueKind.Array)
-            return;
-
-        var incomingIds = new HashSet<string>();
-        foreach (var item in arr.EnumerateArray())
-        {
-            if (item.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
-                incomingIds.Add(idEl.GetString()!);
-        }
-
-        var stale = await db.StoreProducts
-            .Where(p => p.StoreId == storeId && !incomingIds.Contains(p.Id))
-            .ToListAsync(cancellationToken);
-        db.StoreProducts.RemoveRange(stale);
-
-        foreach (var item in arr.EnumerateArray())
-        {
-            if (item.ValueKind != JsonValueKind.Object)
-                continue;
-            var id = MarketCatalogJsonHelpers.GetString(item, "id");
-            if (string.IsNullOrEmpty(id))
-                continue;
-            await UpsertSingleProductRowAsync(storeId, id, item, now, cancellationToken);
-        }
-    }
-
-    private async Task SyncServicesAsync(
-        string storeId,
-        JsonElement catalogEl,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        if (!catalogEl.TryGetProperty("services", out var arr) || arr.ValueKind != JsonValueKind.Array)
-            return;
-
-        var incomingIds = new HashSet<string>();
-        foreach (var item in arr.EnumerateArray())
-        {
-            if (item.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
-                incomingIds.Add(idEl.GetString()!);
-        }
-
-        var stale = await db.StoreServices
-            .Where(s => s.StoreId == storeId && !incomingIds.Contains(s.Id))
-            .ToListAsync(cancellationToken);
-        db.StoreServices.RemoveRange(stale);
-
-        foreach (var item in arr.EnumerateArray())
-        {
-            if (item.ValueKind != JsonValueKind.Object)
-                continue;
-            var id = MarketCatalogJsonHelpers.GetString(item, "id");
-            if (string.IsNullOrEmpty(id))
-                continue;
-            await UpsertSingleServiceRowAsync(storeId, id, item, now, cancellationToken);
-        }
-    }
-
     private async Task UpsertSingleProductRowAsync(
         string storeId,
         string id,
-        JsonElement item,
+        StoreProductPutRequest p,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        MarketCatalogCurrency.ThrowIfProductCurrencyInvalid(item, id);
+        MarketCatalogCurrency.ThrowIfProductCurrencyInvalid(p, id);
 
-        var row = await db.StoreProducts.FindAsync([id], cancellationToken);
+        var row = await db.StoreProducts.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (row is not null && row.StoreId != storeId)
             return;
 
@@ -182,20 +190,23 @@ public sealed partial class MarketCatalogSyncService
             row = new StoreProductRow { Id = id, StoreId = storeId };
             db.StoreProducts.Add(row);
         }
+        else
+            row.DeletedAtUtc = null;
 
-        MarketCatalogProductRowMapper.Apply(item, row, now);
+        MarketCatalogProductRowMapper.Apply(p, row, now);
     }
 
     private async Task UpsertSingleServiceRowAsync(
         string storeId,
         string id,
-        JsonElement item,
+        StoreServicePutRequest s,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        MarketCatalogCurrency.ThrowIfServiceCurrencyInvalid(item, id);
+        MarketCatalogCurrency.ThrowIfServiceCurrencyInvalid(s, id);
 
-        var row = await db.StoreServices.FindAsync([id], cancellationToken);
+        var row = await db.StoreServices.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (row is not null && row.StoreId != storeId)
             return;
 
@@ -204,31 +215,41 @@ public sealed partial class MarketCatalogSyncService
             row = new StoreServiceRow { Id = id, StoreId = storeId };
             db.StoreServices.Add(row);
         }
+        else
+            row.DeletedAtUtc = null;
 
-        MarketCatalogServiceRowMapper.Apply(item, row, now);
-        if (item.TryGetProperty("photoUrls", out var phEl) && phEl.ValueKind == JsonValueKind.Array)
-            row.PhotoUrlsJson = await MarketCatalogIncomingServicePhotos.FilterToStoredImageJsonAsync(db, phEl, cancellationToken);
+        MarketCatalogServiceRowMapper.Apply(s, row, now);
+        if (s.PhotoUrls is not null)
+        {
+            row.PhotoUrls = await MarketCatalogIncomingServicePhotos.FilterToStoredImageListAsync(
+                db,
+                s.PhotoUrls,
+                cancellationToken);
+        }
+
+        if (MarketCatalogTransportServiceRules.QualifiesAsTransport(row.Category, row.TipoServicio)
+            && !MarketCatalogTransportServiceRules.HasAtLeastOnePhoto(row.PhotoUrls))
+            throw new CatalogValidationException(
+                "Los servicios de transporte o logística requieren al menos una imagen en la ficha.");
     }
 
-    private void ApplyOfferQaFromWorkspace(JsonElement workspaceRoot, DateTimeOffset now)
+    private void ApplyOfferQaFromWorkspace(MarketWorkspaceState workspaceRoot, DateTimeOffset now)
     {
-        if (!workspaceRoot.TryGetProperty("offers", out var offersEl) || offersEl.ValueKind != JsonValueKind.Object)
+        if (workspaceRoot.Offers.Count == 0)
             return;
 
-        foreach (var prop in offersEl.EnumerateObject())
+        foreach (var kv in workspaceRoot.Offers)
         {
-            if (prop.Value.ValueKind != JsonValueKind.Object)
-                continue;
-            if (!prop.Value.TryGetProperty("qa", out var qaEl) || qaEl.ValueKind != JsonValueKind.Array)
+            if (kv.Value.Qa is null)
                 continue;
 
-            var qaRaw = qaEl.GetRawText();
-            var id = prop.Name;
+            var qaList = kv.Value.Qa;
+            var id = kv.Key;
 
             var product = db.StoreProducts.Find(id);
             if (product is not null)
             {
-                product.OfferQaJson = qaRaw;
+                product.OfferQa = qaList;
                 product.UpdatedAt = now;
                 continue;
             }
@@ -236,7 +257,7 @@ public sealed partial class MarketCatalogSyncService
             var service = db.StoreServices.Find(id);
             if (service is not null)
             {
-                service.OfferQaJson = qaRaw;
+                service.OfferQa = qaList;
                 service.UpdatedAt = now;
             }
         }

@@ -1,5 +1,6 @@
 using Elastic.Clients.Elasticsearch;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Data.RouteSheets;
 
 namespace VibeTrade.Backend.Features.Search;
 
@@ -12,7 +13,7 @@ internal static class CatalogSearchDocumentFactory
             location = new LatLonGeoLocation { Lat = la, Lon = lo };
 
         var name = (store.Name ?? "").Trim();
-        var cats = StoreSearchCategoryParser.ParseCategories(store.CategoriesJson);
+        var cats = StoreSearchCategoryParser.ParseCategories(store.Categories);
         return new CatalogSearchDocument
         {
             Kind = CatalogSearchKinds.Store,
@@ -23,7 +24,7 @@ internal static class CatalogSearchDocumentFactory
             Categories = cats,
             SearchText = CatalogSearchEmbeddingText.ForStore(store),
             Location = location,
-            VtLocation = location,
+            VtGeoPoint = location,
             TrustScore = store.TrustScore,
             PublishedProducts = publishedProducts,
             PublishedServices = publishedServices,
@@ -54,7 +55,7 @@ internal static class CatalogSearchDocumentFactory
             Categories = cats,
             SearchText = CatalogSearchEmbeddingText.ForProduct(p, store),
             Location = location,
-            VtLocation = location,
+            VtGeoPoint = location,
             TrustScore = store.TrustScore,
             PublishedProducts = pubProducts,
             PublishedServices = pubServices,
@@ -86,7 +87,52 @@ internal static class CatalogSearchDocumentFactory
             Categories = cats,
             SearchText = CatalogSearchEmbeddingText.ForService(s, store),
             Location = location,
-            VtLocation = location,
+            VtGeoPoint = location,
+            TrustScore = store.TrustScore,
+            PublishedProducts = pubProducts,
+            PublishedServices = pubServices,
+        };
+    }
+
+    public static CatalogSearchDocument? FromEmergent(
+        EmergentOfferRow e,
+        StoreRow store,
+        StoreProductRow? p,
+        StoreServiceRow? s,
+        long pubProducts,
+        long pubServices)
+    {
+        if (e.RetractedAtUtc is not null)
+            return null;
+
+        LatLonGeoLocation? location = null;
+        if (store.LocationLatitude is { } la && store.LocationLongitude is { } lo)
+            location = new LatLonGeoLocation { Lat = la, Lon = lo };
+
+        var snap = e.RouteSheetSnapshot ?? new EmergentRouteSheetSnapshot();
+        var title = (snap.Titulo ?? "").Trim();
+        if (title.Length == 0 && p is not null)
+            title = (p.Name ?? "").Trim();
+        if (title.Length == 0 && s is not null)
+            title = (s.TipoServicio ?? "").Trim();
+        if (title.Length == 0)
+            title = "Hoja de ruta";
+
+        var cat = p?.Category ?? s?.Category ?? "";
+        cat = cat.Trim();
+        var cats = string.IsNullOrEmpty(cat) ? Array.Empty<string>() : new[] { cat };
+
+        return new CatalogSearchDocument
+        {
+            Kind = CatalogSearchKinds.Emergent,
+            StoreId = store.Id,
+            OfferId = e.Id,
+            Name = title,
+            VtCatalogSk = StoreSearchTextNormalize.FoldLowerKeyword(title),
+            Categories = cats,
+            SearchText = CatalogSearchEmbeddingText.ForEmergent(e, store, p, s),
+            Location = location,
+            VtGeoPoint = location,
             TrustScore = store.TrustScore,
             PublishedProducts = pubProducts,
             PublishedServices = pubServices,

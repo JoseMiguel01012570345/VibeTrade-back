@@ -1,30 +1,32 @@
-using System.Text.Json;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Features.Market.Utils;
 
 internal static class MarketCatalogProductRowMapper
 {
-    public static void Apply(JsonElement item, StoreProductRow row, DateTimeOffset now)
+    public static void Apply(StoreProductPutRequest p, StoreProductRow row, DateTimeOffset now)
     {
-        row.Category = MarketCatalogJsonHelpers.GetString(item, "category") ?? "";
-        row.Name = MarketCatalogJsonHelpers.GetString(item, "name") ?? "";
-        row.Model = MarketCatalogJsonHelpers.GetString(item, "model");
-        row.ShortDescription = MarketCatalogJsonHelpers.GetString(item, "shortDescription") ?? "";
-        row.MainBenefit = MarketCatalogJsonHelpers.GetString(item, "mainBenefit") ?? "";
-        row.TechnicalSpecs = MarketCatalogJsonHelpers.GetString(item, "technicalSpecs") ?? "";
-        row.Condition = MarketCatalogJsonHelpers.GetString(item, "condition") ?? "";
-        row.Price = MarketCatalogJsonHelpers.GetString(item, "price") ?? "";
-        row.MonedaPrecio = MarketCatalogJsonHelpers.GetString(item, "monedaPrecio");
-        row.MonedasJson = MarketCatalogCurrency.SerializeMonedasFromCatalogItemJson(item);
-        row.TaxesShippingInstall = MarketCatalogJsonHelpers.GetString(item, "taxesShippingInstall");
-        row.Availability = MarketCatalogJsonHelpers.GetString(item, "availability") ?? "";
-        row.WarrantyReturn = MarketCatalogJsonHelpers.GetString(item, "warrantyReturn") ?? "";
-        row.ContentIncluded = MarketCatalogJsonHelpers.GetString(item, "contentIncluded") ?? "";
-        row.UsageConditions = MarketCatalogJsonHelpers.GetString(item, "usageConditions") ?? "";
-        row.Published = item.TryGetProperty("published", out var pub) && pub.ValueKind == JsonValueKind.True;
-        row.PhotoUrlsJson = MarketCatalogJsonHelpers.SerializeJsonElement(item, "photoUrls") ?? "[]";
-        row.CustomFieldsJson = MarketCatalogJsonHelpers.SerializeJsonElement(item, "customFields") ?? "[]";
+        row.Category = p.Category ?? "";
+        row.Name = p.Name ?? "";
+        row.Model = p.Model;
+        row.ShortDescription = p.ShortDescription ?? "";
+        row.MainBenefit = p.MainBenefit ?? "";
+        row.TechnicalSpecs = p.TechnicalSpecs ?? "";
+        row.Condition = p.Condition ?? "";
+        row.Price = p.Price ?? "";
+        row.MonedaPrecio = p.MonedaPrecio;
+        row.Monedas = MarketCatalogCurrency.BuildMonedasList(p);
+        row.TaxesShippingInstall = p.TaxesShippingInstall;
+        row.Availability = p.Availability ?? "";
+        row.WarrantyReturn = p.WarrantyReturn ?? "";
+        row.ContentIncluded = p.ContentIncluded ?? "";
+        row.UsageConditions = p.UsageConditions ?? "";
+        row.Published = p.Published == true;
+        row.PhotoUrls = p.PhotoUrls is { Count: > 0 } ? p.PhotoUrls.ToList() : new List<string>();
+        row.CustomFields = p.CustomFields is not null
+            ? p.CustomFields.ToList()
+            : row.CustomFields;
         row.UpdatedAt = now;
     }
 }

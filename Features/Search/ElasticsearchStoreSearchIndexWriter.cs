@@ -7,9 +7,16 @@ using Elastic.Clients.Elasticsearch.Mapping;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Recommendations;
 
 namespace VibeTrade.Backend.Features.Search;
 
+/// <summary>
+/// Escritura al índice de catálogo en Elasticsearch.
+/// Si un índice previo tiene campos con tipo distinto (p.ej. <c>vtCatalogSk</c> como <c>text</c>),
+/// ES no permite <c>PUT _mapping</c> para corregirlo: hay que borrar el índice o usar otro <see cref="ElasticsearchStoreSearchOptions.IndexName"/>.
+/// </summary>
 public sealed class ElasticsearchStoreSearchIndexWriter(
     AppDbContext db,
     IOptions<ElasticsearchStoreSearchOptions> options,
@@ -57,7 +64,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
                             .Text(t => t.Name)
                             .Text(t => t.SearchText)
                             .GeoPoint(g => g.Location)
-                            .GeoPoint(g => g.VtLocation)
+                            .GeoPoint(g => g.VtGeoPoint)
                             .IntegerNumber(n => n.TrustScore)
                             .LongNumber(n => n.PublishedProducts)
                             .LongNumber(n => n.PublishedServices);
@@ -96,6 +103,46 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         }
     }
 
+    /// <summary>
+    /// ES rechaza cambiar el tipo de un campo existente (p.ej. text → keyword).
+    /// </summary>
+    private static bool IsImmutableElasticsearchMappingConflict(string? debugInformation)
+    {
+        if (string.IsNullOrEmpty(debugInformation))
+            return false;
+        return debugInformation.Contains("cannot be changed from type", StringComparison.OrdinalIgnoreCase)
+            || (debugInformation.Contains("illegal_argument_exception", StringComparison.OrdinalIgnoreCase)
+                && debugInformation.Contains("mapper", StringComparison.OrdinalIgnoreCase)
+                && debugInformation.Contains("cannot be changed", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void LogPutMappingOutcome(
+        string fieldForLog,
+        bool isValidResponse,
+        string? debugInformation,
+        CancellationToken cancellationToken)
+    {
+        _ = cancellationToken;
+        if (isValidResponse)
+            return;
+
+        if (IsImmutableElasticsearchMappingConflict(debugInformation))
+        {
+            logger.LogInformation(
+                "Elasticsearch: el índice {Index} ya tiene el campo {Field} con un tipo distinto al esperado; no se puede corregir con PUT mapping. " +
+                "Eliminá ese índice en el cluster (DELETE con el mismo nombre) y reiniciá la app, o usá otro valor en la opción de configuración IndexName y reindexá el catálogo.",
+                _opt.IndexName,
+                fieldForLog);
+            return;
+        }
+
+        logger.LogWarning(
+            "Elasticsearch: no se pudo registrar el mapping de «{Field}» en «{Index}»: {Debug}",
+            fieldForLog,
+            _opt.IndexName,
+            debugInformation ?? "(sin detalle)");
+    }
+
     private async Task PutVtCatalogSkKeywordMappingAsync(CancellationToken cancellationToken)
     {
         if (_client is null)
@@ -109,14 +156,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
             },
         }, cancellationToken);
 
-        if (!put.IsValidResponse)
-        {
-            logger.LogWarning(
-                "Elasticsearch: no se pudo registrar {Field} como keyword en {Index}: {Debug}",
-                CatalogSearchDocument.ElasticsearchVtCatalogSkField,
-                _opt.IndexName,
-                put.DebugInformation);
-        }
+        LogPutMappingOutcome(CatalogSearchDocument.ElasticsearchVtCatalogSkField, put.IsValidResponse, put.DebugInformation, cancellationToken);
     }
 
     private async Task PutNameSemanticVectorMappingAsync(CancellationToken cancellationToken)
@@ -142,16 +182,10 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
             },
         }, cancellationToken);
 
-        if (!put.IsValidResponse)
-        {
-            logger.LogWarning(
-                "Elasticsearch: no se pudo registrar mapping del vector en {Index}: {Debug}",
-                _opt.IndexName,
-                put.DebugInformation);
-        }
+        LogPutMappingOutcome("nameSemanticVector", put.IsValidResponse, put.DebugInformation, cancellationToken);
     }
 
-    private async Task PutVtLocationGeoPointMappingAsync(CancellationToken cancellationToken)
+    private async Task PutVtGeoPointMappingAsync(CancellationToken cancellationToken)
     {
         if (_client is null)
             return;
@@ -160,18 +194,11 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         {
             Properties = new Properties
             {
-                { CatalogSearchDocument.ElasticsearchVtLocationField, new GeoPointProperty() },
+                { CatalogSearchDocument.ElasticsearchVtGeoPointField, new GeoPointProperty() },
             },
         }, cancellationToken);
 
-        if (!put.IsValidResponse)
-        {
-            logger.LogWarning(
-                "Elasticsearch: no se pudo registrar {Field} como geo_point en {Index}: {Debug}",
-                CatalogSearchDocument.ElasticsearchVtLocationField,
-                _opt.IndexName,
-                put.DebugInformation);
-        }
+        LogPutMappingOutcome(CatalogSearchDocument.ElasticsearchVtGeoPointField, put.IsValidResponse, put.DebugInformation, cancellationToken);
     }
 
     private async Task TryEnsureCatalogMappingAsync(CancellationToken cancellationToken)
@@ -182,9 +209,9 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         // En índices ya existentes, evitar re-declarar mappings completos:
         // ES no permite cambiar el tipo de un campo (p.ej. offerId text -> keyword),
         // y un PutMapping con todo el POCO puede bloquear el reindex con errores repetidos.
-        // Acá solo aseguramos campos que agregamos “a futuro” (vtCatalogSk y el vector).
+        // Acá solo aseguramos campos que agregamos “a futuro” (vtCatalogSk, vtGeoPoint y el vector).
         await PutVtCatalogSkKeywordMappingAsync(cancellationToken);
-        await PutVtLocationGeoPointMappingAsync(cancellationToken);
+        await PutVtGeoPointMappingAsync(cancellationToken);
         await PutNameSemanticVectorMappingAsync(cancellationToken);
     }
 
@@ -267,6 +294,74 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
                 Index = _opt.IndexName,
                 Id = CatalogSearchIds.Service(s.Id),
             });
+        }
+
+        // Hojas de ruta publicadas (<c>emo_*</c>): mismo criterio que el JSON de oferta (base puede estar despublicada).
+        var emergents = await db.EmergentOffers.AsNoTracking()
+            .Where(e =>
+                e.RetractedAtUtc == null
+                && (string.IsNullOrEmpty(e.Kind)
+                    || e.Kind == EmergentRouteOfferRanking.EmergentKindRouteSheet))
+            .Where(e =>
+                db.StoreProducts.Any(p => p.Id == e.OfferId && p.StoreId == storeId) ||
+                db.StoreServices.Any(sv => sv.Id == e.OfferId && sv.StoreId == storeId) ||
+                db.Stores.Any(st => st.Id == storeId && st.OwnerUserId == e.PublisherUserId))
+            .ToListAsync(cancellationToken);
+
+        if (emergents.Count > 0)
+        {
+            var emBaseIds = emergents
+                .Select(e => e.OfferId)
+                .Where(id => !string.IsNullOrEmpty(id))
+                .Distinct()
+                .ToList();
+            var emProductsById = emBaseIds.Count == 0
+                ? new Dictionary<string, StoreProductRow>(StringComparer.Ordinal)
+                : await db.StoreProducts.AsNoTracking()
+                    .Where(p => emBaseIds.Contains(p.Id))
+                    .ToDictionaryAsync(p => p.Id, cancellationToken);
+            var emServicesById = emBaseIds.Count == 0
+                ? new Dictionary<string, StoreServiceRow>(StringComparer.Ordinal)
+                : await db.StoreServices.AsNoTracking()
+                    .Where(sv => emBaseIds.Contains(sv.Id))
+                    .ToDictionaryAsync(sv => sv.Id, cancellationToken);
+
+            foreach (var e in emergents)
+            {
+                StoreProductRow? emP = null;
+                StoreServiceRow? emS = null;
+                if (!string.IsNullOrEmpty(e.OfferId))
+                {
+                    emProductsById.TryGetValue(e.OfferId, out emP);
+                    if (emP is null)
+                        emServicesById.TryGetValue(e.OfferId, out emS);
+                }
+
+                if (emP is not null)
+                {
+                    if (!string.Equals(emP.StoreId, storeId, StringComparison.Ordinal))
+                        continue;
+                }
+                else if (emS is not null)
+                {
+                    if (!string.Equals(emS.StoreId, storeId, StringComparison.Ordinal))
+                        continue;
+                }
+                else if (!string.Equals(store.OwnerUserId, e.PublisherUserId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var emDoc = CatalogSearchDocumentFactory.FromEmergent(e, store, emP, emS, pubProducts, pubServices);
+                if (emDoc is null)
+                    continue;
+                await AttachVectorAsync(emDoc, emDoc.SearchText, cancellationToken);
+                ops.Add(new BulkIndexOperation<CatalogSearchDocument>(emDoc)
+                {
+                    Index = _opt.IndexName,
+                    Id = CatalogSearchIds.Emergent(e.Id),
+                });
+            }
         }
 
         if (ops.Count == 0)

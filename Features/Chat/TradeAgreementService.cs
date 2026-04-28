@@ -1,0 +1,455 @@
+using Microsoft.EntityFrameworkCore;
+using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Chat.Utils;
+using VibeTrade.Backend.Features.Trust;
+
+namespace VibeTrade.Backend.Features.Chat;
+
+public sealed class TradeAgreementService(
+    AppDbContext db,
+    IChatService chat,
+    ITrustScoreLedgerService trustLedger) : ITradeAgreementService
+{
+    public async Task<IReadOnlyList<TradeAgreementApiResponse>> ListForThreadAsync(
+        string userId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return Array.Empty<TradeAgreementApiResponse>();
+
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || !await chat.UserCanAccessThreadRowAsync(userId, t, cancellationToken))
+            return Array.Empty<TradeAgreementApiResponse>();
+
+        var list = await db.TradeAgreements.AsNoTracking()
+            .AsSplitQuery()
+            .Where(a => a.ThreadId == tid && a.DeletedAtUtc == null)
+            .Include(a => a.MerchandiseLines)
+            .Include(a => a.MerchandiseMeta)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.ScheduleMonths)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.ScheduleDays)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.ScheduleOverrides)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.PaymentMonths)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.PaymentEntries)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.RiesgoItems)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.DependenciaItems)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.TerminacionCausas)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.MonedasAceptadas)
+            .Include(a => a.ExtraFields)
+            .OrderBy(a => a.IssuedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        return list.ConvertAll(TradeAgreementEntityToApiMapper.ToApiResponse);
+    }
+
+    public async Task<TradeAgreementApiResponse?> CreateAsync(
+        string sellerUserId,
+        string threadId,
+        TradeAgreementDraftRequest draft,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ValidateDraft(draft))
+            return null;
+
+        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
+            return null;
+        if (sellerUserId != t.SellerUserId)
+            return null;
+
+        var store = await db.Stores.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == t.StoreId, cancellationToken);
+        if (store is null)
+            return null;
+
+        var id = NewAgrId();
+        var now = DateTimeOffset.UtcNow;
+        var ag = new TradeAgreementRow
+        {
+            Id = id,
+            ThreadId = threadId,
+            Title = draft.Title.Trim(),
+            IssuedAtUtc = now,
+            IssuedByStoreId = t.StoreId,
+            IssuerLabel = string.IsNullOrWhiteSpace(store.Name) ? "Tienda" : store.Name.Trim(),
+            Status = "pending_buyer",
+            RespondedAtUtc = null,
+            RespondedByUserId = null,
+            SellerEditBlockedUntilBuyerResponse = false,
+            IncludeMerchandise = draft.IncludeMerchandise,
+            IncludeService = draft.IncludeService,
+        };
+
+        TradeAgreementDraftToEntityMapper.ReplaceContentFromDraft(ag, draft);
+        db.TradeAgreements.Add(ag);
+        await db.SaveChangesAsync(cancellationToken);
+
+        await chat.PostAgreementAnnouncementAsync(
+            new PostAgreementAnnouncementArgs(sellerUserId, threadId, id, ag.Title, "pending_buyer"),
+            cancellationToken);
+
+        return await GetTrackedResponseAsync(id, cancellationToken);
+    }
+
+    public async Task<TradeAgreementApiResponse?> UpdateAsync(
+        string sellerUserId,
+        string threadId,
+        string agreementId,
+        TradeAgreementDraftRequest draft,
+        CancellationToken cancellationToken = default)
+    {
+        if (!ValidateDraft(draft))
+            return null;
+
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
+            return null;
+        if (sellerUserId != t.SellerUserId)
+            return null;
+
+        var ag = await LoadTrackedAgreementAsync(threadId, agreementId, cancellationToken);
+        if (ag is null)
+            return null;
+        if (ag.IssuedByStoreId != t.StoreId)
+            return null;
+        if (ag.SellerEditBlockedUntilBuyerResponse)
+            return null;
+        if (ag.Status is not ("pending_buyer" or "rejected" or "accepted"))
+            return null;
+
+        var wasAccepted = ag.Status == "accepted";
+        var wasRejected = ag.Status == "rejected";
+
+        if (ag.ServiceItems.Count > 0)
+            db.TradeAgreementServiceItems.RemoveRange(ag.ServiceItems);
+        ag.MerchandiseLines.Clear();
+        if (ag.MerchandiseMeta is not null)
+        {
+            db.TradeAgreementMerchandiseMetas.Remove(ag.MerchandiseMeta);
+            ag.MerchandiseMeta = null;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        ag.Title = draft.Title.Trim();
+        ag.IncludeMerchandise = draft.IncludeMerchandise;
+        ag.IncludeService = draft.IncludeService;
+        ag.Status = "pending_buyer";
+        ag.RespondedAtUtc = null;
+        ag.RespondedByUserId = null;
+        ag.SellerEditBlockedUntilBuyerResponse = true;
+
+        TradeAgreementDraftToEntityMapper.ReplaceContentFromDraft(ag, draft);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var sys = wasAccepted
+            ? $"El vendedor modificó el acuerdo «{ag.Title}», que estaba aceptado: vuelve a estar pendiente de aceptación del comprador, quien puede aceptarlo o rechazarlo sin abandonar el chat."
+            : wasRejected
+                ? $"El vendedor revisó el acuerdo «{ag.Title}» tras el rechazo; volvió a quedar pendiente de respuesta del comprador."
+                : $"El vendedor actualizó el acuerdo «{ag.Title}» (sigue pendiente de respuesta del comprador).";
+
+        await chat.PostSystemThreadNoticeAsync(sellerUserId, threadId, sys, cancellationToken);
+
+        return await GetTrackedResponseAsync(ag.Id, cancellationToken);
+    }
+
+    public async Task<TradeAgreementApiResponse?> RespondAsync(
+        string buyerUserId,
+        string threadId,
+        string agreementId,
+        bool accept,
+        CancellationToken cancellationToken = default)
+    {
+        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(buyerUserId, t))
+            return null;
+        if (buyerUserId != t.BuyerUserId)
+            return null;
+
+        var ag = await db.TradeAgreements.FirstOrDefaultAsync(
+            x => x.Id == agreementId && x.ThreadId == threadId && x.DeletedAtUtc == null,
+            cancellationToken);
+        if (ag is null || ag.Status != "pending_buyer")
+            return null;
+
+        const int demoPenaltyPts = 3;
+        var rejectAfterPriorAccept =
+            !accept && ag.HadBuyerAcceptance;
+        var penaltyStoreId = (ag.IssuedByStoreId ?? "").Trim();
+        int penaltyDeltaNotify = 0;
+        int penaltyBalanceAfter = 0;
+
+        if (rejectAfterPriorAccept && penaltyStoreId.Length >= 2)
+        {
+            var storeRow = await db.Stores.FirstOrDefaultAsync(x => x.Id == penaltyStoreId, cancellationToken);
+            if (storeRow is not null)
+            {
+                penaltyDeltaNotify = -demoPenaltyPts;
+                storeRow.TrustScore = Math.Max(-10_000, storeRow.TrustScore + penaltyDeltaNotify);
+                penaltyBalanceAfter = storeRow.TrustScore;
+                trustLedger.StageEntry(
+                    TrustLedgerSubjects.Store,
+                    penaltyStoreId,
+                    penaltyDeltaNotify,
+                    storeRow.TrustScore,
+                    "Rechazo del comprador con acuerdo previamente aceptado (demo)");
+            }
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        ag.Status = accept ? "accepted" : "rejected";
+        ag.RespondedAtUtc = now;
+        ag.RespondedByUserId = buyerUserId;
+        ag.SellerEditBlockedUntilBuyerResponse = false;
+
+        if (accept)
+            ag.HadBuyerAcceptance = true;
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        if (rejectAfterPriorAccept && penaltyDeltaNotify != 0)
+        {
+            var sellerUid = (t.SellerUserId ?? "").Trim();
+            if (sellerUid.Length >= 2)
+            {
+                await chat.NotifySellerStoreTrustPenaltyAsync(
+                    new SellerStoreTrustPenaltyNotificationArgs(
+                        sellerUid,
+                        threadId,
+                        (t.OfferId ?? "").Trim(),
+                        penaltyDeltaNotify,
+                        penaltyBalanceAfter,
+                        $"El comprador rechazó «{ag.Title}» después de una aceptación previa; la confianza de la tienda se ajustó en {demoPenaltyPts} pts (demo)."),
+                    cancellationToken);
+            }
+        }
+
+        var sys = accept
+            ? $"Acuerdo «{ag.Title}» aceptado por ambas partes. El vendedor puede proponer una nueva versión editándolo; eso reabre la aceptación del comprador. Pueden coexistir otros contratos adicionales."
+            : $"Acuerdo «{ag.Title}» rechazado por el comprador. El comprador permanece en el chat; pueden seguir negociando o el vendedor puede enviar una nueva versión.";
+
+        await chat.PostSystemThreadNoticeAsync(buyerUserId, threadId, sys, cancellationToken);
+
+        return await GetTrackedResponseAsync(ag.Id, cancellationToken);
+    }
+
+    public async Task<bool> DeleteAsync(
+        string sellerUserId,
+        string threadId,
+        string agreementId,
+        CancellationToken cancellationToken = default)
+    {
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
+            return false;
+        if (sellerUserId != t.SellerUserId)
+            return false;
+
+        var ag = await db.TradeAgreements.FirstOrDefaultAsync(
+            x => x.Id == agreementId && x.ThreadId == threadId,
+            cancellationToken);
+        if (ag is null
+            || ag.DeletedAtUtc is not null
+            || ag.Status == "accepted"
+            || ag.IssuedByStoreId != t.StoreId)
+            return false;
+
+        var title = ag.Title;
+        ag.DeletedAtUtc = DateTimeOffset.UtcNow;
+        ag.DeletedByUserId = sellerUserId;
+        await db.SaveChangesAsync(cancellationToken);
+
+        await chat.PostSystemThreadNoticeAsync(
+            sellerUserId,
+            threadId,
+            $"Se eliminó el acuerdo «{title}» del hilo (no aplica a acuerdos ya aceptados).",
+            cancellationToken);
+
+        return true;
+    }
+
+    public async Task<TradeAgreementApiResponse?> SetRouteSheetLinkAsync(
+        string sellerUserId,
+        string threadId,
+        string agreementId,
+        string? routeSheetId,
+        CancellationToken cancellationToken = default)
+    {
+        var t = await db.ChatThreads
+            .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
+        if (t is null
+            || t.DeletedAtUtc is not null
+            || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t)
+            || sellerUserId != t.SellerUserId)
+            return null;
+
+        var ag = await db.TradeAgreements
+            .FirstOrDefaultAsync(
+                x => x.Id == agreementId
+                     && x.ThreadId == threadId
+                     && x.DeletedAtUtc == null
+                     && x.IssuedByStoreId == t.StoreId,
+                cancellationToken);
+        if (ag is null)
+            return null;
+
+        var incoming = (routeSheetId ?? "").Trim();
+        if (string.IsNullOrEmpty(incoming))
+        {
+            if (string.IsNullOrWhiteSpace(ag.RouteSheetId))
+                return await GetTrackedResponseAsync(ag.Id, cancellationToken);
+
+            var prevId = ag.RouteSheetId!.Trim();
+            var prevRow = await db.ChatRouteSheets.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.ThreadId == threadId
+                         && x.RouteSheetId == prevId
+                         && x.DeletedAtUtc == null,
+                    cancellationToken);
+            if (prevRow?.PublishedToPlatform == true)
+                return null;
+            ag.RouteSheetId = null;
+        }
+        else
+        {
+            var okRow = await db.ChatRouteSheets.AsNoTracking()
+                .AnyAsync(
+                    x => x.ThreadId == threadId
+                         && x.RouteSheetId == incoming
+                         && x.DeletedAtUtc == null,
+                    cancellationToken);
+            if (!okRow)
+                return null;
+            ag.RouteSheetId = incoming;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return await GetTrackedResponseAsync(ag.Id, cancellationToken);
+    }
+
+    private async Task<TradeAgreementApiResponse?> GetTrackedResponseAsync(
+        string agreementId,
+        CancellationToken cancellationToken)
+    {
+        var ag = await LoadTrackedAgreementAsync(null, agreementId, cancellationToken);
+        return ag is null ? null : TradeAgreementEntityToApiMapper.ToApiResponse(ag);
+    }
+
+    private async Task<TradeAgreementRow?> LoadTrackedAgreementAsync(
+        string? threadId,
+        string agreementId,
+        CancellationToken cancellationToken)
+    {
+        var q = db.TradeAgreements.AsSplitQuery()
+            .Include(a => a.MerchandiseLines)
+            .Include(a => a.MerchandiseMeta)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.ScheduleMonths)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.ScheduleDays)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.ScheduleOverrides)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.PaymentMonths)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.PaymentEntries)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.RiesgoItems)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.DependenciaItems)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.TerminacionCausas)
+            .Include(a => a.ServiceItems).ThenInclude(s => s.MonedasAceptadas)
+            .Include(a => a.ExtraFields)
+            .Where(a => a.Id == agreementId && a.DeletedAtUtc == null);
+        if (threadId is not null)
+            q = q.Where(a => a.ThreadId == threadId);
+        return await q.FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private static bool ValidateDraft(TradeAgreementDraftRequest d)
+    {
+        if (string.IsNullOrWhiteSpace(d.Title) || d.Title.Trim().Length > 512)
+            return false;
+        if (!d.IncludeMerchandise && !d.IncludeService)
+            return false;
+        return ValidateExtraFields(d);
+    }
+
+    private static bool ValidateExtraFields(TradeAgreementDraftRequest d)
+    {
+        var list = d.ExtraFields;
+        if (list is null || list.Count == 0)
+            return true;
+        if (list.Count > 48)
+            return false;
+
+        foreach (var x in list)
+        {
+            if (IsSkippableEmptyExtraDraftApiRow(x))
+                continue;
+
+            var sc = NormalizeExtraScopeDto(x.Scope);
+            if (sc == "merchandise" && !d.IncludeMerchandise)
+                return false;
+            if (sc == "service" && !d.IncludeService)
+                return false;
+            if (sc == "legacy_combined" && !(d.IncludeMerchandise && d.IncludeService))
+                return false;
+
+            var title = (x.Title ?? "").Trim();
+            if (title.Length < 1 || title.Length > 256)
+                return false;
+
+            var rawKind = (x.ValueKind ?? "text").Trim().ToLowerInvariant();
+            var kind = rawKind is "image" or "document" ? rawKind : "text";
+
+            if (kind == "text")
+            {
+                var txt = (x.TextValue ?? "").Trim();
+                if (txt.Length < 1 || txt.Length > 8000)
+                    return false;
+            }
+            else
+            {
+                var url = (x.MediaUrl ?? "").Trim();
+                if (url.Length < 24 || url.Length > 2048)
+                    return false;
+                if (!url.StartsWith("/api/v1/media/", StringComparison.Ordinal))
+                    return false;
+            }
+
+            var fn = (x.FileName ?? "").Trim();
+            if (fn.Length > 512)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static string NormalizeExtraScopeDto(string? raw)
+    {
+        var s = (raw ?? "").Trim().ToLowerInvariant();
+        return s switch
+        {
+            "service" => "service",
+            "merchandise" => "merchandise",
+            "legacy_combined" => "legacy_combined",
+            _ => "legacy_combined",
+        };
+    }
+
+    private static bool IsSkippableEmptyExtraDraftApiRow(TradeAgreementExtraFieldRequest x)
+    {
+        var title = (x.Title ?? "").Trim();
+        if (title.Length > 0)
+            return false;
+
+        var rawKind = (x.ValueKind ?? "text").Trim().ToLowerInvariant();
+        var kind = rawKind is "image" or "document" ? rawKind : "text";
+        if (kind is "image" or "document")
+            return string.IsNullOrWhiteSpace(x.MediaUrl);
+
+        return string.IsNullOrWhiteSpace(x.TextValue);
+    }
+
+    private static string NewAgrId() => "agr_" + Guid.NewGuid().ToString("N")[..16];
+}

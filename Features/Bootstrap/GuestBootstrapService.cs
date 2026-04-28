@@ -1,5 +1,4 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
+using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations;
 
@@ -7,50 +6,38 @@ namespace VibeTrade.Backend.Features.Bootstrap;
 
 public interface IGuestBootstrapService
 {
-    Task<JsonDocument> GetGuestBootstrapAsync(string guestId, CancellationToken cancellationToken = default);
+    Task<BootstrapResponseDto> GetGuestBootstrapAsync(string guestId, CancellationToken cancellationToken = default);
 }
 
 public sealed class GuestBootstrapService(
     IMarketWorkspaceService marketWorkspace,
     IGuestRecommendationService recommendations) : IGuestBootstrapService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    public async Task<BootstrapResponseDto> GetGuestBootstrapAsync(string guestId, CancellationToken cancellationToken = default)
     {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
-
-    public async Task<JsonDocument> GetGuestBootstrapAsync(string guestId, CancellationToken cancellationToken = default)
-    {
-        using var market = await marketWorkspace.GetOrSeedAsync(cancellationToken);
-        var marketObj = JsonNode.Parse(market.RootElement.GetRawText())!.AsObject();
-
-        // guest: no workspace privado
-        marketObj["storeCatalogs"] = new JsonObject();
-        marketObj["threads"] = new JsonObject();
-        marketObj["routeOfferPublic"] = new JsonObject();
+        var market = await marketWorkspace.GetOrSeedAsync(cancellationToken);
+        market.StoreCatalogs = new Dictionary<string, StoreCatalogBlockView>(StringComparer.Ordinal);
+        market.Threads = new Dictionary<string, ChatThreadWorkspaceDto>(StringComparer.Ordinal);
+        market.RouteOfferPublic = new Dictionary<string, RouteOfferPublicEntryView>(StringComparer.Ordinal);
 
         var recommendationFeed = await recommendations.GetBatchAsync(
             guestId,
-            RecommendationService.DefaultBatchSize,
-            0,
+            RecommendationService.DefaultBootstrapTake,
             cancellationToken);
 
-        marketObj["offerIds"] = JsonSerializer.SerializeToNode(recommendationFeed.OfferIds, JsonOptions) ?? new JsonArray();
+        var bootRecOfferIds = recommendationFeed.OfferIds.Length > 0
+            ? recommendationFeed.OfferIds
+            : recommendationFeed.Offers.Keys.ToArray();
+        if (bootRecOfferIds.Length > 0)
+            market.OfferIds = new List<string>(bootRecOfferIds);
 
-        const string reels =
-            """{"items":[],"initialComments":{},"initialLikeCounts":{}}""";
-        const string profileNames = "{}";
-
-        var root = new JsonObject
+        return new BootstrapResponseDto
         {
-            ["market"] = marketObj,
-            ["reels"] = JsonNode.Parse(reels),
-            ["profileDisplayNames"] = JsonNode.Parse(profileNames),
-            ["savedOfferIds"] = new JsonArray(),
-            ["recommendations"] = JsonSerializer.SerializeToNode(recommendationFeed, JsonOptions),
+            Market = market,
+            Reels = new BootstrapReelsStateDto(),
+            ProfileDisplayNames = new Dictionary<string, string>(),
+            SavedOfferIds = Array.Empty<string>(),
+            Recommendations = recommendationFeed,
         };
-
-        return JsonDocument.Parse(root.ToJsonString(JsonOptions));
     }
 }
-

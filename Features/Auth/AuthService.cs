@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
@@ -19,7 +17,8 @@ public sealed class AuthService(
     {
         var digits = DigitsOnly(phoneRaw);
         var code = Random.Shared.Next(1_000_000, 9_999_999).ToString();
-        Console.WriteLine("RequestCode: " + digits + " " + code);
+        Console.WriteLine("\u001b[31mRequestCode: " + digits + " " + code + "\u001b[0m");
+   
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.Add(PendingTtl);
 
@@ -75,36 +74,25 @@ public sealed class AuthService(
         await db.AuthPendingOtps.Where(p => p.PhoneDigits == digits)
             .ExecuteDeleteAsync(cancellationToken);
 
-        JsonElement userEl;
-        var row = await userAccountSync.GetProfileSnapshotAsync(digits, cancellationToken);
-        if (row is null)
-        {
-            userEl = JsonSerializer.SerializeToElement(new
+        var profile = await userAccountSync.GetProfileSnapshotAsync(digits, cancellationToken);
+        SessionUser sessionUser = profile is null
+            ? new SessionUser
             {
-                id = digits,
-                phone = digits,
-                name = "Usuario sin nombre",
-                email = (string?)null,
-                avatarUrl = (string?)null,
-                instagram = (string?)null,
-                telegram = (string?)null,
-                xAccount = (string?)null,
-            });
-        }
-        else
-        {
-            userEl = JsonSerializer.SerializeToElement(new
+                Id = digits,
+                Phone = digits,
+                Name = "Usuario sin nombre",
+            }
+            : new SessionUser
             {
-                id = digits,
-                phone = digits,
-                name = row.DisplayName,
-                email = row.Email,
-                avatarUrl = row.AvatarUrl,
-                instagram = row.Instagram,
-                telegram = row.Telegram,
-                xAccount = row.XAccount,
-            });
-        }
+                Id = digits,
+                Phone = digits,
+                Name = profile.DisplayName,
+                Email = profile.Email,
+                AvatarUrl = profile.AvatarUrl,
+                Instagram = profile.Instagram,
+                Telegram = profile.Telegram,
+                XAccount = profile.XAccount,
+            };
 
         var token = Guid.NewGuid().ToString("N");
         var sessionNow = DateTimeOffset.UtcNow;
@@ -112,7 +100,7 @@ public sealed class AuthService(
             new AuthSessionRow
             {
                 Token = token,
-                UserJson = userEl.GetRawText(),
+                User = sessionUser,
                 ExpiresAt = sessionNow.Add(SessionTtl),
                 CreatedAt = sessionNow,
             },
@@ -121,12 +109,12 @@ public sealed class AuthService(
         PruneExpiredSessions();
         PruneExpiredPendingOtps();
 
-        return new VerifyResult(token, userEl);
+        return new VerifyResult(token, sessionUser);
     }
 
-    public bool TryGetUserByToken(string? bearerToken, out JsonElement user)
+    public bool TryGetUserByToken(string? bearerToken, out SessionUser? user)
     {
-        user = default;
+        user = null;
         var token = ParseBearer(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
@@ -140,8 +128,7 @@ public sealed class AuthService(
             return false;
         }
 
-        using var doc = JsonDocument.Parse(row.UserJson);
-        user = doc.RootElement.Clone();
+        user = row.User;
         return true;
     }
 
@@ -153,7 +140,7 @@ public sealed class AuthService(
         return db.AuthSessions.Where(s => s.Token == token).ExecuteDelete() > 0;
     }
 
-    public bool TrySetAvatarUrl(string? bearerToken, string avatarUrl, out JsonElement updatedUser) =>
+    public bool TrySetAvatarUrl(string? bearerToken, string avatarUrl, out SessionUser? updatedUser) =>
         TryPatchUserProfile(bearerToken, null, null, null, null, null, avatarUrl, out updatedUser);
 
     public bool TryPatchUserProfile(
@@ -164,9 +151,9 @@ public sealed class AuthService(
         string? telegram,
         string? xAccount,
         string? avatarUrl,
-        out JsonElement updatedUser)
+        out SessionUser? updatedUser)
     {
-        updatedUser = default;
+        updatedUser = null;
         var token = ParseBearer(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
@@ -176,30 +163,29 @@ public sealed class AuthService(
         if (row is null)
             return false;
 
-        var root = JsonNode.Parse(row.UserJson)!.AsObject();
+        var u = row.User.Clone();
         if (name is not null)
-            root["name"] = name;
+            u.Name = name;
         if (email is not null)
-            root["email"] = string.IsNullOrEmpty(email) ? null : email;
+            u.Email = string.IsNullOrEmpty(email) ? null : email;
         if (instagram is not null)
-            root["instagram"] = string.IsNullOrEmpty(instagram) ? null : instagram;
+            u.Instagram = string.IsNullOrEmpty(instagram) ? null : instagram;
         if (telegram is not null)
-            root["telegram"] = string.IsNullOrEmpty(telegram) ? null : telegram;
+            u.Telegram = string.IsNullOrEmpty(telegram) ? null : telegram;
         if (xAccount is not null)
-            root["xAccount"] = string.IsNullOrEmpty(xAccount) ? null : xAccount;
+            u.XAccount = string.IsNullOrEmpty(xAccount) ? null : xAccount;
         if (avatarUrl is not null)
-            root["avatarUrl"] = string.IsNullOrEmpty(avatarUrl) ? null : avatarUrl;
+            u.AvatarUrl = string.IsNullOrEmpty(avatarUrl) ? null : avatarUrl;
 
-        using var doc = JsonDocument.Parse(root.ToJsonString());
-        updatedUser = doc.RootElement.Clone();
-        row.UserJson = updatedUser.GetRawText();
+        row.User = u;
+        updatedUser = u;
         db.SaveChanges();
         return true;
     }
 
-    public bool TrySyncSessionFromSnapshot(string? bearerToken, UserProfileSnapshot snapshot, out JsonElement updatedUser)
+    public bool TrySyncSessionFromSnapshot(string? bearerToken, UserProfileSnapshot snapshot, out SessionUser? updatedUser)
     {
-        updatedUser = default;
+        updatedUser = null;
         var token = ParseBearer(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
@@ -209,24 +195,23 @@ public sealed class AuthService(
         if (row is null)
             return false;
 
-        var root = JsonNode.Parse(row.UserJson)!.AsObject();
-        root["name"] = snapshot.DisplayName;
-        root["email"] = snapshot.Email is { } e ? e : null;
-        root["instagram"] = snapshot.Instagram is { } i ? i : null;
-        root["telegram"] = snapshot.Telegram is { } t ? t : null;
-        root["xAccount"] = snapshot.XAccount is { } x ? x : null;
-        root["avatarUrl"] = snapshot.AvatarUrl is { } a ? a : null;
-
-        using var doc = JsonDocument.Parse(root.ToJsonString());
-        updatedUser = doc.RootElement.Clone();
-        row.UserJson = updatedUser.GetRawText();
+        var u = row.User.Clone();
+        u.Name = snapshot.DisplayName;
+        u.Email = snapshot.Email;
+        u.Instagram = snapshot.Instagram;
+        u.Telegram = snapshot.Telegram;
+        u.XAccount = snapshot.XAccount;
+        u.AvatarUrl = snapshot.AvatarUrl;
+        u.TrustScore = snapshot.TrustScore;
+        row.User = u;
+        updatedUser = u;
         db.SaveChanges();
         return true;
     }
 
-    public bool TrySetSessionUserId(string? bearerToken, string userId, out JsonElement updatedUser)
+    public bool TrySetSessionUserId(string? bearerToken, string userId, out SessionUser? updatedUser)
     {
-        updatedUser = default;
+        updatedUser = null;
         var token = ParseBearer(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
@@ -236,11 +221,10 @@ public sealed class AuthService(
         if (row is null)
             return false;
 
-        var root = JsonNode.Parse(row.UserJson)!.AsObject();
-        root["id"] = userId;
-        using var doc = JsonDocument.Parse(root.ToJsonString());
-        updatedUser = doc.RootElement.Clone();
-        row.UserJson = updatedUser.GetRawText();
+        var u = row.User.Clone();
+        u.Id = userId;
+        row.User = u;
+        updatedUser = u;
         db.SaveChanges();
         return true;
     }

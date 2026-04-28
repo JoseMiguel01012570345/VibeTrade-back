@@ -1,12 +1,15 @@
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Api;
 
+/// <summary>Feed de recomendaciones personalizado e interacciones para afinar el ranking.</summary>
 [ApiController]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
+[Tags("Recommendations")]
 public sealed class RecommendationsController(
     IRecommendationService recommendations,
     IAuthService auth,
@@ -15,26 +18,26 @@ public sealed class RecommendationsController(
 {
     public sealed record TrackInteractionBody(string? OfferId, string? EventType);
 
+    /// <summary>Lote de ofertas recomendadas para el usuario autenticado (<c>take</c> opcional).</summary>
     [HttpGet]
     [ProducesResponseType(typeof(RecommendationBatchResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<RecommendationBatchResponse>> Get(
-        [FromQuery] int? cursor,
         [FromQuery] int? take,
         CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
 
         var batch = await recommendations.GetBatchAsync(
             userId,
             take ?? RecommendationService.DefaultBatchSize,
-            cursor ?? 0,
             cancellationToken);
         return Ok(batch);
     }
 
+    /// <summary>Registra una interacción (<c>click</c>, <c>inquiry</c>, <c>chat_start</c>) para el ranking.</summary>
     [HttpPost("interactions")]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -44,7 +47,7 @@ public sealed class RecommendationsController(
         [FromBody] TrackInteractionBody body,
         CancellationToken cancellationToken)
     {
-        var userId = GetBearerUserId();
+        var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
         if (string.IsNullOrWhiteSpace(body.OfferId))
@@ -62,12 +65,12 @@ public sealed class RecommendationsController(
 
     public sealed record TrackGuestInteractionBody(string? GuestId, string? OfferId, string? EventType);
 
+    /// <summary>Feed de recomendaciones para un invitado (sin sesión).</summary>
     [HttpGet("guest")]
     [ProducesResponseType(typeof(RecommendationBatchResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<RecommendationBatchResponse>> GetGuest(
         [FromQuery] string? guestId,
-        [FromQuery] int? cursor,
         [FromQuery] int? take,
         CancellationToken cancellationToken)
     {
@@ -78,11 +81,11 @@ public sealed class RecommendationsController(
         var batch = await guestRecommendations.GetBatchAsync(
             gid,
             take ?? RecommendationService.DefaultBatchSize,
-            cursor ?? 0,
             cancellationToken);
         return Ok(batch);
     }
 
+    /// <summary>Registra interacción de invitado en memoria para el ranking de <c>guest</c>.</summary>
     [HttpPost("guest/interactions")]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -99,16 +102,6 @@ public sealed class RecommendationsController(
 
         guestInteractions.Record(gid, body.OfferId.Trim(), eventType);
         return NoContent();
-    }
-
-    private string? GetBearerUserId()
-    {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user))
-            return null;
-        if (!user.TryGetProperty("id", out var idEl) || idEl.ValueKind != System.Text.Json.JsonValueKind.String)
-            return null;
-        var id = idEl.GetString();
-        return string.IsNullOrWhiteSpace(id) ? null : id;
     }
 
     private static bool TryParseEventType(string? raw, out RecommendationInteractionType eventType)

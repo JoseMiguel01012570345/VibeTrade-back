@@ -1,48 +1,71 @@
-using System.Text.Json;
+using System.Collections.Generic;
 using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Features.Market.Utils;
 
 internal static class MarketCatalogCurrency
 {
-    public static void ThrowIfProductCurrencyInvalid(JsonElement item, string id)
+    public static void ThrowIfProductCurrencyInvalid(StoreProductPutRequest p, string id)
     {
-        if (string.IsNullOrWhiteSpace(MarketCatalogJsonHelpers.GetString(item, "monedaPrecio")))
+        if (string.IsNullOrWhiteSpace(p.MonedaPrecio))
             throw new CatalogCurrencyValidationException(
                 $"Producto \"{id}\": la moneda del precio es obligatoria.");
-        if (!CatalogItemHasAtLeastOneAcceptedMoneda(item))
+        if (!CatalogItemHasAtLeastOneAcceptedMoneda(p))
             throw new CatalogCurrencyValidationException(
                 $"Producto \"{id}\": indicá al menos una moneda aceptada para el pago.");
     }
 
-    public static void ThrowIfServiceCurrencyInvalid(JsonElement item, string id)
+    public static void ThrowIfServiceCurrencyInvalid(StoreServicePutRequest s, string id)
     {
-        if (!CatalogItemHasAtLeastOneAcceptedMoneda(item))
+        if (!CatalogItemHasAtLeastOneAcceptedMoneda(s))
             throw new CatalogCurrencyValidationException(
                 $"Servicio \"{id}\": indicá al menos una moneda aceptada para el pago.");
     }
 
-    public static bool CatalogItemHasAtLeastOneAcceptedMoneda(JsonElement item)
+    public static List<string> BuildMonedasList(StoreProductPutRequest p) =>
+        BuildMonedasList(p.Monedas, p.Moneda);
+
+    public static List<string> BuildMonedasList(StoreServicePutRequest s) =>
+        BuildMonedasList(s.Monedas, s.Moneda);
+
+    public static List<string> BuildMonedasList(IReadOnlyList<string>? monedas, string? moneda)
     {
-        if (item.TryGetProperty("monedas", out var m) && m.ValueKind == JsonValueKind.Array)
+        if (monedas is { Count: > 0 })
         {
-            foreach (var el in m.EnumerateArray())
+            var withAny = new List<string>(monedas.Count);
+            foreach (var c in monedas)
             {
-                if (el.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(el.GetString()))
+                if (!string.IsNullOrWhiteSpace(c))
+                    withAny.Add(c.Trim());
+            }
+
+            if (withAny.Count > 0)
+                return withAny;
+        }
+
+        if (!string.IsNullOrWhiteSpace(moneda))
+            return new List<string> { moneda.Trim() };
+
+        return new List<string>();
+    }
+
+    public static bool CatalogItemHasAtLeastOneAcceptedMoneda(StoreProductPutRequest p) =>
+        CatalogItemHasAtLeastOneAcceptedMoneda(p.Monedas, p.Moneda);
+
+    public static bool CatalogItemHasAtLeastOneAcceptedMoneda(StoreServicePutRequest s) =>
+        CatalogItemHasAtLeastOneAcceptedMoneda(s.Monedas, s.Moneda);
+
+    private static bool CatalogItemHasAtLeastOneAcceptedMoneda(IReadOnlyList<string>? monedas, string? moneda)
+    {
+        if (monedas is { Count: > 0 })
+        {
+            foreach (var c in monedas)
+            {
+                if (!string.IsNullOrWhiteSpace(c))
                     return true;
             }
         }
 
-        return !string.IsNullOrWhiteSpace(MarketCatalogJsonHelpers.GetString(item, "moneda"));
-    }
-
-    public static string SerializeMonedasFromCatalogItemJson(JsonElement item)
-    {
-        if (item.TryGetProperty("monedas", out var m) && m.ValueKind == JsonValueKind.Array)
-            return m.GetRawText();
-        var legacy = MarketCatalogJsonHelpers.GetString(item, "moneda");
-        if (!string.IsNullOrEmpty(legacy))
-            return JsonSerializer.Serialize(new[] { legacy });
-        return "[]";
+        return !string.IsNullOrWhiteSpace(moneda);
     }
 }

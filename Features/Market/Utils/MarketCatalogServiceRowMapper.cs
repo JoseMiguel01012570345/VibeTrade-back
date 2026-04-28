@@ -1,32 +1,30 @@
-using System.Text.Json;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Features.Market.Utils;
 
 internal static class MarketCatalogServiceRowMapper
 {
-    public static void Apply(JsonElement item, StoreServiceRow row, DateTimeOffset now)
+    public static void Apply(StoreServicePutRequest s, StoreServiceRow row, DateTimeOffset now)
     {
-        row.Published = item.TryGetProperty("published", out var p)
-            ? p.ValueKind switch
-            {
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                _ => null,
-            }
-            : null;
-        row.Category = MarketCatalogJsonHelpers.GetString(item, "category") ?? "";
-        row.TipoServicio = MarketCatalogJsonHelpers.GetString(item, "tipoServicio") ?? "";
-        row.Descripcion = MarketCatalogJsonHelpers.GetString(item, "descripcion") ?? "";
-        row.RiesgosJson = MarketCatalogJsonHelpers.SerializeJsonElement(item, "riesgos") ?? row.RiesgosJson;
-        row.Incluye = MarketCatalogJsonHelpers.GetString(item, "incluye") ?? "";
-        row.NoIncluye = MarketCatalogJsonHelpers.GetString(item, "noIncluye") ?? "";
-        row.DependenciasJson = MarketCatalogJsonHelpers.SerializeJsonElement(item, "dependencias") ?? row.DependenciasJson;
-        row.Entregables = MarketCatalogJsonHelpers.GetString(item, "entregables") ?? "";
-        row.GarantiasJson = MarketCatalogJsonHelpers.SerializeJsonElement(item, "garantias") ?? row.GarantiasJson;
-        row.PropIntelectual = MarketCatalogJsonHelpers.GetString(item, "propIntelectual") ?? "";
-        row.MonedasJson = MarketCatalogCurrency.SerializeMonedasFromCatalogItemJson(item);
-        row.CustomFieldsJson = MarketCatalogJsonHelpers.SerializeJsonElement(item, "customFields") ?? "[]";
+        row.Published = s.Published;
+        row.Category = s.Category ?? "";
+        row.TipoServicio = s.TipoServicio ?? "";
+        row.Descripcion = s.Descripcion ?? "";
+        if (s.Riesgos is not null)
+            row.Riesgos = s.Riesgos;
+        row.Incluye = s.Incluye ?? "";
+        row.NoIncluye = s.NoIncluye ?? "";
+        if (s.Dependencias is not null)
+            row.Dependencias = s.Dependencias;
+        row.Entregables = s.Entregables ?? "";
+        if (s.Garantias is not null)
+            row.Garantias = s.Garantias;
+        row.PropIntelectual = s.PropIntelectual ?? "";
+        row.Monedas = MarketCatalogCurrency.BuildMonedasList(s);
+        row.CustomFields = s.CustomFields is not null
+            ? s.CustomFields.ToList()
+            : row.CustomFields;
         row.UpdatedAt = now;
     }
 }

@@ -6,9 +6,12 @@ namespace VibeTrade.Backend.Api;
 /// <summary>Estado del servicio y dependencias (p. ej. PostgreSQL).</summary>
 [ApiController]
 [Route("health")]
+[Tags("Health")]
 public sealed class HealthController(HealthCheckService healthChecks) : ControllerBase
 {
     /// <summary>Ejecuta los health checks registrados (incluye base de datos).</summary>
+    /// <returns>200 con <c>status: Healthy</c> o 503 con detalle por dependencia.</returns>
+    /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpGet]
     [Produces("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]

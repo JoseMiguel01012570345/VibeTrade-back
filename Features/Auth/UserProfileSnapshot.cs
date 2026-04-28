@@ -8,4 +8,5 @@ public sealed record UserProfileSnapshot(
     string? AvatarUrl,
     string? Instagram,
     string? Telegram,
-    string? XAccount);
+    string? XAccount,
+    int TrustScore = 0);

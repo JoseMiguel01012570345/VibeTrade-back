@@ -1,3 +1,6 @@
+using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Market;
+
 namespace VibeTrade.Backend.Data.Entities;
 
 /// <summary>Servicio de catálogo de una tienda.</summary>
@@ -17,34 +20,36 @@ public sealed class StoreServiceRow
 
     public string Descripcion { get; set; } = "";
 
-    /// <summary>Objeto { enabled, items } en JSON.</summary>
-    public string RiesgosJson { get; set; } = "{\"enabled\":false,\"items\":[]}";
+    public ServiceRiesgosBody Riesgos { get; set; } = new();
 
     public string Incluye { get; set; } = "";
 
     public string NoIncluye { get; set; } = "";
 
-    /// <summary>Objeto { enabled, items } en JSON.</summary>
-    public string DependenciasJson { get; set; } = "{\"enabled\":false,\"items\":[]}";
+    public ServiceDependenciasBody Dependencias { get; set; } = new();
 
     public string Entregables { get; set; } = "";
 
-    /// <summary>Objeto { enabled, texto } en JSON.</summary>
-    public string GarantiasJson { get; set; } = "{\"enabled\":false,\"texto\":\"\"}";
+    public ServiceGarantiasBody Garantias { get; set; } = new();
 
     public string PropIntelectual { get; set; } = "";
 
-    /// <summary>Array JSON de códigos de moneda aceptados para el pago (mismo contrato que productos).</summary>
-    public string MonedasJson { get; set; } = "[]";
+    public List<string> Monedas { get; set; } = new();
 
-    /// <summary>Lista StoreCustomField[] en JSON.</summary>
-    public string CustomFieldsJson { get; set; } = "[]";
+    public List<StoreCustomFieldBody> CustomFields { get; set; } = new();
 
-    /// <summary>Array JSON de URLs de imágenes (mismo contrato que productos).</summary>
-    public string PhotoUrlsJson { get; set; } = "[]";
+    public List<string> PhotoUrls { get; set; } = new();
 
-    /// <summary>Preguntas y respuestas públicas de la oferta (JSON array).</summary>
-    public string OfferQaJson { get; set; } = "[]";
+    /// <summary>Preguntas y respuestas públicas (jsonb <c>OfferQaJson</c>).</summary>
+    public List<OfferQaComment> OfferQa { get; set; } = new();
 
     public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>Borrado lógico; null = activo en catálogo.</summary>
+    public DateTimeOffset? DeletedAtUtc { get; set; }
+
+    /// <summary>
+    /// Peso de popularidad (últimos 30 días): interacciones ponderadas + likes a oferta + likes a comentarios × 0,25.
+    /// </summary>
+    public double PopularityWeight { get; set; }
 }

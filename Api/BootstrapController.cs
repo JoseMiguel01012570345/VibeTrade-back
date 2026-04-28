@@ -4,41 +4,44 @@ using VibeTrade.Backend.Features.Bootstrap;
 
 namespace VibeTrade.Backend.Api;
 
-/// <summary>Carga inicial del cliente web: mercado persistido, reels vacíos y nombres de perfil vacíos.</summary>
+/// <summary>Carga inicial del cliente web: mercado, recomendaciones, ofertas guardadas y (según sesión) hilos.</summary>
 [ApiController]
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
+[Tags("Bootstrap")]
 public sealed class BootstrapController(IBootstrapService bootstrap, IAuthService auth) : ControllerBase
 {
-    /// <summary>Devuelve market, reels y profileDisplayNames.</summary>
-    /// <remarks>Incluye cabecera recomendada <c>X-Timezone</c> (IANA) en todas las peticiones del cliente.</remarks>
+    /// <summary>Bootstrap autenticado: mercado + reels + recomendaciones + hilos del vendedor fusionados con PostgreSQL.</summary>
+    /// <remarks>Requiere <c>Authorization: Bearer</c>.</remarks>
+    /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
         string? viewerPhoneDigits = null;
-        if (auth.TryGetUserByToken(Request.Headers.Authorization, out var user)
-            && user.TryGetProperty("phone", out var ph)
-            && ph.ValueKind == System.Text.Json.JsonValueKind.String)
+        if (auth.TryGetUserByToken(Request.Headers.Authorization, out var user) && !string.IsNullOrEmpty(user?.Phone))
         {
-            viewerPhoneDigits = new string(ph.GetString()!.Where(char.IsDigit).ToArray());
+            viewerPhoneDigits = new string(user.Phone.Where(char.IsDigit).ToArray());
         }
         if (string.IsNullOrWhiteSpace(viewerPhoneDigits))
             return Unauthorized();
 
-        using var doc = await bootstrap.GetBootstrapAsync(viewerPhoneDigits, cancellationToken);
-        var json = doc.RootElement.GetRawText();
-        return Content(json, "application/json");
+        var root = await bootstrap.GetBootstrapAsync(viewerPhoneDigits, cancellationToken);
+        return Ok(root);
     }
 }
 
 [ApiController]
 [Route("api/v1/bootstrap/guest")]
 [Produces("application/json")]
+[Tags("Bootstrap")]
 public sealed class GuestBootstrapController(IGuestBootstrapService bootstrap) : ControllerBase
 {
-    /// <summary>Bootstrap público para invitado (sin sesión).</summary>
+    /// <summary>Bootstrap sin cuenta: mercado global, recomendaciones para <paramref name="guestId"/> y sin hilos.</summary>
+    /// <param name="guestId">Identificador estable del invitado (mín. 8 caracteres).</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -48,8 +51,7 @@ public sealed class GuestBootstrapController(IGuestBootstrapService bootstrap) :
         if (gid.Length < 8)
             return BadRequest(new { error = "invalid_guest_id", message = "guestId requerido." });
 
-        using var doc = await bootstrap.GetGuestBootstrapAsync(gid, cancellationToken);
-        var json = doc.RootElement.GetRawText();
-        return Content(json, "application/json");
+        var root = await bootstrap.GetGuestBootstrapAsync(gid, cancellationToken);
+        return Ok(root);
     }
 }

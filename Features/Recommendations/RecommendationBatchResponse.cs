@@ -1,25 +1,23 @@
-using System.Text.Json.Nodes;
+using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Features.Recommendations;
 
+/// <summary>
+/// Lote de recomendaciones. <see cref="OfferIds"/> conserva el orden del ranking; <see cref="Offers"/>
+/// una entrada por id; <see cref="StoreBadges"/> alinea con <c>market.stores[*]</c>.
+/// </summary>
 public sealed record RecommendationBatchResponse(
-    IReadOnlyList<string> OfferIds,
-    JsonObject Offers,
-    int NextCursor,
-    int TotalAvailable,
+    string[] OfferIds,
+    IReadOnlyDictionary<string, HomeOfferViewDto> Offers,
+    IReadOnlyDictionary<string, StoreProfileWorkspaceData> StoreBadges,
     int BatchSize,
-    double Threshold,
-    bool Wrapped,
-    IReadOnlyList<string> RecommendedStoreIds)
+    double Threshold)
 {
     public static RecommendationBatchResponse Empty(int batchSize, double threshold) =>
         new(
             Array.Empty<string>(),
-            new JsonObject(),
-            0,
-            0,
+            new Dictionary<string, HomeOfferViewDto>(StringComparer.Ordinal),
+            new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal),
             Math.Max(1, batchSize),
-            threshold,
-            false,
-            Array.Empty<string>());
+            threshold);
 }

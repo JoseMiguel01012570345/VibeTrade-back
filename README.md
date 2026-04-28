@@ -113,3 +113,5 @@ dotnet dev-certs https --trust
 ```
 
 **Alternative:** use the **http** profile and `http://localhost:5110` (no TLS) for local API checks.
+
+Use http://localhost:5110/swagger to access to the API swagger documentation.

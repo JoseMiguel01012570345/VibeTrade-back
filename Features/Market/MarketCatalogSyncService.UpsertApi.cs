@@ -1,4 +1,4 @@
-using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Features.Market.Utils;
 
 namespace VibeTrade.Backend.Features.Market;
@@ -9,7 +9,7 @@ public sealed partial class MarketCatalogSyncService
         string storeId,
         string productId,
         string userId,
-        JsonElement product,
+        StoreProductPutRequest product,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -21,13 +21,12 @@ public sealed partial class MarketCatalogSyncService
         if (store.OwnerUserId != userId)
             return StoreCatalogUpsertResult.Forbidden;
 
-        if (product.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
-        {
-            if (idEl.GetString() != productId)
-                return StoreCatalogUpsertResult.IdMismatch;
-        }
+        if (product.Id != productId)
+            return StoreCatalogUpsertResult.IdMismatch;
 
-        var existing = await db.StoreProducts.FindAsync([productId], cancellationToken);
+        var existing = await db.StoreProducts.IgnoreQueryFilters()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == productId, cancellationToken);
         if (existing is not null && existing.StoreId != storeId)
             return StoreCatalogUpsertResult.Forbidden;
 
@@ -53,11 +52,15 @@ public sealed partial class MarketCatalogSyncService
         if (store.OwnerUserId != userId)
             return StoreCatalogUpsertResult.Forbidden;
 
-        var row = await db.StoreProducts.FindAsync([productId], cancellationToken);
-        if (row is null || row.StoreId != storeId)
+        var row = await db.StoreProducts.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(p => p.Id == productId && p.StoreId == storeId, cancellationToken);
+        if (row is null)
             return StoreCatalogUpsertResult.EntityNotFound;
 
-        db.StoreProducts.Remove(row);
+        if (row.DeletedAtUtc is not null)
+            return StoreCatalogUpsertResult.Ok;
+
+        row.DeletedAtUtc = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         await storeSearchIndex.UpsertStoresAsync([storeId], cancellationToken);
         return StoreCatalogUpsertResult.Ok;
@@ -67,7 +70,7 @@ public sealed partial class MarketCatalogSyncService
         string storeId,
         string serviceId,
         string userId,
-        JsonElement service,
+        StoreServicePutRequest service,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(userId))
@@ -79,13 +82,12 @@ public sealed partial class MarketCatalogSyncService
         if (store.OwnerUserId != userId)
             return StoreCatalogUpsertResult.Forbidden;
 
-        if (service.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
-        {
-            if (idEl.GetString() != serviceId)
-                return StoreCatalogUpsertResult.IdMismatch;
-        }
+        if (service.Id != serviceId)
+            return StoreCatalogUpsertResult.IdMismatch;
 
-        var existing = await db.StoreServices.FindAsync([serviceId], cancellationToken);
+        var existing = await db.StoreServices.IgnoreQueryFilters()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == serviceId, cancellationToken);
         if (existing is not null && existing.StoreId != storeId)
             return StoreCatalogUpsertResult.Forbidden;
 
@@ -111,11 +113,15 @@ public sealed partial class MarketCatalogSyncService
         if (store.OwnerUserId != userId)
             return StoreCatalogUpsertResult.Forbidden;
 
-        var row = await db.StoreServices.FindAsync([serviceId], cancellationToken);
-        if (row is null || row.StoreId != storeId)
+        var row = await db.StoreServices.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(s => s.Id == serviceId && s.StoreId == storeId, cancellationToken);
+        if (row is null)
             return StoreCatalogUpsertResult.EntityNotFound;
 
-        db.StoreServices.Remove(row);
+        if (row.DeletedAtUtc is not null)
+            return StoreCatalogUpsertResult.Ok;
+
+        row.DeletedAtUtc = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         await storeSearchIndex.UpsertStoresAsync([storeId], cancellationToken);
         return StoreCatalogUpsertResult.Ok;
