@@ -1,15 +1,22 @@
+using System.Text.Json;
 using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Chat;
 
 public static class TradeAgreementEntityToApiMapper
 {
+    private static readonly JsonSerializerOptions CondicionesExtrasReadOpts = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
     public static TradeAgreementApiResponse ToApiResponse(TradeAgreementRow ag)
     {
         var resp = MapAgreementHeader(ag);
         MapMerchandiseMeta(ag, resp);
         MapMerchandiseLines(ag, resp);
         MapServiceItems(ag, resp);
+        MapExtraFields(ag, resp);
         return resp;
     }
 
@@ -79,6 +86,23 @@ public static class TradeAgreementEntityToApiMapper
             resp.Services.Add(MapServiceItem(s));
     }
 
+    private static void MapExtraFields(TradeAgreementRow ag, TradeAgreementApiResponse resp)
+    {
+        foreach (var f in ag.ExtraFields.OrderBy(x => x.SortOrder))
+        {
+            resp.ExtraFields.Add(new TradeAgreementExtraFieldApi
+            {
+                Id = f.Id,
+                Title = f.Title,
+                ValueKind = f.ValueKind,
+                TextValue = f.TextValue,
+                MediaUrl = f.MediaUrl,
+                FileName = f.FileName,
+                Scope = string.IsNullOrWhiteSpace(f.Scope) ? "legacy_combined" : f.Scope.Trim(),
+            });
+        }
+    }
+
     private static ServiceItemApi MapServiceItem(TradeAgreementServiceItemRow s)
     {
         return new ServiceItemApi
@@ -120,7 +144,25 @@ public static class TradeAgreementEntityToApiMapper
             PenalIncumplimiento = s.PenalIncumplimiento,
             NivelResponsabilidad = s.NivelResponsabilidad,
             PropIntelectual = s.PropIntelectual,
+            CondicionesExtras = DeserializeCondicionesExtrasApi(s.CondicionesExtrasJson),
         };
+    }
+
+    private static List<TradeAgreementExtraFieldApi> DeserializeCondicionesExtrasApi(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return [];
+
+        try
+        {
+            var list = JsonSerializer.Deserialize<List<TradeAgreementExtraFieldApi>>(raw.Trim(),
+                CondicionesExtrasReadOpts);
+            return list ?? [];
+        }
+        catch
+        {
+            return [];
+        }
     }
 
     private static HorariosApi MapHorarios(TradeAgreementServiceItemRow s)

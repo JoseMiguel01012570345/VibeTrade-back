@@ -50,4 +50,7 @@ public sealed class TradeAgreementRow
 
     public ICollection<TradeAgreementServiceItemRow> ServiceItems { get; set; } =
         new List<TradeAgreementServiceItemRow>();
+
+    public ICollection<TradeAgreementExtraFieldRow> ExtraFields { get; set; } =
+        new List<TradeAgreementExtraFieldRow>();
 }

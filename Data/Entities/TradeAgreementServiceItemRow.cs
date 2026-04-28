@@ -40,6 +40,9 @@ public sealed class TradeAgreementServiceItemRow
 
     public string PropIntelectual { get; set; } = "";
 
+    /// <summary>JSON: cláusulas libres configuradas en el asistente (paso Condiciones comerciales).</summary>
+    public string? CondicionesExtrasJson { get; set; }
+
     public int ScheduleCalendarYear { get; set; }
 
     public string ScheduleDefaultWindowStart { get; set; } = "";

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace VibeTrade.Backend.Features.Chat;
 
 /// <summary>Respuesta alineada a <c>TradeAgreement</c> en el cliente.</summary>
@@ -19,6 +21,11 @@ public sealed class TradeAgreementApiResponse
     public List<MerchandiseLineApi> Merchandise { get; set; } = new();
     public MerchandiseSectionMetaApi? MerchandiseMeta { get; set; }
     public List<ServiceItemApi> Services { get; set; } = new();
+
+    /// <summary>Campos libres adicionales (mercancía + servicio).</summary>
+    [JsonPropertyName("extraFields")]
+    public List<TradeAgreementExtraFieldApi> ExtraFields { get; set; } = new();
+
     public string? RouteSheetId { get; set; }
     public string? RouteSheetUrl { get; set; }
 }
@@ -75,6 +82,10 @@ public sealed class ServiceItemApi
     public string PenalIncumplimiento { get; set; } = "";
     public string NivelResponsabilidad { get; set; } = "";
     public string PropIntelectual { get; set; } = "";
+
+    /// <summary>Cláusulas configuradas en el asistente (paso Condiciones comerciales).</summary>
+    [JsonPropertyName("condicionesExtras")]
+    public List<TradeAgreementExtraFieldApi> CondicionesExtras { get; set; } = new();
 }
 
 public sealed class TiempoApi
@@ -141,4 +152,26 @@ public sealed class TerminacionApi
     public bool Enabled { get; set; }
     public List<string> Causas { get; set; } = new();
     public string AvisoDias { get; set; } = "";
+}
+
+public sealed class TradeAgreementExtraFieldApi
+{
+    public string Id { get; set; } = "";
+    public string Title { get; set; } = "";
+
+    [JsonPropertyName("valueKind")]
+    public string ValueKind { get; set; } = "text";
+
+    [JsonPropertyName("textValue")]
+    public string? TextValue { get; set; }
+
+    [JsonPropertyName("mediaUrl")]
+    public string? MediaUrl { get; set; }
+
+    [JsonPropertyName("fileName")]
+    public string? FileName { get; set; }
+
+    /// <summary>merchandise | service | legacy_combined</summary>
+    [JsonPropertyName("scope")]
+    public string Scope { get; set; } = "legacy_combined";
 }

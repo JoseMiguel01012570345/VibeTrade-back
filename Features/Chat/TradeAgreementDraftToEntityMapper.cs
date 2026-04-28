@@ -1,14 +1,23 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Chat;
 
 public static class TradeAgreementDraftToEntityMapper
 {
+    private static readonly JsonSerializerOptions CondicionesExtrasJsonOpts = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
     public static void ReplaceContentFromDraft(TradeAgreementRow ag, TradeAgreementDraftRequest draft)
     {
         ag.MerchandiseLines.Clear();
         ag.MerchandiseMeta = null;
         ag.ServiceItems.Clear();
+        ag.ExtraFields.Clear();
 
         ag.IncludeMerchandise = draft.IncludeMerchandise;
         ag.IncludeService = draft.IncludeService;
@@ -16,10 +25,84 @@ public static class TradeAgreementDraftToEntityMapper
         if (draft.IncludeMerchandise)
             AddMerchandiseLines(ag, draft);
 
-        if (!draft.IncludeService)
+        if (draft.IncludeService)
+            AddServiceItems(ag, draft);
+
+        AppendExtraFieldsIfApplicable(ag, draft);
+    }
+
+    private static void AppendExtraFieldsIfApplicable(
+        TradeAgreementRow ag,
+        TradeAgreementDraftRequest draft)
+    {
+        if (draft.ExtraFields is null)
             return;
 
-        AddServiceItems(ag, draft);
+        var order = 0;
+        foreach (var x in draft.ExtraFields)
+        {
+            if (IsSkippableEmptyExtraDraftRow(x))
+                continue;
+
+            var scope = NormalizeExtraScope(x.Scope);
+            if (scope == "merchandise" && !draft.IncludeMerchandise)
+                continue;
+            if (scope == "service" && !draft.IncludeService)
+                continue;
+            if (scope == "legacy_combined" && !(draft.IncludeMerchandise && draft.IncludeService))
+                continue;
+
+            var title = (x.Title ?? "").Trim();
+            var kind = NormalizeExtraValueKind(x.ValueKind);
+            ag.ExtraFields.Add(new TradeAgreementExtraFieldRow
+            {
+                Id = TradeAgreementEntityIdFactory.NewId("xfe"),
+                TradeAgreementId = ag.Id,
+                SortOrder = order++,
+                Scope = scope,
+                Title = title,
+                ValueKind = kind,
+                TextValue = kind == "text" ? (x.TextValue ?? "").Trim() : null,
+                MediaUrl = kind is not "text"
+                    ? (x.MediaUrl ?? "").Trim()
+                    : null,
+                FileName = string.IsNullOrWhiteSpace(x.FileName)
+                    ? null
+                    : x.FileName.Trim(),
+            });
+        }
+    }
+
+    /// <summary>merchandise | service | legacy_combined</summary>
+    private static string NormalizeExtraScope(string? raw)
+    {
+        var s = (raw ?? "").Trim().ToLowerInvariant();
+        return s switch
+        {
+            "service" => "service",
+            "merchandise" => "merchandise",
+            "legacy_combined" => "legacy_combined",
+            _ => "legacy_combined",
+        };
+    }
+
+    private static bool IsSkippableEmptyExtraDraftRow(TradeAgreementExtraFieldRequest x)
+    {
+        var title = (x.Title ?? "").Trim();
+        if (title.Length > 0)
+            return false;
+
+        var kind = NormalizeExtraValueKind(x.ValueKind);
+        if (kind is "image" or "document")
+            return string.IsNullOrWhiteSpace(x.MediaUrl);
+
+        return string.IsNullOrWhiteSpace(x.TextValue);
+    }
+
+    private static string NormalizeExtraValueKind(string? raw)
+    {
+        var k = (raw ?? "").Trim().ToLowerInvariant();
+        return k is "image" or "document" ? k : "text";
     }
 
     private static void AddMerchandiseLines(TradeAgreementRow ag, TradeAgreementDraftRequest draft)
@@ -111,7 +194,16 @@ public static class TradeAgreementDraftToEntityMapper
             PenalAtrasoTexto = s.PenalAtraso?.Texto ?? "",
             TerminacionEnabled = s.Terminacion?.Enabled ?? false,
             TerminacionAvisoDias = s.Terminacion?.AvisoDias ?? "",
+            CondicionesExtrasJson = SerializeCondicionesExtrasJson(s.CondicionesExtras),
         };
+    }
+
+    private static string? SerializeCondicionesExtrasJson(
+        List<TradeAgreementExtraFieldRequest>? list)
+    {
+        if (list is null || list.Count == 0)
+            return null;
+        return JsonSerializer.Serialize(list, CondicionesExtrasJsonOpts);
     }
 
     private static void AppendScheduleCollections(

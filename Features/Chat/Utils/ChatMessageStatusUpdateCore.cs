@@ -24,8 +24,25 @@ public static class ChatMessageStatusUpdateCore
             .ToList();
         if (fromJson.Count == 0)
             return fromRecipients;
-        return fromJson;
+
+        // JSON snapshot may omit or use different string forms than current thread recipients (e.g. carrier id
+        // variants). Union with DB-derived recipients so CanonicalRecipientId / InExpectedList stay consistent.
+        var merged = new List<string>(fromJson);
+        foreach (var r in fromRecipients)
+        {
+            var rt = (r ?? "").Trim();
+            if (rt.Length == 0)
+                continue;
+            if (merged.Any(e => RecipientIdsSamePerson(e, rt)))
+                continue;
+            merged.Add(rt);
+        }
+        return merged;
     }
+
+    private static bool RecipientIdsSamePerson(string a, string b) =>
+        string.Equals((a ?? "").Trim(), (b ?? "").Trim(), StringComparison.Ordinal)
+        || ChatThreadAccess.UserIdsMatchLoose((a ?? "").Trim(), b);
 
     public enum PairedApplyOutcome
     {

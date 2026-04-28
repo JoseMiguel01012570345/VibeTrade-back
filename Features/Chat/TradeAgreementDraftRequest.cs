@@ -16,6 +16,38 @@ public sealed class TradeAgreementDraftRequest
     public List<MerchandiseLineRequest> Merchandise { get; set; } = new();
 
     public List<ServiceItemRequest> Services { get; set; } = new();
+
+    /// <summary>
+    /// Campos libres (título + texto o adjunto) por bloque: mercancía, servicio, o legacy_combined.
+    /// </summary>
+    [JsonPropertyName("extraFields")]
+    public List<TradeAgreementExtraFieldRequest>? ExtraFields { get; set; }
+}
+
+public sealed class TradeAgreementExtraFieldRequest
+{
+    /// <summary>Cliente (opcional, persistido en blobs JSON).</summary>
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    /// <summary>merchandise | service | legacy_combined</summary>
+    [JsonPropertyName("scope")]
+    public string Scope { get; set; } = "merchandise";
+
+    public string Title { get; set; } = "";
+
+    /// <summary>text | image | document</summary>
+    [JsonPropertyName("valueKind")]
+    public string ValueKind { get; set; } = "text";
+
+    [JsonPropertyName("textValue")]
+    public string? TextValue { get; set; }
+
+    [JsonPropertyName("mediaUrl")]
+    public string? MediaUrl { get; set; }
+
+    [JsonPropertyName("fileName")]
+    public string? FileName { get; set; }
 }
 
 public sealed class MerchandiseLineRequest
@@ -88,6 +120,10 @@ public sealed class ServiceItemRequest
 
     [JsonPropertyName("propIntelectual")]
     public string PropIntelectual { get; set; } = "";
+
+    /// <summary>Cláusulas configuradas en el asistente (paso Condiciones comerciales).</summary>
+    [JsonPropertyName("condicionesExtras")]
+    public List<TradeAgreementExtraFieldRequest>? CondicionesExtras { get; set; }
 }
 
 public sealed class TiempoRangeRequest

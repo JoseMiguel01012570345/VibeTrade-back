@@ -26,6 +26,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<TradeAgreementMerchandiseLineRow> TradeAgreementMerchandiseLines => Set<TradeAgreementMerchandiseLineRow>();
     public DbSet<TradeAgreementMerchandiseMetaRow> TradeAgreementMerchandiseMetas => Set<TradeAgreementMerchandiseMetaRow>();
     public DbSet<TradeAgreementServiceItemRow> TradeAgreementServiceItems => Set<TradeAgreementServiceItemRow>();
+    public DbSet<TradeAgreementExtraFieldRow> TradeAgreementExtraFields => Set<TradeAgreementExtraFieldRow>();
     public DbSet<ChatNotificationRow> ChatNotifications => Set<ChatNotificationRow>();
     public DbSet<RouteTramoSubscriptionRow> RouteTramoSubscriptions => Set<RouteTramoSubscriptionRow>();
     public DbSet<OfferLikeRow> OfferLikes => Set<OfferLikeRow>();
@@ -404,6 +405,25 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithOne(x => x.TradeAgreement)
                 .HasForeignKey(x => x.TradeAgreementId)
                 .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.ExtraFields)
+                .WithOne(x => x.TradeAgreement)
+                .HasForeignKey(x => x.TradeAgreementId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TradeAgreementExtraFieldRow>(e =>
+        {
+            e.ToTable("trade_agreement_extra_fields");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.TradeAgreementId).HasMaxLength(64);
+            e.Property(x => x.Title).HasMaxLength(256);
+            e.Property(x => x.ValueKind).HasMaxLength(16);
+            e.Property(x => x.TextValue).HasColumnType("text");
+            e.Property(x => x.MediaUrl).HasColumnType("text");
+            e.Property(x => x.FileName).HasMaxLength(512);
+            e.Property(x => x.Scope).HasMaxLength(32);
+            e.HasIndex(x => x.TradeAgreementId);
         });
 
         modelBuilder.Entity<TradeAgreementMerchandiseLineRow>(e =>
@@ -461,6 +481,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.PenalIncumplimiento).HasColumnType("text");
             e.Property(x => x.NivelResponsabilidad).HasColumnType("text");
             e.Property(x => x.PropIntelectual).HasColumnType("text");
+            e.Property(x => x.CondicionesExtrasJson).HasColumnType("text");
             e.Property(x => x.ScheduleDefaultWindowStart).HasMaxLength(16);
             e.Property(x => x.ScheduleDefaultWindowEnd).HasMaxLength(16);
             e.Property(x => x.GarantiasTexto).HasColumnType("text");

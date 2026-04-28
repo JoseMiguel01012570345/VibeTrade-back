@@ -35,6 +35,7 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
             .Include(a => a.ServiceItems).ThenInclude(s => s.DependenciaItems)
             .Include(a => a.ServiceItems).ThenInclude(s => s.TerminacionCausas)
             .Include(a => a.ServiceItems).ThenInclude(s => s.MonedasAceptadas)
+            .Include(a => a.ExtraFields)
             .OrderBy(a => a.IssuedAtUtc)
             .ToListAsync(cancellationToken);
 
@@ -308,6 +309,7 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
             .Include(a => a.ServiceItems).ThenInclude(s => s.DependenciaItems)
             .Include(a => a.ServiceItems).ThenInclude(s => s.TerminacionCausas)
             .Include(a => a.ServiceItems).ThenInclude(s => s.MonedasAceptadas)
+            .Include(a => a.ExtraFields)
             .Where(a => a.Id == agreementId && a.DeletedAtUtc == null);
         if (threadId is not null)
             q = q.Where(a => a.ThreadId == threadId);
@@ -320,7 +322,84 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
             return false;
         if (!d.IncludeMerchandise && !d.IncludeService)
             return false;
+        return ValidateExtraFields(d);
+    }
+
+    private static bool ValidateExtraFields(TradeAgreementDraftRequest d)
+    {
+        var list = d.ExtraFields;
+        if (list is null || list.Count == 0)
+            return true;
+        if (list.Count > 48)
+            return false;
+
+        foreach (var x in list)
+        {
+            if (IsSkippableEmptyExtraDraftApiRow(x))
+                continue;
+
+            var sc = NormalizeExtraScopeDto(x.Scope);
+            if (sc == "merchandise" && !d.IncludeMerchandise)
+                return false;
+            if (sc == "service" && !d.IncludeService)
+                return false;
+            if (sc == "legacy_combined" && !(d.IncludeMerchandise && d.IncludeService))
+                return false;
+
+            var title = (x.Title ?? "").Trim();
+            if (title.Length < 1 || title.Length > 256)
+                return false;
+
+            var rawKind = (x.ValueKind ?? "text").Trim().ToLowerInvariant();
+            var kind = rawKind is "image" or "document" ? rawKind : "text";
+
+            if (kind == "text")
+            {
+                var txt = (x.TextValue ?? "").Trim();
+                if (txt.Length < 1 || txt.Length > 8000)
+                    return false;
+            }
+            else
+            {
+                var url = (x.MediaUrl ?? "").Trim();
+                if (url.Length < 24 || url.Length > 2048)
+                    return false;
+                if (!url.StartsWith("/api/v1/media/", StringComparison.Ordinal))
+                    return false;
+            }
+
+            var fn = (x.FileName ?? "").Trim();
+            if (fn.Length > 512)
+                return false;
+        }
+
         return true;
+    }
+
+    private static string NormalizeExtraScopeDto(string? raw)
+    {
+        var s = (raw ?? "").Trim().ToLowerInvariant();
+        return s switch
+        {
+            "service" => "service",
+            "merchandise" => "merchandise",
+            "legacy_combined" => "legacy_combined",
+            _ => "legacy_combined",
+        };
+    }
+
+    private static bool IsSkippableEmptyExtraDraftApiRow(TradeAgreementExtraFieldRequest x)
+    {
+        var title = (x.Title ?? "").Trim();
+        if (title.Length > 0)
+            return false;
+
+        var rawKind = (x.ValueKind ?? "text").Trim().ToLowerInvariant();
+        var kind = rawKind is "image" or "document" ? rawKind : "text";
+        if (kind is "image" or "document")
+            return string.IsNullOrWhiteSpace(x.MediaUrl);
+
+        return string.IsNullOrWhiteSpace(x.TextValue);
     }
 
     private static string NewAgrId() => "agr_" + Guid.NewGuid().ToString("N")[..16];
