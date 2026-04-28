@@ -30,6 +30,12 @@ public sealed class TradeAgreementRow
 
     public bool SellerEditBlockedUntilBuyerResponse { get; set; }
 
+    /// <summary>
+    /// Se pone true cuando el comprador acepta al menos una vez; no se borra si luego rechaza una revisión.
+    /// Sirve para penalizar al vendedor si el rechazo llega después de una aceptación.
+    /// </summary>
+    public bool HadBuyerAcceptance { get; set; }
+
     public bool IncludeMerchandise { get; set; } = true;
 
     public bool IncludeService { get; set; } = true;

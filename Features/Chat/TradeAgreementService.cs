@@ -2,10 +2,14 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Utils;
+using VibeTrade.Backend.Features.Trust;
 
 namespace VibeTrade.Backend.Features.Chat;
 
-public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : ITradeAgreementService
+public sealed class TradeAgreementService(
+    AppDbContext db,
+    IChatService chat,
+    ITrustScoreLedgerService trustLedger) : ITradeAgreementService
 {
     public async Task<IReadOnlyList<TradeAgreementApiResponse>> ListForThreadAsync(
         string userId,
@@ -173,12 +177,57 @@ public sealed class TradeAgreementService(AppDbContext db, IChatService chat) : 
         if (ag is null || ag.Status != "pending_buyer")
             return null;
 
+        const int demoPenaltyPts = 3;
+        var rejectAfterPriorAccept =
+            !accept && ag.HadBuyerAcceptance;
+        var penaltyStoreId = (ag.IssuedByStoreId ?? "").Trim();
+        int penaltyDeltaNotify = 0;
+        int penaltyBalanceAfter = 0;
+
+        if (rejectAfterPriorAccept && penaltyStoreId.Length >= 2)
+        {
+            var storeRow = await db.Stores.FirstOrDefaultAsync(x => x.Id == penaltyStoreId, cancellationToken);
+            if (storeRow is not null)
+            {
+                penaltyDeltaNotify = -demoPenaltyPts;
+                storeRow.TrustScore = Math.Max(-10_000, storeRow.TrustScore + penaltyDeltaNotify);
+                penaltyBalanceAfter = storeRow.TrustScore;
+                trustLedger.StageEntry(
+                    TrustLedgerSubjects.Store,
+                    penaltyStoreId,
+                    penaltyDeltaNotify,
+                    storeRow.TrustScore,
+                    "Rechazo del comprador con acuerdo previamente aceptado (demo)");
+            }
+        }
+
         var now = DateTimeOffset.UtcNow;
         ag.Status = accept ? "accepted" : "rejected";
         ag.RespondedAtUtc = now;
         ag.RespondedByUserId = buyerUserId;
         ag.SellerEditBlockedUntilBuyerResponse = false;
+
+        if (accept)
+            ag.HadBuyerAcceptance = true;
+
         await db.SaveChangesAsync(cancellationToken);
+
+        if (rejectAfterPriorAccept && penaltyDeltaNotify != 0)
+        {
+            var sellerUid = (t.SellerUserId ?? "").Trim();
+            if (sellerUid.Length >= 2)
+            {
+                await chat.NotifySellerStoreTrustPenaltyAsync(
+                    new SellerStoreTrustPenaltyNotificationArgs(
+                        sellerUid,
+                        threadId,
+                        (t.OfferId ?? "").Trim(),
+                        penaltyDeltaNotify,
+                        penaltyBalanceAfter,
+                        $"El comprador rechazó «{ag.Title}» después de una aceptación previa; la confianza de la tienda se ajustó en {demoPenaltyPts} pts (demo)."),
+                    cancellationToken);
+            }
+        }
 
         var sys = accept
             ? $"Acuerdo «{ag.Title}» aceptado por ambas partes. El vendedor puede proponer una nueva versión editándolo; eso reabre la aceptación del comprador. Pueden coexistir otros contratos adicionales."

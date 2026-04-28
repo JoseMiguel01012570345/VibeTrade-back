@@ -390,6 +390,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.RouteSheetId).HasMaxLength(64);
             e.Property(x => x.RouteSheetUrl).HasColumnType("text");
             e.Property(x => x.DeletedByUserId).HasMaxLength(64);
+            e.Property(x => x.HadBuyerAcceptance).HasColumnType("boolean");
             e.HasIndex(x => x.ThreadId);
             e.HasIndex(x => new { x.ThreadId, x.Status });
             e.HasIndex(x => x.DeletedAtUtc);

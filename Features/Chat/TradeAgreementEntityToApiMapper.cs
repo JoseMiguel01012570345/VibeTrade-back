@@ -35,6 +35,7 @@ public static class TradeAgreementEntityToApiMapper
             DeletedAt = deleted ? ag.DeletedAtUtc!.Value.ToUnixTimeMilliseconds() : null,
             RespondedAt = ag.RespondedAtUtc?.ToUnixTimeMilliseconds(),
             SellerEditBlockedUntilBuyerResponse = ag.SellerEditBlockedUntilBuyerResponse ? true : null,
+            HadBuyerAcceptance = ag.HadBuyerAcceptance ? true : null,
             IncludeMerchandise = ag.IncludeMerchandise,
             IncludeService = ag.IncludeService,
             RouteSheetId = ag.RouteSheetId,

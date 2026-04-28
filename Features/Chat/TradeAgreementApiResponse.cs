@@ -16,6 +16,11 @@ public sealed class TradeAgreementApiResponse
     public long? DeletedAt { get; set; }
     public long? RespondedAt { get; set; }
     public bool? SellerEditBlockedUntilBuyerResponse { get; set; }
+
+    /// <summary>Hay registrada al menos una aceptación del comprador sobre este contrato.</summary>
+    [JsonPropertyName("hadBuyerAcceptance")]
+    public bool? HadBuyerAcceptance { get; set; }
+
     public bool IncludeMerchandise { get; set; }
     public bool IncludeService { get; set; }
     public List<MerchandiseLineApi> Merchandise { get; set; } = new();
