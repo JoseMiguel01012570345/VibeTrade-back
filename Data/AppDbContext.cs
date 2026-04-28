@@ -61,6 +61,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Instagram).HasMaxLength(256);
             e.Property(x => x.Telegram).HasMaxLength(256);
             e.Property(x => x.XAccount).HasMaxLength(256);
+            e.Property(x => x.StripeCustomerId).HasMaxLength(96);
             e.Property(x => x.SavedOfferIds)
                 .HasColumnName("SavedOfferIdsJson")
                 .HasColumnType("jsonb")

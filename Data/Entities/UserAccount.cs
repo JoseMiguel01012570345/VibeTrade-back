@@ -25,6 +25,9 @@ public sealed class UserAccount
     /// <summary>Cuenta de X (Twitter).</summary>
     public string? XAccount { get; set; }
 
+    /// <summary>Identificador de cliente en Stripe (cus_...).</summary>
+    public string? StripeCustomerId { get; set; }
+
     public int TrustScore { get; set; } = 50;
 
     /// <summary>Ids de producto/servicio guardados (jsonb: <c>SavedOfferIdsJson</c>).</summary>
