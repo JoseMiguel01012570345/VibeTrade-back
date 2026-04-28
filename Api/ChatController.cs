@@ -475,6 +475,7 @@ public sealed class ChatController(
     [HttpPut("threads/{threadId}/route-sheets/{routeSheetId}")]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> PutRouteSheet(
@@ -486,6 +487,8 @@ public sealed class ChatController(
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
+        if (RouteSheetPayloadValidator.Validate(payload) is { } validationMessage)
+            return BadRequest(new { error = "validation", message = validationMessage });
         var ok = await routeSheets.UpsertAsync(userId, threadId, routeSheetId, payload, cancellationToken);
         if (!ok)
             return NotFound(new { error = "not_found", message = "Hilo no encontrado o datos inválidos." });

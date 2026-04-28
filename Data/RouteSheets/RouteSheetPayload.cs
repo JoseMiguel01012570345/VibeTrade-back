@@ -59,7 +59,7 @@ public sealed class RouteStopPayload
 
 /// <summary>Hoja de ruta; mismo contrato que <c>RouteSheet</c> en el cliente (JSON camelCase).</summary>
 public sealed class RouteSheetPayload
-{
+{ 
     public string Id { get; set; } = "";
 
     public string ThreadId { get; set; } = "";

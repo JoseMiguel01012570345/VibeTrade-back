@@ -174,6 +174,9 @@ public sealed class RouteSheetChatService(
                 RouteSheetJson.Options)
             ?? merged;
 
+        if (RouteSheetPayloadValidator.Validate(persisted) is not null)
+            return false;
+
         if (row is null)
         {
             db.ChatRouteSheets.Add(new ChatRouteSheetRow
