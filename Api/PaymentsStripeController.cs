@@ -60,18 +60,41 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
             return Ok(new List<StripeCardPaymentMethodDto>());
 
         StripeConfiguration.ApiKey = secret;
-        var pmSvc = new PaymentMethodService();
-        var list = await pmSvc.ListAsync(
-            new PaymentMethodListOptions
+        // Usar el endpoint por customer y combinar filtros de allow_redisplay: en cuentas/API
+        // recientes Stripe puede no devolver tarjetas con allow_redisplay=unspecified si solo
+        // se lista sin filtro explícito (o viceversa). Unimos resultados únicos por id.
+        var byId = new Dictionary<string, PaymentMethod>(StringComparer.Ordinal);
+        var cpmSvc = new CustomerPaymentMethodService();
+
+        async Task AddAllPagesAsync(CustomerPaymentMethodListOptions template, CancellationToken ct)
+        {
+            string? startingAfter = null;
+            while (true)
             {
-                Customer = cusId,
-                Type = "card",
-            },
-            requestOptions: null,
-            cancellationToken: cancellationToken);
+                var opts = new CustomerPaymentMethodListOptions
+                {
+                    Type = template.Type,
+                    Limit = 100,
+                    StartingAfter = startingAfter,
+                    AllowRedisplay = template.AllowRedisplay,
+                };
+                var list = await cpmSvc.ListAsync(cusId, opts, requestOptions: null, cancellationToken: ct);
+                var data = list.Data ?? new List<PaymentMethod>();
+                foreach (var pm in data)
+                    byId[pm.Id] = pm;
+                if (!list.HasMore || data.Count == 0)
+                    break;
+                startingAfter = data[^1].Id;
+            }
+        }
+
+        await AddAllPagesAsync(new CustomerPaymentMethodListOptions { Type = "card" }, cancellationToken);
+        await AddAllPagesAsync(new CustomerPaymentMethodListOptions { Type = "card", AllowRedisplay = "always" }, cancellationToken);
+        await AddAllPagesAsync(new CustomerPaymentMethodListOptions { Type = "card", AllowRedisplay = "limited" }, cancellationToken);
+        await AddAllPagesAsync(new CustomerPaymentMethodListOptions { Type = "card", AllowRedisplay = "unspecified" }, cancellationToken);
 
         var outList = new List<StripeCardPaymentMethodDto>();
-        foreach (var pm in list.Data ?? new List<PaymentMethod>())
+        foreach (var pm in byId.Values)
         {
             var c = pm.Card;
             if (c is null) continue;
@@ -126,6 +149,7 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         return Ok(new CreateSetupIntentResult(si.ClientSecret));
     }
 
+    /// <param name="AmountMinor">Monto en unidad mínima de moneda (Stripe <c>amount</c>): p. ej. USD = centavos, 1000 = US$10,00.</param>
     public sealed record CreatePaymentIntentBody(long AmountMinor, string Currency, string? Description, string? PaymentMethodId);
     public sealed record CreatePaymentIntentResult(string ClientSecret);
 
