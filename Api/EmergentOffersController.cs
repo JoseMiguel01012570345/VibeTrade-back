@@ -82,7 +82,7 @@ public sealed class EmergentOffersController(
             return Unauthorized();
 
         if (body is null || string.IsNullOrWhiteSpace(body.StopId) || string.IsNullOrWhiteSpace(body.StoreServiceId))
-            return BadRequest(new { error = "invalid_payload", message = "Indicá stopId y storeServiceId." });
+            return BadRequest(new { error = "invalid_payload", message = "Indica stopId y storeServiceId." });
 
         var (ok, code, message) = await tramoSubscriptionRequest.RequestAsync(
             userId,

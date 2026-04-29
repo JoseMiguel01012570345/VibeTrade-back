@@ -195,10 +195,10 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         if (cur.Length is < 3 or > 8)
             return BadRequest(new { error = "invalid_currency", message = "Moneda inválida." });
         if (body.AmountMinor <= 0)
-            return BadRequest(new { error = "invalid_amount", message = "Monto inválido." });
+            return BadRequest(new { error = "invalid_amount", message = "Importe inválido." });
         var pmId = (body.PaymentMethodId ?? "").Trim();
         if (pmId.Length == 0)
-            return BadRequest(new { error = "missing_payment_method", message = "Seleccioná una tarjeta para pagar." });
+            return BadRequest(new { error = "missing_payment_method", message = "Selecciona una tarjeta para pagar." });
 
         StripeConfiguration.ApiKey = serverKey;
         var (_, customerId) = await EnsureStripeCustomerAsync(userId.Trim(), cancellationToken);
@@ -206,7 +206,7 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
             return BadRequest(new
             {
                 error = "no_saved_cards",
-                message = "No hay tarjetas configuradas. Agregá una tarjeta en Configurar antes de pagar.",
+                message = "No hay tarjetas configuradas. Añade una tarjeta en Configurar antes de pagar.",
             });
 
         // Verificar que la tarjeta seleccionada pertenece al customer.

@@ -247,7 +247,7 @@ public sealed class MarketController(
         }
         catch (ArgumentException)
         {
-            return BadRequest(new { error = "invalid_stores_body", message = "Indicá la tienda con un campo \"id\" o usá la forma \"stores\".{...}." });
+            return BadRequest(new { error = "invalid_stores_body", message = "Indica la tienda con un campo \"id\" o usa la forma \"stores\".{...}." });
         }
         catch (DuplicateStoreNameException)
         {
@@ -408,11 +408,11 @@ public sealed class MarketController(
     {
         var bearerUserId = BearerUserId.FromRequest(auth, Request);
         if (bearerUserId is null)
-            return Unauthorized(new { error = "auth_required", message = "Iniciá sesión para comentar." });
+            return Unauthorized(new { error = "auth_required", message = "Inicia sesión para comentar." });
 
         var q = ((body.Question ?? body.Text) ?? "").Trim();
         if (string.IsNullOrWhiteSpace(body.OfferId) || string.IsNullOrWhiteSpace(q))
-            return BadRequest(new { error = "invalid_inquiry", message = "Indicá la oferta y el texto." });
+            return BadRequest(new { error = "invalid_inquiry", message = "Indica la oferta y el texto." });
 
         var askedById = bearerUserId.Trim();
         var snap = await userAccountSync.GetProfileSnapshotByUserIdAsync(askedById, cancellationToken);
@@ -541,7 +541,7 @@ public sealed class MarketController(
     {
         var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
         if (likerKey is null)
-            return Unauthorized(new { error = "auth_required", message = "Iniciá sesión para dar me gusta." });
+            return Unauthorized(new { error = "auth_required", message = "Inicia sesión para dar me gusta." });
         if (!await offerEngagement.OfferExistsAsync(offerId, cancellationToken))
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
         var (liked, likeCount) = await offerEngagement.ToggleOfferLikeAsync(offerId, likerKey, cancellationToken);
@@ -577,7 +577,7 @@ public sealed class MarketController(
     {
         var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
         if (likerKey is null)
-            return Unauthorized(new { error = "auth_required", message = "Iniciá sesión para dar me gusta." });
+            return Unauthorized(new { error = "auth_required", message = "Inicia sesión para dar me gusta." });
         if (!await offerEngagement.OfferExistsAsync(offerId, cancellationToken))
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
         var (liked, likeCount) = await offerEngagement.ToggleQaCommentLikeAsync(

@@ -9,7 +9,7 @@ public sealed class EmergentOfferCarrierSubscriptionService(AppDbContext db) : I
     public const string ReasonBuyerWithAcceptedAgreement = "buyer_with_accepted_agreement";
 
     public const string MessageBuyerWithAcceptedAgreementEs =
-        "No podés suscribirte como transportista: en esta operación sos el comprador con un acuerdo aceptado.";
+        "No puedes suscribirte como transportista: en esta operación eres el comprador con un acuerdo aceptado.";
 
     public async Task<EmergentCarrierSubscriptionStatus> GetStatusAsync(
         string? viewerUserId,

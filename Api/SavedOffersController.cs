@@ -27,7 +27,7 @@ public sealed class SavedOffersController(IAuthService auth, ISavedOffersService
         if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
             return Unauthorized();
         if (body is null || string.IsNullOrWhiteSpace(body.ProductId))
-            return BadRequest(new { error = "invalid_body", message = "Indicá productId." });
+            return BadRequest(new { error = "invalid_body", message = "Indica productId." });
         var userId = user.Id!;
 
         var (err, ids) = await savedOffers.TryAddAsync(userId, body.ProductId, cancellationToken);
@@ -39,7 +39,7 @@ public sealed class SavedOffersController(IAuthService auth, ISavedOffersService
             return BadRequest(new
             {
                 error = "own_product",
-                message = "No podés guardar productos o servicios de tus propias tiendas.",
+                message = "No puedes guardar productos o servicios de tus propias tiendas.",
             });
 
         return Ok(new SavedOfferIdsResponse(ids));
