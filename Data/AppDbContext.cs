@@ -33,6 +33,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<OfferQaCommentLikeRow> OfferQaCommentLikes => Set<OfferQaCommentLikeRow>();
     public DbSet<TrustScoreLedgerRow> TrustScoreLedgerRows => Set<TrustScoreLedgerRow>();
 
+    /// <inheritdoc />
+    public DbSet<AgreementCurrencyPaymentRow> AgreementCurrencyPayments => Set<AgreementCurrencyPaymentRow>();
+
+    /// <inheritdoc />
+    public DbSet<AgreementRouteLegPaidRow> AgreementRouteLegPaids => Set<AgreementRouteLegPaidRow>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<MarketWorkspaceRow>(e =>
@@ -688,6 +694,47 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.SubjectId).HasMaxLength(64);
             e.Property(x => x.Reason).HasMaxLength(512);
             e.HasIndex(x => new { x.SubjectType, x.SubjectId, x.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<AgreementCurrencyPaymentRow>(e =>
+        {
+            e.ToTable("agreement_currency_payments");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.TradeAgreementId).HasMaxLength(64);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.BuyerUserId).HasMaxLength(64);
+            e.Property(x => x.Currency).HasMaxLength(16);
+            e.Property(x => x.StripePaymentIntentId).HasMaxLength(128);
+            e.Property(x => x.Status).HasMaxLength(32);
+            e.Property(x => x.PaymentMethodStripeId).HasMaxLength(96);
+            e.Property(x => x.StripeErrorMessage).HasColumnType("text");
+            e.Property(x => x.ClientIdempotencyKey).HasMaxLength(200);
+            e.Property(x => x.ClientSecretForConfirmation).HasColumnType("text");
+            e.HasIndex(x => new { x.TradeAgreementId, x.ThreadId });
+            e.HasIndex(x => x.ClientIdempotencyKey)
+                .IsUnique()
+                .HasFilter("\"ClientIdempotencyKey\" IS NOT NULL");
+            e.HasOne(x => x.TradeAgreement)
+                .WithMany()
+                .HasForeignKey(x => x.TradeAgreementId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasMany(x => x.RouteLegPaids)
+                .WithOne(x => x.AgreementCurrencyPayment)
+                .HasForeignKey(x => x.AgreementCurrencyPaymentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AgreementRouteLegPaidRow>(e =>
+        {
+            e.ToTable("agreement_route_leg_paids");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.AgreementCurrencyPaymentId).HasMaxLength(64);
+            e.Property(x => x.RouteSheetId).HasMaxLength(64);
+            e.Property(x => x.RouteStopId).HasMaxLength(96);
+            e.HasIndex(x => new { x.RouteSheetId, x.RouteStopId });
         });
     }
 }

@@ -70,6 +70,7 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IRouteSheetChatService, RouteSheetChatService>();
 builder.Services.AddScoped<IRouteTramoSubscriptionService, RouteTramoSubscriptionService>();
 builder.Services.AddScoped<ITradeAgreementService, TradeAgreementService>();
+builder.Services.AddScoped<IAgreementCheckoutService, AgreementCheckoutService>();
 builder.Services.Configure<RoutingOptions>(
     builder.Configuration.GetSection(RoutingOptions.SectionName));
 builder.Services.AddHttpClient<IOsrmLegDistanceService, OsrmLegDistanceService>(client =>
