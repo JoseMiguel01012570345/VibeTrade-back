@@ -37,7 +37,7 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
         var sid = (stopId ?? "").Trim();
         var svcId = (storeServiceId ?? "").Trim();
         if (sid.Length < 1 || svcId.Length < 1)
-            return (false, "invalid_payload", "Indicá tramo y servicio de transporte.");
+            return (false, "invalid_payload", "Indica tramo y servicio de transporte.");
 
         var em = await db.EmergentOffers.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == eid && x.RetractedAtUtc == null, cancellationToken);

@@ -45,13 +45,13 @@ public sealed class ChatController(
             return BadRequest(new
             {
                 error = "cannot_message_self",
-                message = "No podés chatear con vos mismo.",
+                message = "No puedes chatear contigo mismo.",
             });
         }
 
         var dto = await chat.CreateOrGetThreadForBuyerAsync(userId, oid, purchaseIntent, forceNew, cancellationToken);
         if (dto is null)
-            return NotFound(new { error = "offer_not_found", message = "No se encontró la oferta o no podés abrir este chat." });
+            return NotFound(new { error = "offer_not_found", message = "No se encontró la oferta o no puedes abrir este chat." });
 
         return Ok(dto);
     }
@@ -125,7 +125,7 @@ public sealed class ChatController(
             return Unauthorized();
         var r = (body?.Reason ?? "").Trim();
         if (r.Length < 1)
-            return BadRequest(new { error = "reason_required", message = "Indicá un motivo para salir." });
+            return BadRequest(new { error = "reason_required", message = "Indica un motivo para salir." });
         var ok = await chat.SoftLeaveThreadAsPartyAsync(new PartySoftLeaveArgs(userId, threadId, r), cancellationToken);
         if (!ok)
             return NotFound(new { error = "not_found", message = "No se pudo registrar la salida (sin acuerdo aceptado o sin permiso)." });
@@ -424,7 +424,7 @@ public sealed class ChatController(
         if (body is null
             || string.IsNullOrWhiteSpace(body.CarrierUserId)
             || string.IsNullOrWhiteSpace((body.Reason ?? "").Trim()))
-            return BadRequest(new { error = "invalid_body", message = "Indicá al transportista y un motivo." });
+            return BadRequest(new { error = "invalid_body", message = "Indica al transportista y un motivo." });
 
         var rs = (body.RouteSheetId ?? "").Trim();
         var st = (body.StopId ?? "").Trim();
@@ -432,7 +432,7 @@ public sealed class ChatController(
             return BadRequest(new
             {
                 error = "invalid_body",
-                message = "Para expulsar solo un tramo enviá routeSheetId y stopId; para toda la operación, ninguno de los dos.",
+                message = "Para expulsar solo un tramo envía routeSheetId y stopId; para toda la operación, ninguno de los dos.",
             });
 
         var r = await routeTramoSubscriptions.ExpelCarrierBySellerFromThreadAsync(
@@ -516,7 +516,7 @@ public sealed class ChatController(
         if (userId is null)
             return Unauthorized();
         if (body?.Invites is null || body.Invites.Length == 0)
-            return BadRequest(new { error = "invalid_body", message = "Indicá al menos un tramo con teléfono a notificar." });
+            return BadRequest(new { error = "invalid_body", message = "Indica al menos un tramo con teléfono a notificar." });
         var n = await routeSheets.NotifyPreselectedTransportistasAsync(
             userId,
             threadId,

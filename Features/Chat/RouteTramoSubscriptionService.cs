@@ -489,7 +489,7 @@ public sealed class RouteTramoSubscriptionService(
             .FirstOrDefaultAsync(x => x.Id == k.ActorId, cancellationToken);
         var (sellerLabel, sellerTrust) = RouteTramoSellerPresentation.LabelAndTrust(store, actorAcc);
         var preview =
-            $"{sellerLabel} rechazó tu solicitud de transporte en un tramo de la hoja de ruta publicada. Podés revisar la oferta y los tramos disponibles.";
+            $"{sellerLabel} rechazó tu solicitud de transporte en un tramo de la hoja de ruta publicada. Puedes revisar la oferta y los tramos disponibles.";
 
         await chat.NotifyRouteTramoSubscriptionRejectedAsync(
             new RouteTramoSubscriptionRejectedNotificationArgs(

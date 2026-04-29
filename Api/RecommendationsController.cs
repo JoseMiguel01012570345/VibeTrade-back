@@ -51,9 +51,9 @@ public sealed class RecommendationsController(
         if (userId is null)
             return Unauthorized();
         if (string.IsNullOrWhiteSpace(body.OfferId))
-            return BadRequest(new { error = "invalid_offer_id", message = "Indicá la oferta." });
+            return BadRequest(new { error = "invalid_offer_id", message = "Indica la oferta." });
         if (!TryParseEventType(body.EventType, out var eventType))
-            return BadRequest(new { error = "invalid_event_type", message = "Usá click, inquiry o chat_start." });
+            return BadRequest(new { error = "invalid_event_type", message = "Usa click, inquiry o chat_start." });
 
         await recommendations.RecordInteractionAsync(
             userId,
@@ -96,9 +96,9 @@ public sealed class RecommendationsController(
         if (gid.Length < 8)
             return BadRequest(new { error = "invalid_guest_id", message = "guestId requerido." });
         if (string.IsNullOrWhiteSpace(body.OfferId))
-            return BadRequest(new { error = "invalid_offer_id", message = "Indicá la oferta." });
+            return BadRequest(new { error = "invalid_offer_id", message = "Indica la oferta." });
         if (!TryParseEventType(body.EventType, out var eventType))
-            return BadRequest(new { error = "invalid_event_type", message = "Usá click, inquiry o chat_start." });
+            return BadRequest(new { error = "invalid_event_type", message = "Usa click, inquiry o chat_start." });
 
         guestInteractions.Record(gid, body.OfferId.Trim(), eventType);
         return NoContent();

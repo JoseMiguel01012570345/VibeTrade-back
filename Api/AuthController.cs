@@ -195,7 +195,7 @@ public sealed class AuthController(
             || body.XAccount is not null
             || body.AvatarUrl is not null;
         if (!hasAny)
-            return BadRequest("Indicá al menos un campo.");
+            return BadRequest("Indica al menos un campo.");
 
         if (!string.IsNullOrWhiteSpace(body.AvatarUrl))
         {
@@ -247,7 +247,7 @@ public sealed class AuthController(
                 new
                 {
                     error = "phone_already_registered",
-                    message = "Este número ya está registrado. Iniciá sesión si es tu cuenta.",
+                    message = "Este número ya está registrado. Inicia sesión si es tu cuenta.",
                 });
         }
 
@@ -273,7 +273,7 @@ public sealed class AuthController(
                 new
                 {
                     error = "phone_already_registered",
-                    message = "Este número ya está registrado. Iniciá sesión si es tu cuenta.",
+                    message = "Este número ya está registrado. Inicia sesión si es tu cuenta.",
                 });
         }
 

@@ -42,7 +42,7 @@ public sealed class UserContactsService(AppDbContext db) : IUserContactsService
     {
         var digits = DigitsOnly(phoneRaw);
         if (string.IsNullOrEmpty(digits))
-            throw new InvalidOperationException("Indicá un número de teléfono.");
+            throw new InvalidOperationException("Indica un número de teléfono.");
 
         var target = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(u => u.PhoneDigits == digits, cancellationToken);
@@ -50,7 +50,7 @@ public sealed class UserContactsService(AppDbContext db) : IUserContactsService
             throw new InvalidOperationException("Ese número no está registrado en la plataforma.");
 
         if (target.Id == ownerUserId)
-            throw new InvalidOperationException("No podés agregarte a vos mismo como contacto.");
+            throw new InvalidOperationException("No puedes añadirte a ti mismo como contacto.");
 
         var now = DateTimeOffset.UtcNow;
         var existing = await db.UserContacts.IgnoreQueryFilters()
@@ -87,7 +87,7 @@ public sealed class UserContactsService(AppDbContext db) : IUserContactsService
     {
         var digits = DigitsOnly(phoneRaw);
         if (string.IsNullOrEmpty(digits))
-            throw new InvalidOperationException("Indicá un número de teléfono.");
+            throw new InvalidOperationException("Indica un número de teléfono.");
 
         var target = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(u => u.PhoneDigits == digits, cancellationToken);
@@ -95,7 +95,7 @@ public sealed class UserContactsService(AppDbContext db) : IUserContactsService
             return null;
 
         if (string.Equals((target.Id ?? "").Trim(), (requesterUserId ?? "").Trim(), StringComparison.Ordinal))
-            throw new InvalidOperationException("No podés usarte a vos mismo como transportista de contacto.");
+            throw new InvalidOperationException("No puedes usarte a ti mismo como transportista de contacto.");
 
         return new PlatformUserByPhoneDto(
             target.Id!,

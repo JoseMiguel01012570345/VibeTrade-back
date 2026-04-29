@@ -12,14 +12,14 @@ internal static class MarketCatalogCurrency
                 $"Producto \"{id}\": la moneda del precio es obligatoria.");
         if (!CatalogItemHasAtLeastOneAcceptedMoneda(p))
             throw new CatalogCurrencyValidationException(
-                $"Producto \"{id}\": indicá al menos una moneda aceptada para el pago.");
+                $"Producto \"{id}\": indica al menos una moneda aceptada para el pago.");
     }
 
     public static void ThrowIfServiceCurrencyInvalid(StoreServicePutRequest s, string id)
     {
         if (!CatalogItemHasAtLeastOneAcceptedMoneda(s))
             throw new CatalogCurrencyValidationException(
-                $"Servicio \"{id}\": indicá al menos una moneda aceptada para el pago.");
+                $"Servicio \"{id}\": indica al menos una moneda aceptada para el pago.");
     }
 
     public static List<string> BuildMonedasList(StoreProductPutRequest p) =>

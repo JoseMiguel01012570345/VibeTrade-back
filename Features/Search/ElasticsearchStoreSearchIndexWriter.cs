@@ -97,7 +97,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         {
             logger.LogWarning(
                 ex,
-                "Elasticsearch: sin conexión al preparar el índice {Index} ({Uri}). Activá el nodo o deshabilitá Elasticsearch:Enabled.",
+                "Elasticsearch: sin conexión al preparar el índice {Index} ({Uri}). Activa el nodo o deshabilita Elasticsearch:Enabled.",
                 _opt.IndexName,
                 _opt.Uri ?? "(sin uri)");
         }
@@ -130,7 +130,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         {
             logger.LogInformation(
                 "Elasticsearch: el índice {Index} ya tiene el campo {Field} con un tipo distinto al esperado; no se puede corregir con PUT mapping. " +
-                "Eliminá ese índice en el cluster (DELETE con el mismo nombre) y reiniciá la app, o usá otro valor en la opción de configuración IndexName y reindexá el catálogo.",
+                "Elimina ese índice en el cluster (DELETE con el mismo nombre) y reinicia la aplicación, o usa otro valor en la opción de configuración IndexName y reindexa el catálogo.",
                 _opt.IndexName,
                 fieldForLog);
             return;
