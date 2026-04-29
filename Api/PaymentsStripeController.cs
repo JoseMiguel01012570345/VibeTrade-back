@@ -14,8 +14,21 @@ namespace VibeTrade.Backend.Api;
 [Tags("Payments")]
 public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db) : ControllerBase
 {
-    private static string? StripeSecretKey() => (Environment.GetEnvironmentVariable("STRIPE_SECRET_KEY") ?? "").Trim() is { Length: > 0 } s ? s : null;
-    private static string? StripePublishableKey() => (Environment.GetEnvironmentVariable("STRIPE_PUBLISHABLE_KEY") ?? "").Trim() is { Length: > 0 } s ? s : null;
+    /// <summary>
+    /// Prefer <c>STRIPE_RESTRICTED_KEY</c> (rk_...) from Stripe Dashboard → Developers → API keys → Create restricted key
+    /// so the server never needs the unrestricted secret when a least-privilege key is configured.
+    /// </summary>
+    private static string? StripeRestrictedKey() =>
+        (Environment.GetEnvironmentVariable("STRIPE_RESTRICTED_KEY") ?? "").Trim() is { Length: > 0 } s ? s : null;
+
+    private static string? StripeSecretKey() =>
+        (Environment.GetEnvironmentVariable("STRIPE_SECRET_KEY") ?? "").Trim() is { Length: > 0 } s ? s : null;
+
+    /// <summary>API key for Stripe.net: restricted key if set, otherwise full secret (dev / legacy).</summary>
+    private static string? StripeServerApiKey() => StripeRestrictedKey() ?? StripeSecretKey();
+
+    private static string? StripePublishableKey() =>
+        (Environment.GetEnvironmentVariable("STRIPE_PUBLISHABLE_KEY") ?? "").Trim() is { Length: > 0 } s ? s : null;
 
     public sealed record StripeConfigDto(bool Enabled, string? PublishableKey);
 
@@ -28,9 +41,9 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         if (userId is null)
             return Unauthorized();
 
-        var secret = StripeSecretKey();
+        var serverKey = StripeServerApiKey();
         var pub = StripePublishableKey();
-        var enabled = secret is not null && pub is not null;
+        var enabled = serverKey is not null && pub is not null;
         return Ok(new StripeConfigDto(enabled, enabled ? pub : null));
     }
 
@@ -50,8 +63,8 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         if (userId is null)
             return Unauthorized();
 
-        var secret = StripeSecretKey();
-        if (secret is null)
+        var serverKey = StripeServerApiKey();
+        if (serverKey is null)
             return Ok(new List<StripeCardPaymentMethodDto>());
 
         var u = await db.UserAccounts.FirstOrDefaultAsync(x => x.Id == userId.Trim(), cancellationToken);
@@ -59,19 +72,42 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         if (string.IsNullOrWhiteSpace(cusId))
             return Ok(new List<StripeCardPaymentMethodDto>());
 
-        StripeConfiguration.ApiKey = secret;
-        var pmSvc = new PaymentMethodService();
-        var list = await pmSvc.ListAsync(
-            new PaymentMethodListOptions
+        StripeConfiguration.ApiKey = serverKey;
+        // Usar el endpoint por customer y combinar filtros de allow_redisplay: en cuentas/API
+        // recientes Stripe puede no devolver tarjetas con allow_redisplay=unspecified si solo
+        // se lista sin filtro explícito (o viceversa). Unimos resultados únicos por id.
+        var byId = new Dictionary<string, PaymentMethod>(StringComparer.Ordinal);
+        var cpmSvc = new CustomerPaymentMethodService();
+
+        async Task AddAllPagesAsync(CustomerPaymentMethodListOptions template, CancellationToken ct)
+        {
+            string? startingAfter = null;
+            while (true)
             {
-                Customer = cusId,
-                Type = "card",
-            },
-            requestOptions: null,
-            cancellationToken: cancellationToken);
+                var opts = new CustomerPaymentMethodListOptions
+                {
+                    Type = template.Type,
+                    Limit = 100,
+                    StartingAfter = startingAfter,
+                    AllowRedisplay = template.AllowRedisplay,
+                };
+                var list = await cpmSvc.ListAsync(cusId, opts, requestOptions: null, cancellationToken: ct);
+                var data = list.Data ?? new List<PaymentMethod>();
+                foreach (var pm in data)
+                    byId[pm.Id] = pm;
+                if (!list.HasMore || data.Count == 0)
+                    break;
+                startingAfter = data[^1].Id;
+            }
+        }
+
+        await AddAllPagesAsync(new CustomerPaymentMethodListOptions { Type = "card" }, cancellationToken);
+        await AddAllPagesAsync(new CustomerPaymentMethodListOptions { Type = "card", AllowRedisplay = "always" }, cancellationToken);
+        await AddAllPagesAsync(new CustomerPaymentMethodListOptions { Type = "card", AllowRedisplay = "limited" }, cancellationToken);
+        await AddAllPagesAsync(new CustomerPaymentMethodListOptions { Type = "card", AllowRedisplay = "unspecified" }, cancellationToken);
 
         var outList = new List<StripeCardPaymentMethodDto>();
-        foreach (var pm in list.Data ?? new List<PaymentMethod>())
+        foreach (var pm in byId.Values)
         {
             var c = pm.Card;
             if (c is null) continue;
@@ -97,11 +133,15 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         if (userId is null)
             return Unauthorized();
 
-        var secret = StripeSecretKey();
-        if (secret is null)
-            return BadRequest(new { error = "stripe_not_configured", message = "Falta STRIPE_SECRET_KEY en .env" });
+        var serverKey = StripeServerApiKey();
+        if (serverKey is null)
+            return BadRequest(new
+            {
+                error = "stripe_not_configured",
+                message = "Falta STRIPE_RESTRICTED_KEY o STRIPE_SECRET_KEY en .env",
+            });
 
-        StripeConfiguration.ApiKey = secret;
+        StripeConfiguration.ApiKey = serverKey;
         var (u, customerId) = await EnsureStripeCustomerAsync(userId.Trim(), cancellationToken);
         if (u is null || string.IsNullOrWhiteSpace(customerId))
             return BadRequest(new { error = "not_found", message = "Usuario no encontrado." });
@@ -126,6 +166,7 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         return Ok(new CreateSetupIntentResult(si.ClientSecret));
     }
 
+    /// <param name="AmountMinor">Monto en unidad mínima de moneda (Stripe <c>amount</c>): p. ej. USD = centavos, 1000 = US$10,00.</param>
     public sealed record CreatePaymentIntentBody(long AmountMinor, string Currency, string? Description, string? PaymentMethodId);
     public sealed record CreatePaymentIntentResult(string ClientSecret);
 
@@ -142,9 +183,13 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         if (userId is null)
             return Unauthorized();
 
-        var secret = StripeSecretKey();
-        if (secret is null)
-            return BadRequest(new { error = "stripe_not_configured", message = "Falta STRIPE_SECRET_KEY en .env" });
+        var serverKey = StripeServerApiKey();
+        if (serverKey is null)
+            return BadRequest(new
+            {
+                error = "stripe_not_configured",
+                message = "Falta STRIPE_RESTRICTED_KEY o STRIPE_SECRET_KEY en .env",
+            });
 
         var cur = (body.Currency ?? "").Trim().ToLowerInvariant();
         if (cur.Length is < 3 or > 8)
@@ -155,7 +200,7 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         if (pmId.Length == 0)
             return BadRequest(new { error = "missing_payment_method", message = "Seleccioná una tarjeta para pagar." });
 
-        StripeConfiguration.ApiKey = secret;
+        StripeConfiguration.ApiKey = serverKey;
         var (_, customerId) = await EnsureStripeCustomerAsync(userId.Trim(), cancellationToken);
         if (string.IsNullOrWhiteSpace(customerId))
             return BadRequest(new
