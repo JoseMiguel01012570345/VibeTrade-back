@@ -167,8 +167,8 @@ public static class PaymentCheckoutComputation
                     rsIdLink, p.Id?.Trim());
             }
         }
-        else if (!string.IsNullOrEmpty(rsIdLink))
-            errs.Add("Hoja de ruta no encontrada.");
+        // Si hay RouteSheetId pero no payload / sin paradas: omitimos tramos (igual que sin vínculo).
+        // El cobro sigue por mercancía/servicio; solo fallamos si no queda ningún importe.
 
         var byCurrency = new List<CurrencyTotalsDto>();
 
@@ -188,6 +188,9 @@ public static class PaymentCheckoutComputation
                 total,
                 lines));
         }
+
+        if (byCurrency.Count == 0 && errs.Count == 0)
+            errs.Add("No hay importes para cobrar en este acuerdo.");
 
         return new BreakdownDto(errs.Count == 0, errs, byCurrency);
     }

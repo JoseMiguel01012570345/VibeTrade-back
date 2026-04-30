@@ -34,7 +34,7 @@ public interface ITradeAgreementService
         CancellationToken cancellationToken = default);
 
     /// <summary>Vincula o desvincula la hoja de ruta del hilo; persiste <see cref="TradeAgreementRow.RouteSheetId" />.</summary>
-    Task<TradeAgreementApiResponse?> SetRouteSheetLinkAsync(
+    Task<TradeAgreementRouteSheetLinkOutcome> SetRouteSheetLinkAsync(
         string sellerUserId,
         string threadId,
         string agreementId,
