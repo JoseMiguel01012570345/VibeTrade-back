@@ -40,9 +40,99 @@ internal static class EntityValueConversions
     public static ValueConverter<List<ServiceEvidenceAttachmentBody>, string> ServiceEvidenceAttachments() =>
         new(
             to => JsonSerializer.Serialize(to, MarketJsonDefaults.Options),
-            from => string.IsNullOrWhiteSpace(from)
-                ? new List<ServiceEvidenceAttachmentBody>()
-                : JsonSerializer.Deserialize<List<ServiceEvidenceAttachmentBody>>(from, MarketJsonDefaults.Options) ?? new List<ServiceEvidenceAttachmentBody>());
+            from => DeserializeServiceEvidenceAttachments(from));
+
+    /// <summary>
+    /// Acepta <c>[]</c>, <c>{}</c>, un solo objeto adjunto, u objetos con colección anidada (<c>attachments</c>, etc.).
+    /// Evita romper lecturas si hubo datos legacy o formato inesperado en <c>jsonb</c>.
+    /// </summary>
+    private static List<ServiceEvidenceAttachmentBody> DeserializeServiceEvidenceAttachments(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return new List<ServiceEvidenceAttachmentBody>();
+
+        var s = raw.Trim();
+        if (s.Length == 0 ||
+            string.Equals(s, "null", StringComparison.OrdinalIgnoreCase))
+            return new List<ServiceEvidenceAttachmentBody>();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(s);
+            var root = doc.RootElement;
+            return ParseServiceEvidenceAttachmentRoot(root);
+        }
+        catch (JsonException)
+        {
+            return new List<ServiceEvidenceAttachmentBody>();
+        }
+    }
+
+    private static List<ServiceEvidenceAttachmentBody> ParseServiceEvidenceAttachmentRoot(JsonElement root)
+    {
+        switch (root.ValueKind)
+        {
+            case JsonValueKind.Null:
+            case JsonValueKind.Undefined:
+                return new List<ServiceEvidenceAttachmentBody>();
+            case JsonValueKind.Array:
+            {
+                try
+                {
+                    var list = JsonSerializer.Deserialize<List<ServiceEvidenceAttachmentBody>>(
+                        root.GetRawText(), MarketJsonDefaults.Options);
+                    return list ?? new List<ServiceEvidenceAttachmentBody>();
+                }
+                catch (JsonException)
+                {
+                    return new List<ServiceEvidenceAttachmentBody>();
+                }
+            }
+            case JsonValueKind.Object:
+            {
+                foreach (var name in new[]
+                         {
+                             "attachments", "Attachments", "items", "Items",
+                         })
+                {
+                    if (!root.TryGetProperty(name, out var nested))
+                        continue;
+                    if (nested.ValueKind != JsonValueKind.Array)
+                        continue;
+                    try
+                    {
+                        var list = JsonSerializer.Deserialize<List<ServiceEvidenceAttachmentBody>>(
+                            nested.GetRawText(), MarketJsonDefaults.Options);
+                        return list ?? new List<ServiceEvidenceAttachmentBody>();
+                    }
+                    catch (JsonException)
+                    {
+                        // Siguiente clave conocida por si el formato no coincide con el esperado.
+                    }
+                }
+
+                ServiceEvidenceAttachmentBody? single;
+                try
+                {
+                    single = JsonSerializer.Deserialize<ServiceEvidenceAttachmentBody>(
+                        root.GetRawText(), MarketJsonDefaults.Options);
+                }
+                catch (JsonException)
+                {
+                    single = null;
+                }
+                if (single is not null &&
+                    (!string.IsNullOrWhiteSpace(single.Id) ||
+                     !string.IsNullOrWhiteSpace(single.Url) ||
+                     !string.IsNullOrWhiteSpace(single.FileName)))
+                    return new List<ServiceEvidenceAttachmentBody> { single };
+
+                return new List<ServiceEvidenceAttachmentBody>();
+            }
+            default:
+                return new List<ServiceEvidenceAttachmentBody>();
+        }
+    }
 
     public static ValueComparer<List<ServiceEvidenceAttachmentBody>> ServiceEvidenceAttachmentsComparer() =>
         new(

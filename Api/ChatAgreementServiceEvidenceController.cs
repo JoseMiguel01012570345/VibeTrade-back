@@ -73,5 +73,26 @@ public sealed class ChatAgreementServiceEvidenceController(
         if (code == StatusCodes.Status200OK) return Ok(new { ok = true });
         return code == StatusCodes.Status400BadRequest ? BadRequest(err) : StatusCode(code);
     }
+    
+    [HttpPost("{paymentId}/seller-payout")]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RecordSellerPayout(
+        string threadId,
+        string agreementId,
+        string paymentId,
+        [FromBody] RecordSellerServicePayoutRequest body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerId();
+        if (userId is null) return Unauthorized();
+        var (code, err) = await svc.RecordSellerPayoutAsync(userId, threadId, agreementId, paymentId, body, cancellationToken)
+            .ConfigureAwait(false);
+        if (code == StatusCodes.Status200OK) return Ok(new { ok = true });
+        return code == StatusCodes.Status400BadRequest ? BadRequest(err) : StatusCode(code);
+    }
 }
 

@@ -21,4 +21,13 @@ public static class PaymentStripeEnv
     /// <summary>True cuando el entorno pide omitir crear/confirmar PaymentIntents.</summary>
     public static bool SkipStripePaymentIntentCreate() =>
         EnvTruthy("VIBETRADE_SKIP_PAYMENT_INTENTS") || EnvTruthy("STRIPE_SKIP_PAYMENT_INTENTS");
+
+    /// <summary>
+    /// True cuando no se debe llamar a Stripe para liquidar la cuota del vendedor (solo persistencia).
+    /// Por defecto se alinea al skip de cobros (<see cref="SkipStripePaymentIntentCreate"/>) para entornos de demo.
+    /// </summary>
+    public static bool SkipStripeSellerServicePayout() =>
+        SkipStripePaymentIntentCreate() ||
+        EnvTruthy("VIBETRADE_SKIP_SERVICE_SELLER_STRIPE_PAYOUT") ||
+        EnvTruthy("STRIPE_SKIP_SERVICE_SELLER_STRIPE_PAYOUT");
 }

@@ -61,7 +61,8 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         string Brand,
         string Last4,
         int ExpMonth,
-        int ExpYear);
+        int ExpYear,
+        string? Country);
 
     [HttpGet("payment-methods")]
     [ProducesResponseType(typeof(List<StripeCardPaymentMethodDto>), StatusCodes.Status200OK)]
@@ -120,12 +121,15 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         {
             var c = pm.Card;
             if (c is null) continue;
+            var country = (c.Country ?? "").Trim().ToUpperInvariant();
+            var countryOut = country.Length == 2 ? country : null;
             outList.Add(new StripeCardPaymentMethodDto(
                 pm.Id,
                 (c.Brand ?? "").Trim(),
                 (c.Last4 ?? "").Trim(),
                 (int)c.ExpMonth,
-                (int)c.ExpYear));
+                (int)c.ExpYear,
+                countryOut));
         }
         return Ok(outList);
     }

@@ -28,6 +28,9 @@ public sealed class UserAccount
     /// <summary>Identificador de cliente en Stripe (cus_...).</summary>
     public string? StripeCustomerId { get; set; }
 
+    /// <summary>Cuenta conectada Stripe Connect (acct_...) como destino de <c>Transfer</c> del vendedor.</summary>
+    public string? StripeConnectedAccountId { get; set; }
+
     public int TrustScore { get; set; } = 50;
 
     /// <summary>Ids de producto/servicio guardados (jsonb: <c>SavedOfferIdsJson</c>).</summary>

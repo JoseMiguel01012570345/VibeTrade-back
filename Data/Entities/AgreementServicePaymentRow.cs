@@ -36,6 +36,18 @@ public sealed class AgreementServicePaymentRow
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset? ReleasedAtUtc { get; set; }
+
+    /// <summary>Stripe PaymentMethod (tarjeta) elegida por el vendedor (referencia/registro).</summary>
+    public string? SellerPayoutPaymentMethodStripeId { get; set; }
+
+    public DateTimeOffset? SellerPayoutRecordedAtUtc { get; set; }
+
+    public string? SellerPayoutCardBrandSnapshot { get; set; }
+
+    public string? SellerPayoutCardLast4Snapshot { get; set; }
+
+    /// <summary>Stripe <c>Transfer</c> (tr_) hacia cuenta Connect cuando la liquidación se ejecutó en Stripe.</summary>
+    public string? SellerPayoutStripeTransferId { get; set; }
 }
 
 public static class AgreementServicePaymentStatuses

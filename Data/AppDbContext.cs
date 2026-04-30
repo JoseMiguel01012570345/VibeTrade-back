@@ -72,6 +72,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Telegram).HasMaxLength(256);
             e.Property(x => x.XAccount).HasMaxLength(256);
             e.Property(x => x.StripeCustomerId).HasMaxLength(96);
+            e.Property(x => x.StripeConnectedAccountId).HasMaxLength(64);
             e.Property(x => x.SavedOfferIds)
                 .HasColumnName("SavedOfferIdsJson")
                 .HasColumnType("jsonb")
@@ -755,6 +756,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Currency).HasMaxLength(16);
             e.Property(x => x.Status).HasMaxLength(32);
             e.Property(x => x.AgreementCurrencyPaymentId).HasMaxLength(64);
+            e.Property(x => x.SellerPayoutPaymentMethodStripeId).HasMaxLength(96);
+            e.Property(x => x.SellerPayoutCardBrandSnapshot).HasMaxLength(32);
+            e.Property(x => x.SellerPayoutCardLast4Snapshot).HasMaxLength(8);
+            e.Property(x => x.SellerPayoutStripeTransferId).HasMaxLength(128);
             e.HasIndex(x => new { x.TradeAgreementId, x.ThreadId });
             e.HasIndex(x => new { x.TradeAgreementId, x.ServiceItemId, x.EntryMonth, x.EntryDay, x.Currency })
                 .IsUnique()
