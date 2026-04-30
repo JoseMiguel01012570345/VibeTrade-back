@@ -49,8 +49,11 @@ public static class TradeAgreementDraftToEntityMapper
                 continue;
             if (scope == "service" && !draft.IncludeService)
                 continue;
-            if (scope == "legacy_combined" && !(draft.IncludeMerchandise && draft.IncludeService))
-                continue;
+            // Compatibilidad: `legacy_combined` se acepta y se trata como el bloque activo.
+            if (scope == "legacy_combined")
+            {
+                scope = draft.IncludeMerchandise ? "merchandise" : "service";
+            }
 
             var title = (x.Title ?? "").Trim();
             var kind = NormalizeExtraValueKind(x.ValueKind);

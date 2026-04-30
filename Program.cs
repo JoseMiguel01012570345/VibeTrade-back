@@ -77,6 +77,7 @@ builder.Services.AddScoped<IRouteSheetChatService, RouteSheetChatService>();
 builder.Services.AddScoped<IRouteTramoSubscriptionService, RouteTramoSubscriptionService>();
 builder.Services.AddScoped<ITradeAgreementService, TradeAgreementService>();
 builder.Services.AddScoped<IAgreementCheckoutService, AgreementCheckoutService>();
+builder.Services.AddScoped<IAgreementServiceEvidenceService, AgreementServiceEvidenceService>();
 builder.Services.Configure<EmailSmtpOptions>(
     builder.Configuration.GetSection(EmailSmtpOptions.SectionName));
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();

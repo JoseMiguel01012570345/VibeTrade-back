@@ -26,7 +26,7 @@ public sealed class ChatAgreementPaymentsController(
         if (userId is null)
             return Unauthorized();
 
-        var bd = await checkout.GetCheckoutBreakdownAsync(userId, threadId, agreementId, cancellationToken)
+        var bd = await checkout.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null, cancellationToken)
             .ConfigureAwait(false);
         if (bd is null)
             return NotFound();
@@ -46,7 +46,7 @@ public sealed class ChatAgreementPaymentsController(
         if (userId is null)
             return Unauthorized();
 
-        if (await checkout.GetCheckoutBreakdownAsync(userId, threadId, agreementId, cancellationToken)
+        if (await checkout.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null, cancellationToken)
                 .ConfigureAwait(false)
             is null)
             return NotFound();
@@ -57,7 +57,45 @@ public sealed class ChatAgreementPaymentsController(
         return Ok(list);
     }
 
-    public sealed record ExecutePaymentBody(string Currency, string PaymentMethodId, string? IdempotencyKey);
+    public sealed record ServicePaymentPickBody(string ServiceItemId, int EntryMonth, int EntryDay);
+
+    public sealed record ExecutePaymentBody(
+        string Currency,
+        string PaymentMethodId,
+        string? IdempotencyKey,
+        IReadOnlyList<ServicePaymentPickBody>? SelectedServicePayments);
+
+    public sealed record CheckoutBreakdownBody(IReadOnlyList<ServicePaymentPickBody>? SelectedServicePayments);
+
+    [HttpPost("checkout-breakdown")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(PaymentCheckoutComputation.BreakdownDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PostCheckoutBreakdown(
+        string threadId,
+        string agreementId,
+        [FromBody] CheckoutBreakdownBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+
+        var picks = body.SelectedServicePayments?
+            .Where(x => !string.IsNullOrWhiteSpace(x.ServiceItemId))
+            .Select(x => new PaymentCheckoutComputation.ServicePaymentPickDto(
+                x.ServiceItemId.Trim(),
+                x.EntryMonth,
+                x.EntryDay))
+            .ToList();
+
+        var bd = await checkout.GetCheckoutBreakdownAsync(userId, threadId, agreementId, picks, cancellationToken)
+            .ConfigureAwait(false);
+        if (bd is null)
+            return NotFound();
+        return Ok(bd);
+    }
 
     [HttpPost("payments/execute")]
     [Consumes("application/json")]
@@ -85,6 +123,13 @@ public sealed class ChatAgreementPaymentsController(
             body.Currency,
             body.PaymentMethodId,
             idem.Length >= 8 ? idem : null,
+            body.SelectedServicePayments?
+                .Where(x => !string.IsNullOrWhiteSpace(x.ServiceItemId))
+                .Select(x => new PaymentCheckoutComputation.ServicePaymentPickDto(
+                    x.ServiceItemId.Trim(),
+                    x.EntryMonth,
+                    x.EntryDay))
+                .ToList(),
             cancellationToken).ConfigureAwait(false);
 
         if (r is null)

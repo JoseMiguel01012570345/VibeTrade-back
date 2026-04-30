@@ -16,6 +16,7 @@ public sealed class AgreementCheckoutService(
         string buyerUserId,
         string threadId,
         string agreementId,
+        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
         CancellationToken cancellationToken = default)
     {
         var t = await db.ChatThreads.AsNoTracking()
@@ -34,7 +35,7 @@ public sealed class AgreementCheckoutService(
         var rp = await AgreementCheckoutExecutor.LoadRoutePayloadAsync(db, threadId.Trim(), ag.RouteSheetId?.Trim(),
             cancellationToken).ConfigureAwait(false);
 
-        return PaymentCheckoutComputation.ComputeForAgreement(ag, rp);
+        return PaymentCheckoutComputation.ComputeForAgreement(ag, rp, selectedServicePayments);
     }
 
     /// <inheritdoc />
@@ -71,6 +72,7 @@ public sealed class AgreementCheckoutService(
         string currencyLower,
         string paymentMethodStripeId,
         string? idempotencyKey,
+        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
         CancellationToken cancellationToken = default)
     {
         var t = await db.ChatThreads.AsNoTracking()
@@ -121,7 +123,7 @@ public sealed class AgreementCheckoutService(
                 agr.RouteSheetId?.Trim(),
                 cancellationToken).ConfigureAwait(false);
 
-        var breakdown = PaymentCheckoutComputation.ComputeForAgreement(agr, rp);
+        var breakdown = PaymentCheckoutComputation.ComputeForAgreement(agr, rp, selectedServicePayments);
         var qb = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, cur);
         if (!breakdown.Ok || qb is null)
             return new AgreementExecutePaymentResultDto("", false, null,
@@ -152,6 +154,21 @@ public sealed class AgreementCheckoutService(
 
         if (result is { Succeeded: true, AgreementCurrencyPaymentId: { } pid })
         {
+            if (selectedServicePayments is { Count: > 0 })
+            {
+                var serviceRows = BuildServicePaymentRowsForSelection(
+                    threadId.Trim(),
+                    agr,
+                    buyerUserId.Trim(),
+                    cur,
+                    pid,
+                    selectedServicePayments);
+                if (serviceRows.Count > 0)
+                {
+                    db.AgreementServicePayments.AddRange(serviceRows);
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
             await TryPostPaymentFeeReceiptMessageAsync(
                 threadId.Trim(),
                 agr,
@@ -163,6 +180,58 @@ public sealed class AgreementCheckoutService(
         }
 
         return result;
+    }
+
+    private static List<AgreementServicePaymentRow> BuildServicePaymentRowsForSelection(
+        string threadId,
+        TradeAgreementRow agr,
+        string buyerUserId,
+        string currencyLower,
+        string agreementCurrencyPaymentId,
+        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto> picks)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var outList = new List<AgreementServicePaymentRow>();
+        foreach (var svc in agr.ServiceItems.OrderBy(x => x.SortOrder))
+        {
+            if (!svc.Configured) continue;
+            var sid = (svc.Id ?? "").Trim();
+            if (sid.Length == 0) continue;
+            foreach (var pick in picks.Where(p => string.Equals(p.ServiceItemId?.Trim(), sid, StringComparison.Ordinal)))
+            {
+                if (pick.EntryMonth <= 0 || pick.EntryDay <= 0) continue;
+                var entry = svc.PaymentEntries
+                    .OrderBy(e => e.SortOrder)
+                    .FirstOrDefault(e => e.Month == pick.EntryMonth && e.Day == pick.EntryDay);
+                if (entry is null) continue;
+                var mon = (entry.Moneda ?? "").Trim().ToLowerInvariant();
+                if (!string.Equals(mon, currencyLower.Trim().ToLowerInvariant(), StringComparison.Ordinal))
+                    continue;
+                var rawAmt = (entry.Amount ?? "").Trim().Replace(",", ".", StringComparison.Ordinal).Replace('\u00a0', ' ');
+                if (!decimal.TryParse(rawAmt, System.Globalization.CultureInfo.InvariantCulture, out var amtMajor) || amtMajor <= 0)
+                {
+                    continue;
+                }
+                var amtMinor = PaymentCheckoutComputation.MajorToMinor(amtMajor, mon);
+                if (amtMinor <= 0) continue;
+                outList.Add(new AgreementServicePaymentRow
+                {
+                    Id = $"agsp_{Guid.NewGuid():n}",
+                    TradeAgreementId = agr.Id.Trim(),
+                    ThreadId = threadId,
+                    BuyerUserId = buyerUserId,
+                    ServiceItemId = sid,
+                    EntryMonth = pick.EntryMonth,
+                    EntryDay = pick.EntryDay,
+                    Currency = currencyLower.Trim().ToLowerInvariant(),
+                    AmountMinor = amtMinor,
+                    Status = AgreementServicePaymentStatuses.Held,
+                    AgreementCurrencyPaymentId = agreementCurrencyPaymentId,
+                    CreatedAtUtc = now,
+                });
+            }
+        }
+        return outList;
     }
 
     private async Task TryPostPaymentFeeReceiptMessageAsync(

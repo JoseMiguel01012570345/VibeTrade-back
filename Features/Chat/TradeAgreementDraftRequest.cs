@@ -11,7 +11,7 @@ public sealed class TradeAgreementDraftRequest
     public bool IncludeMerchandise { get; set; } = true;
 
     [JsonPropertyName("includeService")]
-    public bool IncludeService { get; set; } = true;
+    public bool IncludeService { get; set; } = false;
 
     public List<MerchandiseLineRequest> Merchandise { get; set; } = new();
 

@@ -464,7 +464,8 @@ public sealed class TradeAgreementService(
     {
         if (string.IsNullOrWhiteSpace(d.Title) || d.Title.Trim().Length > 512)
             return false;
-        if (!d.IncludeMerchandise && !d.IncludeService)
+        // XOR: debe elegir exactamente uno (mercancía o servicio).
+        if (d.IncludeMerchandise == d.IncludeService)
             return false;
         return ValidateExtraFields(d);
     }
@@ -487,8 +488,7 @@ public sealed class TradeAgreementService(
                 return false;
             if (sc == "service" && !d.IncludeService)
                 return false;
-            if (sc == "legacy_combined" && !(d.IncludeMerchandise && d.IncludeService))
-                return false;
+            // Compatibilidad: `legacy_combined` se acepta y se trata como el bloque activo.
 
             var title = (x.Title ?? "").Trim();
             if (title.Length < 1 || title.Length > 256)

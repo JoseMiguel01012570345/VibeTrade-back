@@ -33,6 +33,11 @@ public static class PaymentCheckoutComputation
         IReadOnlyList<string> Errors,
         IReadOnlyList<CurrencyTotalsDto> ByCurrency);
 
+    public sealed record ServicePaymentPickDto(
+        string ServiceItemId,
+        int EntryMonth,
+        int EntryDay);
+
     /// <exception cref="ArgumentException"></exception>
     private static decimal ParseDecimal(string? raw)
     {
@@ -42,157 +47,289 @@ public static class PaymentCheckoutComputation
 
     public static BreakdownDto ComputeForAgreement(
         TradeAgreementRow ag,
-        RouteSheetPayload? routeSheetPayload)
+        RouteSheetPayload? routeSheetPayload,
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments = null)
     {
-        var errs = new List<string>();
-        if (!string.Equals(ag.Status, "accepted", StringComparison.OrdinalIgnoreCase))
-            errs.Add("El acuerdo debe estar aceptado.");
+        var errs = ValidateAgreementForCheckout(ag);
+        var buckets = new Dictionary<string, CurrencyBucket>(StringComparer.OrdinalIgnoreCase);
+        var hasServiceSelection = selectedServicePayments is { Count: > 0 };
 
-        if (ag.DeletedAtUtc is not null)
-            errs.Add("El acuerdo fue eliminado.");
-
-        var buckets = new Dictionary<string, (List<BasisLineDto> Lines, long Sub)>(
-            StringComparer.OrdinalIgnoreCase);
-
-        void Push(string cat, string label, string cur3, decimal amountMajor, string? rsId = null, string? stopId = null)
-        {
-            if (amountMajor <= 0) return;
-            var curLower = NormalizeCurrency(cur3);
-            if (string.IsNullOrEmpty(curLower)) return;
-            var minor = MajorToMinor(amountMajor, curLower);
-            if (minor <= 0) return;
-            if (!buckets.TryGetValue(curLower, out var b))
-            {
-                b = (new List<BasisLineDto>(), 0);
-                buckets[curLower] = b;
-            }
-            b.Lines.Add(new BasisLineDto(cat, label, curLower, minor, rsId, stopId));
-            b.Sub += minor;
-            buckets[curLower] = (b.Lines, b.Sub);
-        }
-
-        if (ag.IncludeMerchandise)
-        {
-            foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
-            {
-                decimal q;
-                decimal vu;
-                try
-                {
-                    q = ParseDecimal(m.Cantidad);
-                    vu = ParseDecimal(m.ValorUnitario);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                var mon = NormalizeCurrencyFirst(m.Moneda ?? ag.MerchandiseMeta?.Moneda);
-                if (string.IsNullOrEmpty(mon))
-                {
-                    errs.Add("Mercancía: falta moneda.");
-                    continue;
-                }
-
-                if (q <= 0 || vu <= 0) continue;
-
-                Push("merchandise", $"{m.Tipo} (× {m.Cantidad})", mon, q * vu);
-            }
-        }
+        if (!hasServiceSelection && ag.IncludeMerchandise)
+            AccumulateMerchandise(ag, errs, buckets);
 
         if (ag.IncludeService)
-        {
-            foreach (var svc in ag.ServiceItems.OrderBy(x => x.SortOrder))
-            {
-                if (!svc.Configured) continue;
-                var entries = svc.PaymentEntries.OrderBy(e => e.SortOrder).ToList();
-                if (entries.Count == 0) continue;
-                TradeAgreementServicePaymentEntryRow? picked;
-                try
-                {
-                    picked = PickFirstInsideVigencia(
-                        svc.TiempoStartDate,
-                        svc.TiempoEndDate,
-                        entries);
-                }
-                catch
-                {
-                    continue;
-                }
+            AccumulateServices(ag, selectedServicePayments, errs, buckets);
 
-                if (picked is null) continue;
-                decimal amt;
-                try
-                {
-                    amt = ParseDecimal(picked.Amount);
-                }
-                catch
-                {
-                    continue;
-                }
+        if (!hasServiceSelection)
+            AccumulateRouteLegsIfAny(ag, routeSheetPayload, buckets);
 
-                var mon = NormalizeCurrencyFirst(picked.Moneda);
-                if (string.IsNullOrEmpty(mon))
-                    continue;
-
-                Push(
-                    "service_installment",
-                    $"Primera cuota — {svc.TipoServicio}",
-                    mon,
-                    amt);
-            }
-        }
-
-        string? rsIdLink = string.IsNullOrWhiteSpace(ag.RouteSheetId) ? null : ag.RouteSheetId!.Trim();
-
-        if (!string.IsNullOrEmpty(rsIdLink) && routeSheetPayload?.Paradas is { Count: > 0 } stops)
-        {
-            foreach (var p in stops.OrderBy(x => x.Orden))
-            {
-                if (string.IsNullOrWhiteSpace(p.Id)) continue;
-                decimal amt;
-                try
-                {
-                    amt = ParseDecimal(p.PrecioTransportista ?? "");
-                }
-                catch { continue; }
-
-                var mono = NormalizeCurrencyFirst(p.MonedaPago) ?? NormalizeCurrencyFirst(routeSheetPayload.MonedaPago ?? "");
-                if (string.IsNullOrEmpty(mono))
-                    continue;
-
-                var legDesc = $"{p.Origen} → {p.Destino}";
-                Push("route_leg", $"Transporte — {legDesc}".Trim(),
-                    mono, amt,
-                    rsIdLink, p.Id?.Trim());
-            }
-        }
-        // Si hay RouteSheetId pero no payload / sin paradas: omitimos tramos (igual que sin vínculo).
-        // El cobro sigue por mercancía/servicio; solo fallamos si no queda ningún importe.
-
-        var byCurrency = new List<CurrencyTotalsDto>();
-
-        foreach (var kv in buckets.OrderBy(k => k.Key, StringComparer.Ordinal))
-        {
-            var curLower = kv.Key;
-            var (lines, sub) = kv.Value;
-            if (sub <= 0) continue;
-            var climate = ClimateMinorFromSubtotal(sub);
-            var stripeFee = StripeFeeEstimate(sub + climate, curLower);
-            var total = sub + climate + stripeFee;
-            byCurrency.Add(new CurrencyTotalsDto(
-                curLower,
-                sub,
-                climate,
-                stripeFee,
-                total,
-                lines));
-        }
-
+        var byCurrency = BuildTotalsByCurrency(buckets);
         if (byCurrency.Count == 0 && errs.Count == 0)
             errs.Add("No hay importes para cobrar en este acuerdo.");
 
         return new BreakdownDto(errs.Count == 0, errs, byCurrency);
+    }
+
+    private sealed record CurrencyBucket(List<BasisLineDto> Lines, long SubtotalMinor);
+
+    private static List<string> ValidateAgreementForCheckout(TradeAgreementRow ag)
+    {
+        var errs = new List<string>();
+        if (!string.Equals(ag.Status, "accepted", StringComparison.OrdinalIgnoreCase))
+            errs.Add("El acuerdo debe estar aceptado.");
+        if (ag.DeletedAtUtc is not null)
+            errs.Add("El acuerdo fue eliminado.");
+        return errs;
+    }
+
+    private static void PushLine(
+        IDictionary<string, CurrencyBucket> buckets,
+        string cat,
+        string label,
+        string currencyIso3,
+        decimal amountMajor,
+        string? routeSheetId = null,
+        string? routeStopId = null)
+    {
+        if (amountMajor <= 0) return;
+        var curLower = NormalizeCurrency(currencyIso3);
+        if (string.IsNullOrEmpty(curLower)) return;
+        var minor = MajorToMinor(amountMajor, curLower);
+        if (minor <= 0) return;
+
+        if (!buckets.TryGetValue(curLower, out var b))
+            b = new CurrencyBucket(new List<BasisLineDto>(), 0);
+
+        b.Lines.Add(new BasisLineDto(cat, label, curLower, minor, routeSheetId, routeStopId));
+        buckets[curLower] = b with { SubtotalMinor = b.SubtotalMinor + minor };
+    }
+
+    private static void AccumulateMerchandise(
+        TradeAgreementRow ag,
+        ICollection<string> errs,
+        IDictionary<string, CurrencyBucket> buckets)
+    {
+        foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
+        {
+            decimal q;
+            decimal vu;
+            try
+            {
+                q = ParseDecimal(m.Cantidad);
+                vu = ParseDecimal(m.ValorUnitario);
+            }
+            catch
+            {
+                continue;
+            }
+
+            var mon = NormalizeCurrencyFirst(m.Moneda ?? ag.MerchandiseMeta?.Moneda);
+            if (string.IsNullOrEmpty(mon))
+            {
+                errs.Add("Mercancía: falta moneda.");
+                continue;
+            }
+
+            if (q <= 0 || vu <= 0) continue;
+            PushLine(buckets, "merchandise", $"{m.Tipo} (× {m.Cantidad})", mon, q * vu);
+        }
+    }
+
+    private static void AccumulateServices(
+        TradeAgreementRow ag,
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
+        ICollection<string> errs,
+        IDictionary<string, CurrencyBucket> buckets)
+    {
+        var picks = BuildServicePickIndex(selectedServicePayments);
+        var anyPicked = false;
+
+        foreach (var svc in ag.ServiceItems.OrderBy(x => x.SortOrder))
+        {
+            if (!svc.Configured) continue;
+            var entries = svc.PaymentEntries.OrderBy(e => e.SortOrder).ToList();
+            if (entries.Count == 0) continue;
+
+            if (picks is not null)
+            {
+                anyPicked |= PushPickedEntriesForService(svc, entries, picks, buckets);
+                continue;
+            }
+
+            PushFirstServiceInstallmentIfAny(svc, entries, buckets);
+        }
+
+        if (picks is not null && !anyPicked)
+            errs.Add("No se pudo determinar la cuota seleccionada para los servicios.");
+    }
+
+    private static Dictionary<string, List<(int Month, int Day)>>? BuildServicePickIndex(
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments)
+    {
+        if (selectedServicePayments is not { Count: > 0 }) return null;
+        return selectedServicePayments
+            .Where(p => !string.IsNullOrWhiteSpace(p.ServiceItemId))
+            .GroupBy(p => p.ServiceItemId.Trim(), StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => g
+                    .Select(x => (Month: x.EntryMonth, Day: x.EntryDay))
+                    .Where(x => x.Month > 0 && x.Day > 0)
+                    .Distinct()
+                    .ToList(),
+                StringComparer.Ordinal);
+    }
+
+    private static bool PushPickedEntriesForService(
+        TradeAgreementServiceItemRow svc,
+        IReadOnlyList<TradeAgreementServicePaymentEntryRow> entries,
+        IReadOnlyDictionary<string, List<(int Month, int Day)>> picks,
+        IDictionary<string, CurrencyBucket> buckets)
+    {
+        if (!picks.TryGetValue(svc.Id.Trim(), out var keys) || keys.Count == 0)
+            return false;
+
+        var pushedAny = false;
+        foreach (var key in keys)
+        {
+            var pickedEntry = entries.FirstOrDefault(e => e.Month == key.Month && e.Day == key.Day);
+            if (pickedEntry is null) continue;
+            if (!TryParseServiceEntry(pickedEntry, out var pickedAmt, out var pickedMon))
+                continue;
+
+            PushLine(
+                buckets,
+                "service_installment",
+                $"Cuota — {svc.TipoServicio} (mes {pickedEntry.Month} día {pickedEntry.Day})",
+                pickedMon,
+                pickedAmt);
+            pushedAny = true;
+        }
+
+        return pushedAny;
+    }
+
+    private static void PushFirstServiceInstallmentIfAny(
+        TradeAgreementServiceItemRow svc,
+        IReadOnlyList<TradeAgreementServicePaymentEntryRow> entries,
+        IDictionary<string, CurrencyBucket> buckets)
+    {
+        TradeAgreementServicePaymentEntryRow? picked;
+        try
+        {
+            picked = PickFirstInsideVigencia(svc.TiempoStartDate, svc.TiempoEndDate, entries);
+        }
+        catch
+        {
+            return;
+        }
+
+        if (picked is null) return;
+        if (!TryParseServiceEntry(picked, out var firstAmt, out var firstMon))
+            return;
+
+        PushLine(
+            buckets,
+            "service_installment",
+            $"Primera cuota — {svc.TipoServicio}",
+            firstMon,
+            firstAmt);
+    }
+
+    private static bool TryParseServiceEntry(
+        TradeAgreementServicePaymentEntryRow entry,
+        out decimal amountMajor,
+        out string currencyIso3)
+    {
+        amountMajor = 0;
+        currencyIso3 = "";
+        try
+        {
+            amountMajor = ParseDecimal(entry.Amount);
+        }
+        catch
+        {
+            return false;
+        }
+
+        var mon = NormalizeCurrencyFirst(entry.Moneda);
+        if (string.IsNullOrEmpty(mon)) return false;
+        currencyIso3 = mon;
+        return amountMajor > 0;
+    }
+
+    private static void AccumulateRouteLegsIfAny(
+        TradeAgreementRow ag,
+        RouteSheetPayload? routeSheetPayload,
+        IDictionary<string, CurrencyBucket> buckets)
+    {
+        var rsIdLink = string.IsNullOrWhiteSpace(ag.RouteSheetId) ? null : ag.RouteSheetId!.Trim();
+        if (string.IsNullOrEmpty(rsIdLink)) return;
+        if (routeSheetPayload?.Paradas is not { Count: > 0 } stops) return;
+
+        foreach (var p in stops.OrderBy(x => x.Orden))
+        {
+            if (string.IsNullOrWhiteSpace(p.Id)) continue;
+            if (!TryParseRouteStopAmount(p, routeSheetPayload, out var amt, out var mon))
+                continue;
+
+            var legDesc = $"{p.Origen} → {p.Destino}";
+            PushLine(
+                buckets,
+                "route_leg",
+                $"Transporte — {legDesc}".Trim(),
+                mon,
+                amt,
+                rsIdLink,
+                p.Id?.Trim());
+        }
+    }
+
+    private static bool TryParseRouteStopAmount(
+        RouteStopPayload p,
+        RouteSheetPayload routeSheetPayload,
+        out decimal amountMajor,
+        out string currencyIso3)
+    {
+        amountMajor = 0;
+        currencyIso3 = "";
+        try
+        {
+            amountMajor = ParseDecimal(p.PrecioTransportista ?? "");
+        }
+        catch
+        {
+            return false;
+        }
+
+        var mon = NormalizeCurrencyFirst(p.MonedaPago) ??
+                  NormalizeCurrencyFirst(routeSheetPayload.MonedaPago ?? "");
+        if (string.IsNullOrEmpty(mon)) return false;
+        currencyIso3 = mon;
+        return amountMajor > 0;
+    }
+
+    private static List<CurrencyTotalsDto> BuildTotalsByCurrency(
+        IDictionary<string, CurrencyBucket> buckets)
+    {
+        var byCurrency = new List<CurrencyTotalsDto>();
+        foreach (var kv in buckets.OrderBy(k => k.Key, StringComparer.Ordinal))
+        {
+            var curLower = kv.Key;
+            var b = kv.Value;
+            if (b.SubtotalMinor <= 0) continue;
+            var climate = ClimateMinorFromSubtotal(b.SubtotalMinor);
+            var stripeFee = StripeFeeEstimate(b.SubtotalMinor + climate, curLower);
+            var total = b.SubtotalMinor + climate + stripeFee;
+            byCurrency.Add(new CurrencyTotalsDto(
+                curLower,
+                b.SubtotalMinor,
+                climate,
+                stripeFee,
+                total,
+                b.Lines));
+        }
+        return byCurrency;
     }
 
     internal static CurrencyTotalsDto? GetCurrencyBucket(BreakdownDto breakdown, string currencyLower)
@@ -206,57 +343,72 @@ public static class PaymentCheckoutComputation
         string endDate,
         IReadOnlyList<TradeAgreementServicePaymentEntryRow> orderedEntries)
     {
-        if (orderedEntries.Count == 0)
-            return null;
-        if (!DateOnly.TryParse((startDate ?? "").Trim(),
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out var dStart) ||
-            !DateOnly.TryParse((endDate ?? "").Trim(),
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out var dEnd))
-        {
-            return orderedEntries.OrderBy(e => e.Month).ThenBy(e => e.Day).First();
-        }
+        if (orderedEntries.Count == 0) return null;
+        var fallback = orderedEntries.OrderBy(e => e.Month).ThenBy(e => e.Day).First();
+        if (!TryParseVigencia(startDate, endDate, out var dStart, out var dEnd))
+            return fallback;
+        if (dStart > dEnd) return fallback;
 
-        if (dStart > dEnd)
-            return orderedEntries.OrderBy(e => e.Month).ThenBy(e => e.Day).First();
+        var best = PickFirstEntryDateWithinRange(dStart, dEnd, orderedEntries);
+        return best ?? fallback;
+    }
 
+    private static bool TryParseVigencia(
+        string startDate,
+        string endDate,
+        out DateOnly dStart,
+        out DateOnly dEnd)
+    {
+        dStart = default;
+        dEnd = default;
+        return DateOnly.TryParse((startDate ?? "").Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out dStart) &&
+               DateOnly.TryParse((endDate ?? "").Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out dEnd);
+    }
+
+    private static TradeAgreementServicePaymentEntryRow? PickFirstEntryDateWithinRange(
+        DateOnly dStart,
+        DateOnly dEnd,
+        IReadOnlyList<TradeAgreementServicePaymentEntryRow> orderedEntries)
+    {
         DateOnly bestDate = DateOnly.MaxValue;
         TradeAgreementServicePaymentEntryRow? best = null;
 
         foreach (var e in orderedEntries)
         {
-            for (var y = dStart.Year; y <= dEnd.Year; y++)
+            var cand = FindFirstOccurrenceWithinRange(dStart, dEnd, e.Month, e.Day);
+            if (cand is null) continue;
+            if (best is null || cand.Value < bestDate)
             {
-                DateOnly cand;
-                try
-                {
-                    cand = new DateOnly(y, e.Month, e.Day);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                if (cand < dStart || cand > dEnd) continue;
-
-                if (best is null || cand < bestDate)
-                {
-                    bestDate = cand;
-                    best = e;
-                }
-
-                // Una fecha por año suficiente (entradas válidas año a año).
-                break;
+                bestDate = cand.Value;
+                best = e;
             }
         }
 
-        if (best != null)
-            return best;
+        return best;
+    }
 
-        return orderedEntries.OrderBy(ev => ev.Month).ThenBy(ev => ev.Day).First();
+    private static DateOnly? FindFirstOccurrenceWithinRange(
+        DateOnly start,
+        DateOnly end,
+        int month,
+        int day)
+    {
+        for (var y = start.Year; y <= end.Year; y++)
+        {
+            DateOnly cand;
+            try
+            {
+                cand = new DateOnly(y, month, day);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (cand < start || cand > end) continue;
+            return cand;
+        }
+        return null;
     }
 
     private static DateTime? ParseIsoUtc(string s)

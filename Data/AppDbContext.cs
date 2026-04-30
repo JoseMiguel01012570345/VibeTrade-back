@@ -39,6 +39,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     /// <inheritdoc />
     public DbSet<AgreementRouteLegPaidRow> AgreementRouteLegPaids => Set<AgreementRouteLegPaidRow>();
 
+    public DbSet<AgreementServicePaymentRow> AgreementServicePayments => Set<AgreementServicePaymentRow>();
+
+    public DbSet<ServiceEvidenceRow> ServiceEvidences => Set<ServiceEvidenceRow>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<MarketWorkspaceRow>(e =>
@@ -737,6 +741,59 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.RouteSheetId).HasMaxLength(64);
             e.Property(x => x.RouteStopId).HasMaxLength(96);
             e.HasIndex(x => new { x.RouteSheetId, x.RouteStopId });
+        });
+
+        modelBuilder.Entity<AgreementServicePaymentRow>(e =>
+        {
+            e.ToTable("agreement_service_payments");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.TradeAgreementId).HasMaxLength(64);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.BuyerUserId).HasMaxLength(64);
+            e.Property(x => x.ServiceItemId).HasMaxLength(64);
+            e.Property(x => x.Currency).HasMaxLength(16);
+            e.Property(x => x.Status).HasMaxLength(32);
+            e.Property(x => x.AgreementCurrencyPaymentId).HasMaxLength(64);
+            e.HasIndex(x => new { x.TradeAgreementId, x.ThreadId });
+            e.HasIndex(x => new { x.TradeAgreementId, x.ServiceItemId, x.EntryMonth, x.EntryDay, x.Currency })
+                .IsUnique()
+                .HasDatabaseName("IX_agsp_unique_installment");
+            e.HasOne(x => x.TradeAgreement)
+                .WithMany()
+                .HasForeignKey(x => x.TradeAgreementId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.AgreementCurrencyPayment)
+                .WithMany()
+                .HasForeignKey(x => x.AgreementCurrencyPaymentId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ServiceEvidenceRow>(e =>
+        {
+            e.ToTable("service_evidences");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.AgreementServicePaymentId).HasMaxLength(64);
+            e.Property(x => x.SellerUserId).HasMaxLength(64);
+            e.Property(x => x.Text).HasColumnType("text");
+            e.Property(x => x.LastSubmittedText).HasColumnType("text");
+            e.Property(x => x.Status).HasMaxLength(32);
+            e.Property(x => x.Attachments)
+                .HasColumnName("AttachmentsJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.ServiceEvidenceAttachments())
+                .Metadata.SetValueComparer(EntityValueConversions.ServiceEvidenceAttachmentsComparer());
+            e.Property(x => x.LastSubmittedAttachments)
+                .HasColumnName("LastSubmittedAttachmentsJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.ServiceEvidenceAttachments())
+                .Metadata.SetValueComparer(EntityValueConversions.ServiceEvidenceAttachmentsComparer());
+            e.HasIndex(x => x.AgreementServicePaymentId).IsUnique();
+            e.HasOne(x => x.AgreementServicePayment)
+                .WithMany()
+                .HasForeignKey(x => x.AgreementServicePaymentId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }
