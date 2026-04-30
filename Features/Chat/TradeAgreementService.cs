@@ -56,32 +56,36 @@ public sealed class TradeAgreementService(
         return list.ConvertAll(a => TradeAgreementEntityToApiMapper.ToApiResponse(a, paidSet.Contains(a.Id)));
     }
 
-    public async Task<TradeAgreementApiResponse?> CreateAsync(
+    public async Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> CreateAsync(
         string sellerUserId,
         string threadId,
         TradeAgreementDraftRequest draft,
         CancellationToken cancellationToken = default)
     {
         if (!ValidateDraft(draft))
-            return null;
+            return (null, null);
 
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
-            return null;
+            return (null, null);
         if (sellerUserId != t.SellerUserId)
-            return null;
+            return (null, null);
 
         var store = await db.Stores.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == t.StoreId, cancellationToken);
         if (store is null)
-            return null;
+            return (null, null);
+
+        if (await ThreadHasAgreementWithSameTitleAsync(t.Id, draft.Title, excludeAgreementId: null, cancellationToken)
+                .ConfigureAwait(false))
+            return (null, TradeAgreementWriteErrors.DuplicateAgreementTitle);
 
         var id = NewAgrId();
         var now = DateTimeOffset.UtcNow;
         var ag = new TradeAgreementRow
         {
             Id = id,
-            ThreadId = threadId,
+            ThreadId = t.Id,
             Title = draft.Title.Trim(),
             IssuedAtUtc = now,
             IssuedByStoreId = t.StoreId,
@@ -102,10 +106,11 @@ public sealed class TradeAgreementService(
             new PostAgreementAnnouncementArgs(sellerUserId, threadId, id, ag.Title, "pending_buyer"),
             cancellationToken);
 
-        return await GetTrackedResponseAsync(id, cancellationToken);
+        var createdResp = await GetTrackedResponseAsync(id, cancellationToken);
+        return (createdResp, null);
     }
 
-    public async Task<TradeAgreementApiResponse?> UpdateAsync(
+    public async Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> UpdateAsync(
         string sellerUserId,
         string threadId,
         string agreementId,
@@ -113,26 +118,30 @@ public sealed class TradeAgreementService(
         CancellationToken cancellationToken = default)
     {
         if (!ValidateDraft(draft))
-            return null;
+            return (null, null);
 
         var t = await db.ChatThreads.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
-            return null;
+            return (null, null);
         if (sellerUserId != t.SellerUserId)
-            return null;
+            return (null, null);
 
         var ag = await LoadTrackedAgreementAsync(threadId, agreementId, cancellationToken);
         if (ag is null)
-            return null;
+            return (null, null);
         if (ag.IssuedByStoreId != t.StoreId)
-            return null;
+            return (null, null);
         if (await HasSucceededPaymentAsync(ag.Id, cancellationToken))
-            return null;
+            return (null, null);
         if (ag.SellerEditBlockedUntilBuyerResponse)
-            return null;
+            return (null, null);
         if (ag.Status is not ("pending_buyer" or "rejected" or "accepted"))
-            return null;
+            return (null, null);
+
+        if (await ThreadHasAgreementWithSameTitleAsync(t.Id, draft.Title, excludeAgreementId: ag.Id,
+                cancellationToken).ConfigureAwait(false))
+            return (null, TradeAgreementWriteErrors.DuplicateAgreementTitle);
 
         var wasAccepted = ag.Status == "accepted";
         var wasRejected = ag.Status == "rejected";
@@ -167,7 +176,8 @@ public sealed class TradeAgreementService(
 
         await chat.PostSystemThreadNoticeAsync(sellerUserId, threadId, sys, cancellationToken);
 
-        return await GetTrackedResponseAsync(ag.Id, cancellationToken);
+        var updated = await GetTrackedResponseAsync(ag.Id, cancellationToken);
+        return (updated, null);
     }
 
     public async Task<TradeAgreementApiResponse?> RespondAsync(
@@ -419,6 +429,36 @@ public sealed class TradeAgreementService(
             q = q.Where(a => a.ThreadId == threadId);
         return await q.FirstOrDefaultAsync(cancellationToken);
     }
+
+    /// <summary>Acuerdos no eliminados en el mismo hilo; título comparado tras trim y sin distinguir mayúsculas.</summary>
+    private async Task<bool> ThreadHasAgreementWithSameTitleAsync(
+        string threadId,
+        string title,
+        string? excludeAgreementId,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var wanted = NormalizeAgreementTitle(title);
+        if (wanted.Length == 0)
+            return false;
+
+        var titles = await db.TradeAgreements.AsNoTracking()
+            .Where(a => a.ThreadId == tid && a.DeletedAtUtc == null)
+            .Where(a => excludeAgreementId == null || a.Id != excludeAgreementId)
+            .Select(a => a.Title)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var existing in titles)
+        {
+            if (NormalizeAgreementTitle(existing) == wanted)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string NormalizeAgreementTitle(string title) => (title ?? "").Trim().ToLowerInvariant();
 
     private static bool ValidateDraft(TradeAgreementDraftRequest d)
     {

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Stripe;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
@@ -99,7 +100,37 @@ internal static class AgreementCheckoutExecutor
             dup.StripeErrorMessage,
             true,
             null,
-            null);
+            dup.Id);
+
+    /// <summary>
+    /// Persist row; on unique idempotency race (parallel duplicate requests), detach and return the existing row result.
+    /// </summary>
+    private static async Task<AgreementExecutePaymentResultDto?> SavePaymentRowResolvingIdempotencyRaceAsync(
+        AppDbContext db,
+        AgreementCurrencyPaymentRow pay,
+        CancellationToken ct)
+    {
+        try
+        {
+            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            return null;
+        }
+        catch (DbUpdateException ex) when (pay.ClientIdempotencyKey is { Length: >= 1 }
+                                           && ex.InnerException is PostgresException pg
+                                           && pg.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            db.Entry(pay).State = EntityState.Detached;
+            var dup = await db.AgreementCurrencyPayments.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.TradeAgreementId == pay.TradeAgreementId
+                         && x.ClientIdempotencyKey == pay.ClientIdempotencyKey,
+                    ct)
+                .ConfigureAwait(false);
+            if (dup is null)
+                throw;
+            return FromDup(dup);
+        }
+    }
 
     internal static async Task<AgreementExecutePaymentResultDto> PersistAndChargeAsync(
         AppDbContext db,
@@ -117,7 +148,9 @@ internal static class AgreementCheckoutExecutor
             pay.CompletedAtUtc = DateTimeOffset.UtcNow;
             AttachSplits(pay, qb);
             db.AgreementCurrencyPayments.Add(pay);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            var skipDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
+            if (skipDup is not null)
+                return skipDup;
             return Ok(pay.StripePaymentIntentId!, pay.Id);
         }
 
@@ -168,7 +201,9 @@ internal static class AgreementCheckoutExecutor
             pay.StripeErrorMessage = StripeMsg(sx);
             pay.CompletedAtUtc = DateTimeOffset.UtcNow;
             db.AgreementCurrencyPayments.Add(pay);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            var chargeFailDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
+            if (chargeFailDup is not null)
+                return chargeFailDup;
             return Err(pay.StripeErrorMessage, true, "stripe_charge_failed");
         }
 
@@ -204,7 +239,9 @@ internal static class AgreementCheckoutExecutor
             pay.CompletedAtUtc = DateTimeOffset.UtcNow;
             AttachSplits(pay, qb);
             db.AgreementCurrencyPayments.Add(pay);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            var okDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
+            if (okDup is not null)
+                return okDup;
             return Ok(pay.StripePaymentIntentId ?? "", pay.Id);
         }
 
@@ -212,17 +249,21 @@ internal static class AgreementCheckoutExecutor
         {
             pay.Status = AgreementPaymentStatuses.RequiresConfirmation;
             db.AgreementCurrencyPayments.Add(pay);
-            await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            var confirmDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
+            if (confirmDup is not null)
+                return confirmDup;
             return new AgreementExecutePaymentResultDto(pay.StripePaymentIntentId!, false,
                 pay.ClientSecretForConfirmation, null,
-                true, "requires_confirmation", null);
+                true, "requires_confirmation", pay.Id);
         }
 
         pay.Status = AgreementPaymentStatuses.Failed;
         pay.StripeErrorMessage = $"pi:{pi.Status}";
         pay.CompletedAtUtc = DateTimeOffset.UtcNow;
         db.AgreementCurrencyPayments.Add(pay);
-        await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        var badDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
+        if (badDup is not null)
+            return badDup;
 
         return Err(pay.StripeErrorMessage, false, "stripe_bad_status");
     }

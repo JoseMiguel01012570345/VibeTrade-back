@@ -5,7 +5,10 @@ using VibeTrade.Backend.Data.RouteSheets;
 
 namespace VibeTrade.Backend.Features.Chat;
 
-public sealed class AgreementCheckoutService(AppDbContext db, IChatService chat)
+public sealed class AgreementCheckoutService(
+    AppDbContext db,
+    IChatService chat,
+    IPaymentFeeReceiptEmailDispatcher paymentFeeReceiptEmail)
     : IAgreementCheckoutService
 {
     /// <inheritdoc />
@@ -186,22 +189,29 @@ public sealed class AgreementCheckoutService(AppDbContext db, IChatService chat)
             AmountMinor = l.AmountMinor,
         }).ToList();
 
+        var receiptPayload = new ChatPaymentFeeReceiptPayload
+        {
+            AgreementId = agr.Id.Trim(),
+            AgreementTitle = (agr.Title ?? "").Trim(),
+            PaymentId = payRow.Id,
+            CurrencyLower = currencyLower,
+            SubtotalMinor = payRow.SubtotalAmountMinor,
+            ClimateMinor = payRow.ClimateAmountMinor,
+            StripeFeeMinorActual = payRow.StripeFeeAmountMinor,
+            StripeFeeMinorEstimated = estimated,
+            TotalChargedMinor = payRow.TotalAmountMinor,
+            StripePricingUrl = StripePricingLinks.PricingPage,
+            Lines = lines,
+        };
+
         await chat.PostAutomatedPaymentFeeReceiptAsync(
             threadId,
-            new ChatPaymentFeeReceiptPayload
-            {
-                AgreementId = agr.Id.Trim(),
-                AgreementTitle = (agr.Title ?? "").Trim(),
-                PaymentId = payRow.Id,
-                CurrencyLower = currencyLower,
-                SubtotalMinor = payRow.SubtotalAmountMinor,
-                ClimateMinor = payRow.ClimateAmountMinor,
-                StripeFeeMinorActual = payRow.StripeFeeAmountMinor,
-                StripeFeeMinorEstimated = estimated,
-                TotalChargedMinor = payRow.TotalAmountMinor,
-                StripePricingUrl = StripePricingLinks.PricingPage,
-                Lines = lines,
-            },
+            receiptPayload,
+            cancellationToken).ConfigureAwait(false);
+
+        await paymentFeeReceiptEmail.TryDispatchToThreadParticipantsAsync(
+            threadId,
+            receiptPayload,
             cancellationToken).ConfigureAwait(false);
     }
 }

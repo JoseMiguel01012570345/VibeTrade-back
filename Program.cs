@@ -19,6 +19,7 @@ using VibeTrade.Backend.Features.SavedOffers;
 using VibeTrade.Backend.Features.Trust;
 using Microsoft.Extensions.Hosting;
 using VibeTrade.Backend.Infrastructure;
+using VibeTrade.Backend.Infrastructure.Email;
 using VibeTrade.Backend.Infrastructure.DemoData;
 void TryLoadEnv(string path)
 {
@@ -30,6 +31,11 @@ TryLoadEnv(Path.Combine(Directory.GetCurrentDirectory(), ".env"));
 
 var builder = WebApplication.CreateBuilder(args);
 TryLoadEnv(Path.Combine(builder.Environment.ContentRootPath, ".env"));
+
+// Flat env / .env name → binds to EmailSmtp:Password (IOptions<EmailSmtpOptions>).
+var emailSmtpPassword = Environment.GetEnvironmentVariable("EMAIL_SMTP_PASSWORD");
+if (!string.IsNullOrEmpty(emailSmtpPassword))
+    builder.Configuration["EmailSmtp:Password"] = emailSmtpPassword;
 
 const long maxRequestBodyBytes = 524_288_000L; // 500 MiB
 builder.WebHost.ConfigureKestrel(o =>
@@ -71,6 +77,10 @@ builder.Services.AddScoped<IRouteSheetChatService, RouteSheetChatService>();
 builder.Services.AddScoped<IRouteTramoSubscriptionService, RouteTramoSubscriptionService>();
 builder.Services.AddScoped<ITradeAgreementService, TradeAgreementService>();
 builder.Services.AddScoped<IAgreementCheckoutService, AgreementCheckoutService>();
+builder.Services.Configure<EmailSmtpOptions>(
+    builder.Configuration.GetSection(EmailSmtpOptions.SectionName));
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.AddScoped<IPaymentFeeReceiptEmailDispatcher, PaymentFeeReceiptEmailDispatcher>();
 builder.Services.Configure<RoutingOptions>(
     builder.Configuration.GetSection(RoutingOptions.SectionName));
 builder.Services.AddHttpClient<IOsrmLegDistanceService, OsrmLegDistanceService>(client =>

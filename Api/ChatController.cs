@@ -656,6 +656,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> PostTradeAgreement(
         string threadId,
         [FromBody] TradeAgreementDraftRequest body,
@@ -664,7 +665,13 @@ public sealed class ChatController(
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
-        var created = await tradeAgreements.CreateAsync(userId, threadId, body, cancellationToken);
+        var (created, writeErr) = await tradeAgreements.CreateAsync(userId, threadId, body, cancellationToken);
+        if (writeErr == TradeAgreementWriteErrors.DuplicateAgreementTitle)
+            return Conflict(new
+            {
+                error = writeErr,
+                message = "En este chat ya hay un acuerdo con ese nombre. Elige otro título.",
+            });
         if (created is null)
             return NotFound(new { error = "not_found", message = "No se pudo crear el acuerdo." });
         return Ok(created);
@@ -676,6 +683,7 @@ public sealed class ChatController(
     [ProducesResponseType(typeof(TradeAgreementApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> PatchTradeAgreement(
         string threadId,
         string agreementId,
@@ -685,7 +693,13 @@ public sealed class ChatController(
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
-        var updated = await tradeAgreements.UpdateAsync(userId, threadId, agreementId, body, cancellationToken);
+        var (updated, writeErr) = await tradeAgreements.UpdateAsync(userId, threadId, agreementId, body, cancellationToken);
+        if (writeErr == TradeAgreementWriteErrors.DuplicateAgreementTitle)
+            return Conflict(new
+            {
+                error = writeErr,
+                message = "En este chat ya hay otro acuerdo con ese nombre. Elige otro título.",
+            });
         if (updated is null)
             return NotFound(new { error = "not_found", message = "No se pudo actualizar el acuerdo." });
         return Ok(updated);

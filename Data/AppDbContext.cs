@@ -712,8 +712,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.ClientIdempotencyKey).HasMaxLength(200);
             e.Property(x => x.ClientSecretForConfirmation).HasColumnType("text");
             e.HasIndex(x => new { x.TradeAgreementId, x.ThreadId });
-            e.HasIndex(x => x.ClientIdempotencyKey)
+            // Idempotency key is scoped per agreement (client may reuse keys across different agreements).
+            e.HasIndex(x => new { x.TradeAgreementId, x.ClientIdempotencyKey })
                 .IsUnique()
+                .HasDatabaseName("IX_agpay_agreement_idempotency")
                 .HasFilter("\"ClientIdempotencyKey\" IS NOT NULL");
             e.HasOne(x => x.TradeAgreement)
                 .WithMany()

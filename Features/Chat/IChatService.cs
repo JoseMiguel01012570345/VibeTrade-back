@@ -195,6 +195,15 @@ public interface IChatService
         ChatPaymentFeeReceiptPayload payload,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Ids de usuarios que participan en el hilo (comprador, vendedor, transportistas según las mismas reglas que el acceso al chat).
+    /// </summary>
+    /// <param name="threadId">Id persistido del hilo de chat.</param>
+    /// <param name="cancellationToken">Token de cancelación.</param>
+    Task<IReadOnlyList<string>> GetThreadParticipantUserIdsAsync(
+        string threadId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Actualiza entrega/lectura (solo participantes; destinatario para delivered/read).</summary>
     Task<ChatMessageDto?> UpdateMessageStatusAsync(
         UpdateChatMessageStatusArgs request,
