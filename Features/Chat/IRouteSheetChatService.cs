@@ -19,14 +19,27 @@ public interface IRouteSheetChatService
         string routeSheetId,
         CancellationToken cancellationToken = default);
 
-    Task<bool> UpsertAsync(
+    Task<RouteSheetMutationResult> UpsertAsync(
         string userId,
         string threadId,
         string routeSheetId,
         RouteSheetPayload payload,
         CancellationToken cancellationToken = default);
 
-    Task<bool> DeleteAsync(string userId, string threadId, string routeSheetId, CancellationToken cancellationToken = default);
+    Task<RouteSheetMutationResult> DeleteAsync(
+        string userId,
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// La hoja está vinculada en BD a un acuerdo con al menos un cobro <c>succeeded</c>
+    /// (no debe editarse, borrarse, publicarse ni notificarse como pos-edición).
+    /// </summary>
+    Task<bool> RouteSheetIsLockedByPaidAgreementAsync(
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Transportista con acuse pending: acepta o rechaza la última edición de la hoja.</summary>
     Task<bool> CarrierRespondToSheetEditAsync(

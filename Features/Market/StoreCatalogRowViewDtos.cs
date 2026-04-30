@@ -26,6 +26,7 @@ public sealed class StoreProductCatalogRowView
     public string? ContentIncluded { get; set; }
     public string? UsageConditions { get; set; }
     public string? TaxesShippingInstall { get; set; }
+    public bool TransportIncluded { get; set; }
     public bool Published { get; set; }
     public IReadOnlyList<string> PhotoUrls { get; set; } = Array.Empty<string>();
     public IReadOnlyList<StoreCustomFieldBody> CustomFields { get; set; } = Array.Empty<StoreCustomFieldBody>();
@@ -53,6 +54,7 @@ public sealed class StoreProductCatalogRowView
             MonedaPrecio = MonedaPrecio,
             Monedas = Monedas.ToList(),
             TaxesShippingInstall = TaxesShippingInstall,
+            TransportIncluded = TransportIncluded,
             Availability = Availability,
             WarrantyReturn = WarrantyReturn,
             ContentIncluded = ContentIncluded,
@@ -178,6 +180,7 @@ internal static class MarketCatalogRowViewFactory
             UsageConditions = p.UsageConditions,
             Published = p.Published,
             TaxesShippingInstall = string.IsNullOrEmpty(p.TaxesShippingInstall) ? null : p.TaxesShippingInstall,
+            TransportIncluded = p.TransportIncluded,
             PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(p.PhotoUrls),
             CustomFields = CatalogJsonColumnParsing.CustomFieldsListOrEmpty(p.CustomFields),
             Qa = p.OfferQa ?? new List<OfferQaComment>(),

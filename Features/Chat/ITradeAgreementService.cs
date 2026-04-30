@@ -7,13 +7,15 @@ public interface ITradeAgreementService
         string threadId,
         CancellationToken cancellationToken = default);
 
-    Task<TradeAgreementApiResponse?> CreateAsync(
+    /// <returns>Acuerdo creado; (<c>null</c>, error en <see cref="TradeAgreementWriteErrors.DuplicateAgreementTitle" />) si el título ya existe en el hilo; ambos null si falla validación o permiso.</returns>
+    Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> CreateAsync(
         string sellerUserId,
         string threadId,
         TradeAgreementDraftRequest draft,
         CancellationToken cancellationToken = default);
 
-    Task<TradeAgreementApiResponse?> UpdateAsync(
+    /// <inheritdoc cref="CreateAsync"/>
+    Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> UpdateAsync(
         string sellerUserId,
         string threadId,
         string agreementId,
@@ -34,7 +36,7 @@ public interface ITradeAgreementService
         CancellationToken cancellationToken = default);
 
     /// <summary>Vincula o desvincula la hoja de ruta del hilo; persiste <see cref="TradeAgreementRow.RouteSheetId" />.</summary>
-    Task<TradeAgreementApiResponse?> SetRouteSheetLinkAsync(
+    Task<TradeAgreementRouteSheetLinkOutcome> SetRouteSheetLinkAsync(
         string sellerUserId,
         string threadId,
         string agreementId,

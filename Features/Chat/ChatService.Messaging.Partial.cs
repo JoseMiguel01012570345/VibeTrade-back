@@ -1100,4 +1100,26 @@ public sealed partial class ChatService
         var payload = new ChatSystemTextPayload { Text = tx };
         return await InsertChatMessageAsync(t, actorUserId, payload, cancellationToken);
     }
+
+    public async Task<ChatMessageDto?> PostAutomatedPaymentFeeReceiptAsync(
+        string threadId,
+        ChatPaymentFeeReceiptPayload payload,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return null;
+        if (payload.Lines is null)
+            return null;
+
+        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null)
+            return null;
+
+        var actorUserId = (t.SellerUserId ?? "").Trim();
+        if (actorUserId.Length < 2)
+            return null;
+
+        return await InsertChatMessageAsync(t, actorUserId, payload, cancellationToken);
+    }
 }

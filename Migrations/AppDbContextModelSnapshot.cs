@@ -22,6 +22,186 @@ namespace VibeTrade.Backend.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementCurrencyPaymentRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("BuyerUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ClientIdempotencyKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ClientSecretForConfirmation")
+                        .HasColumnType("text");
+
+                    b.Property<long>("ClimateAmountMinor")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("PaymentMethodStripeId")
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("StripeErrorMessage")
+                        .HasColumnType("text");
+
+                    b.Property<long>("StripeFeeAmountMinor")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StripePaymentIntentId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long>("SubtotalAmountMinor")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ThreadId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("TotalAmountMinor")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("TradeAgreementId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TradeAgreementId", "ClientIdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("IX_agpay_agreement_idempotency")
+                        .HasFilter("\"ClientIdempotencyKey\" IS NOT NULL");
+
+                    b.HasIndex("TradeAgreementId", "ThreadId");
+
+                    b.ToTable("agreement_currency_payments", (string)null);
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementRouteLegPaidRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AgreementCurrencyPaymentId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("AmountMinor")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RouteSheetId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("RouteStopId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgreementCurrencyPaymentId");
+
+                    b.HasIndex("RouteSheetId", "RouteStopId");
+
+                    b.ToTable("agreement_route_leg_paids", (string)null);
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementServicePaymentRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AgreementCurrencyPaymentId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("AmountMinor")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("BuyerUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<int>("EntryDay")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("EntryMonth")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("ReleasedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ServiceItemId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ThreadId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TradeAgreementId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgreementCurrencyPaymentId");
+
+                    b.HasIndex("TradeAgreementId", "ThreadId");
+
+                    b.HasIndex("TradeAgreementId", "ServiceItemId", "EntryMonth", "EntryDay", "Currency")
+                        .IsUnique()
+                        .HasDatabaseName("IX_agsp_unique_installment");
+
+                    b.ToTable("agreement_service_payments", (string)null);
+                });
+
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AuthPendingOtpRow", b =>
                 {
                     b.Property<string>("PhoneDigits")
@@ -506,6 +686,65 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("route_tramo_subscriptions", (string)null);
                 });
 
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ServiceEvidenceRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AgreementServicePaymentId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Attachments")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("AttachmentsJson");
+
+                    b.Property<DateTimeOffset?>("BuyerDecisionAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastSubmittedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastSubmittedAttachments")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("LastSubmittedAttachmentsJson");
+
+                    b.Property<string>("LastSubmittedText")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SellerUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgreementServicePaymentId")
+                        .IsUnique();
+
+                    b.ToTable("service_evidences", (string)null);
+                });
+
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreProductRow", b =>
                 {
                     b.Property<string>("Id")
@@ -593,6 +832,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<string>("TechnicalSpecs")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool>("TransportIncluded")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1570,6 +1812,46 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("user_offer_interactions", (string)null);
                 });
 
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementCurrencyPaymentRow", b =>
+                {
+                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementRow", "TradeAgreement")
+                        .WithMany()
+                        .HasForeignKey("TradeAgreementId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TradeAgreement");
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementRouteLegPaidRow", b =>
+                {
+                    b.HasOne("VibeTrade.Backend.Data.Entities.AgreementCurrencyPaymentRow", "AgreementCurrencyPayment")
+                        .WithMany("RouteLegPaids")
+                        .HasForeignKey("AgreementCurrencyPaymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AgreementCurrencyPayment");
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementServicePaymentRow", b =>
+                {
+                    b.HasOne("VibeTrade.Backend.Data.Entities.AgreementCurrencyPaymentRow", "AgreementCurrencyPayment")
+                        .WithMany()
+                        .HasForeignKey("AgreementCurrencyPaymentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementRow", "TradeAgreement")
+                        .WithMany()
+                        .HasForeignKey("TradeAgreementId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AgreementCurrencyPayment");
+
+                    b.Navigation("TradeAgreement");
+                });
+
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatMessageRow", b =>
                 {
                     b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", "Thread")
@@ -1597,6 +1879,17 @@ namespace VibeTrade.Backend.Migrations
                         .HasForeignKey("ThreadId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ServiceEvidenceRow", b =>
+                {
+                    b.HasOne("VibeTrade.Backend.Data.Entities.AgreementServicePaymentRow", "AgreementServicePayment")
+                        .WithMany()
+                        .HasForeignKey("AgreementServicePaymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AgreementServicePayment");
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreProductRow", b =>
@@ -1799,6 +2092,11 @@ namespace VibeTrade.Backend.Migrations
                         .HasForeignKey("OwnerUserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementCurrencyPaymentRow", b =>
+                {
+                    b.Navigation("RouteLegPaids");
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatThreadRow", b =>

@@ -489,10 +489,17 @@ public sealed class ChatController(
             return Unauthorized();
         if (RouteSheetPayloadValidator.Validate(payload) is { } validationMessage)
             return BadRequest(new { error = "validation", message = validationMessage });
-        var ok = await routeSheets.UpsertAsync(userId, threadId, routeSheetId, payload, cancellationToken);
-        if (!ok)
-            return NotFound(new { error = "not_found", message = "Hilo no encontrado o datos inválidos." });
-        return NoContent();
+        var result = await routeSheets.UpsertAsync(userId, threadId, routeSheetId, payload, cancellationToken);
+        return result switch
+        {
+            RouteSheetMutationResult.Ok => NoContent(),
+            RouteSheetMutationResult.LockedByPaidAgreement => Conflict(new
+            {
+                error = "locked_paid_agreement",
+                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
+            }),
+            _ => NotFound(new { error = "not_found", message = "Hilo no encontrado o datos inválidos." }),
+        };
     }
 
     public sealed record NotifyPreselectedBody(RouteSheetPreselectedInvite[]? Invites);
@@ -517,6 +524,12 @@ public sealed class ChatController(
             return Unauthorized();
         if (body?.Invites is null || body.Invites.Length == 0)
             return BadRequest(new { error = "invalid_body", message = "Indica al menos un tramo con teléfono a notificar." });
+        if (await routeSheets.RouteSheetIsLockedByPaidAgreementAsync(threadId, routeSheetId, cancellationToken))
+            return Conflict(new
+            {
+                error = "locked_paid_agreement",
+                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
+            });
         var n = await routeSheets.NotifyPreselectedTransportistasAsync(
             userId,
             threadId,
@@ -578,10 +591,17 @@ public sealed class ChatController(
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
-        var ok = await routeSheets.DeleteAsync(userId, threadId, routeSheetId, cancellationToken);
-        if (!ok)
-            return NotFound(new { error = "not_found", message = "Hoja no encontrada o sin permiso." });
-        return NoContent();
+        var result = await routeSheets.DeleteAsync(userId, threadId, routeSheetId, cancellationToken);
+        return result switch
+        {
+            RouteSheetMutationResult.Ok => NoContent(),
+            RouteSheetMutationResult.LockedByPaidAgreement => Conflict(new
+            {
+                error = "locked_paid_agreement",
+                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
+            }),
+            _ => NotFound(new { error = "not_found", message = "Hoja no encontrada o sin permiso." }),
+        };
     }
 
     public sealed record RouteSheetEditCarrierResponseBody(bool Accept);
@@ -636,6 +656,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> PostTradeAgreement(
         string threadId,
         [FromBody] TradeAgreementDraftRequest body,
@@ -644,7 +665,13 @@ public sealed class ChatController(
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
-        var created = await tradeAgreements.CreateAsync(userId, threadId, body, cancellationToken);
+        var (created, writeErr) = await tradeAgreements.CreateAsync(userId, threadId, body, cancellationToken);
+        if (writeErr == TradeAgreementWriteErrors.DuplicateAgreementTitle)
+            return Conflict(new
+            {
+                error = writeErr,
+                message = "En este chat ya hay un acuerdo con ese nombre. Elige otro título.",
+            });
         if (created is null)
             return NotFound(new { error = "not_found", message = "No se pudo crear el acuerdo." });
         return Ok(created);
@@ -656,6 +683,7 @@ public sealed class ChatController(
     [ProducesResponseType(typeof(TradeAgreementApiResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> PatchTradeAgreement(
         string threadId,
         string agreementId,
@@ -665,7 +693,13 @@ public sealed class ChatController(
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
-        var updated = await tradeAgreements.UpdateAsync(userId, threadId, agreementId, body, cancellationToken);
+        var (updated, writeErr) = await tradeAgreements.UpdateAsync(userId, threadId, agreementId, body, cancellationToken);
+        if (writeErr == TradeAgreementWriteErrors.DuplicateAgreementTitle)
+            return Conflict(new
+            {
+                error = writeErr,
+                message = "En este chat ya hay otro acuerdo con ese nombre. Elige otro título.",
+            });
         if (updated is null)
             return NotFound(new { error = "not_found", message = "No se pudo actualizar el acuerdo." });
         return Ok(updated);
@@ -688,15 +722,19 @@ public sealed class ChatController(
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
-        var updated = await tradeAgreements.SetRouteSheetLinkAsync(
+        var outcome = await tradeAgreements.SetRouteSheetLinkAsync(
             userId,
             threadId,
             agreementId,
             body?.RouteSheetId,
             cancellationToken);
-        if (updated is null)
-            return NotFound(new { error = "not_found", message = "No se pudo actualizar el vínculo con la hoja de ruta." });
-        return Ok(updated);
+        if (outcome.Response is not null)
+            return Ok(outcome.Response);
+        var code = outcome.FailureStatusCode ?? StatusCodes.Status404NotFound;
+        var msg = outcome.FailureMessage ?? "No se pudo actualizar el vínculo con la hoja de ruta.";
+        if (code == StatusCodes.Status400BadRequest)
+            return BadRequest(new { error = "no_merchandise", message = msg });
+        return NotFound(new { error = "not_found", message = msg });
     }
 
     public sealed record TradeAgreementRespondBody(bool Accept);

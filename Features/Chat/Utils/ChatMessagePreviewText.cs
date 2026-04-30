@@ -21,6 +21,10 @@ public static class ChatMessagePreviewText
                 ? "Acuerdo"
                 : $"Acuerdo: {p.Title.Trim()}",
             ChatSystemTextPayload p => PreviewText(p.Text),
+            ChatPaymentFeeReceiptPayload p =>
+                string.IsNullOrWhiteSpace(p.AgreementTitle)
+                    ? "Recibo de pago (PDF)"
+                    : $"Recibo de pago: {p.AgreementTitle.Trim()}",
             ChatCertificatePayload p => string.IsNullOrWhiteSpace(p.Title)
                 ? "Certificado"
                 : p.Title.Trim(),

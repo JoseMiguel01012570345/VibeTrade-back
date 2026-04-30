@@ -1178,5 +1178,24 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
         }
         return true;
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>> GetThreadParticipantUserIdsAsync(
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = ChatThreadIds.NormalizePersistedId(threadId);
+        if (tid.Length < 4)
+            return [];
+
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken)
+            .ConfigureAwait(false);
+        if (t is null || t.DeletedAtUtc is not null)
+            return [];
+
+        var set = await GetThreadParticipantUserIdsAsync(t, cancellationToken).ConfigureAwait(false);
+        return set.ToList();
+    }
 }
 

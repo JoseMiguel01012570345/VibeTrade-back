@@ -30,6 +30,15 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
     private static string? StripePublishableKey() =>
         (Environment.GetEnvironmentVariable("STRIPE_PUBLISHABLE_KEY") ?? "").Trim() is { Length: > 0 } s ? s : null;
 
+    /// <summary>
+    /// When set (1/true/yes), <see cref="PostCreatePaymentIntent"/> returns without calling Stripe to create a PaymentIntent — no charge is attempted.
+    /// </summary>
+    private static bool SkipPaymentIntents() => EnvTruthy("VIBETRADE_SKIP_PAYMENT_INTENTS");
+
+    private static bool EnvTruthy(string name) =>
+        (Environment.GetEnvironmentVariable(name) ?? "").Trim() is { Length: > 0 } v &&
+        string.Equals(v, "true", StringComparison.OrdinalIgnoreCase);
+
     public sealed record StripeConfigDto(bool Enabled, string? PublishableKey);
 
     [HttpGet("config")]
@@ -168,7 +177,7 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
 
     /// <param name="AmountMinor">Monto en unidad mínima de moneda (Stripe <c>amount</c>): p. ej. USD = centavos, 1000 = US$10,00.</param>
     public sealed record CreatePaymentIntentBody(long AmountMinor, string Currency, string? Description, string? PaymentMethodId);
-    public sealed record CreatePaymentIntentResult(string ClientSecret);
+    public sealed record CreatePaymentIntentResult(string ClientSecret, bool PaymentSkipped = false);
 
     [HttpPost("payment-intents")]
     [Consumes("application/json")]
@@ -183,6 +192,19 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
         if (userId is null)
             return Unauthorized();
 
+        var cur = (body.Currency ?? "").Trim().ToLowerInvariant();
+        if (SkipPaymentIntents())
+        {
+            if (cur.Length is < 3 or > 8)
+                return BadRequest(new { error = "invalid_currency", message = "Moneda inválida." });
+            if (body.AmountMinor <= 0)
+                return BadRequest(new { error = "invalid_amount", message = "Importe inválido." });
+            var pmEarly = (body.PaymentMethodId ?? "").Trim();
+            if (pmEarly.Length == 0)
+                return BadRequest(new { error = "missing_payment_method", message = "Selecciona una tarjeta para pagar." });
+            return Ok(new CreatePaymentIntentResult(ClientSecret: "", PaymentSkipped: true));
+        }
+
         var serverKey = StripeServerApiKey();
         if (serverKey is null)
             return BadRequest(new
@@ -191,7 +213,6 @@ public sealed class PaymentsStripeController(IAuthService auth, AppDbContext db)
                 message = "Falta STRIPE_RESTRICTED_KEY o STRIPE_SECRET_KEY en .env",
             });
 
-        var cur = (body.Currency ?? "").Trim().ToLowerInvariant();
         if (cur.Length is < 3 or > 8)
             return BadRequest(new { error = "invalid_currency", message = "Moneda inválida." });
         if (body.AmountMinor <= 0)

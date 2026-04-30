@@ -2,6 +2,7 @@ using System.Linq;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Market;
 
@@ -35,6 +36,21 @@ internal static class EntityValueConversions
             (a, b) => SerEq(a, b),
             c => SerHash(c),
             c => JCloneList(c));
+
+    public static ValueConverter<List<ServiceEvidenceAttachmentBody>, string> ServiceEvidenceAttachments() =>
+        new(
+            to => JsonSerializer.Serialize(to, MarketJsonDefaults.Options),
+            from => string.IsNullOrWhiteSpace(from)
+                ? new List<ServiceEvidenceAttachmentBody>()
+                : JsonSerializer.Deserialize<List<ServiceEvidenceAttachmentBody>>(from, MarketJsonDefaults.Options) ?? new List<ServiceEvidenceAttachmentBody>());
+
+    public static ValueComparer<List<ServiceEvidenceAttachmentBody>> ServiceEvidenceAttachmentsComparer() =>
+        new(
+            (a, b) => SerEq(a, b),
+            c => SerHash(c),
+            c => JsonSerializer.Deserialize<List<ServiceEvidenceAttachmentBody>>(
+                     JsonSerializer.Serialize(c, MarketJsonDefaults.Options), MarketJsonDefaults.Options) ??
+                 new List<ServiceEvidenceAttachmentBody>());
 
     public static ValueConverter<ServiceRiesgosBody, string> ServiceRiesgos() =>
         new(

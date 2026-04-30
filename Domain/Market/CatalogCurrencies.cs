@@ -8,5 +8,7 @@ public static class CatalogCurrencies
         "CUP",
         "USD",
         "EUR",
+        "CAD",
+        "GBP",
     };
 }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
@@ -43,35 +44,48 @@ public sealed class TradeAgreementService(
             .OrderBy(a => a.IssuedAtUtc)
             .ToListAsync(cancellationToken);
 
-        return list.ConvertAll(TradeAgreementEntityToApiMapper.ToApiResponse);
+        var ids = list.Select(a => a.Id).ToList();
+        var paidIds = ids.Count == 0
+            ? new List<string>()
+            : await db.AgreementCurrencyPayments.AsNoTracking()
+                .Where(p => ids.Contains(p.TradeAgreementId) && p.Status == AgreementPaymentStatuses.Succeeded)
+                .Select(p => p.TradeAgreementId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+        var paidSet = paidIds.ToHashSet(StringComparer.Ordinal);
+        return list.ConvertAll(a => TradeAgreementEntityToApiMapper.ToApiResponse(a, paidSet.Contains(a.Id)));
     }
 
-    public async Task<TradeAgreementApiResponse?> CreateAsync(
+    public async Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> CreateAsync(
         string sellerUserId,
         string threadId,
         TradeAgreementDraftRequest draft,
         CancellationToken cancellationToken = default)
     {
         if (!ValidateDraft(draft))
-            return null;
+            return (null, null);
 
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
-            return null;
+            return (null, null);
         if (sellerUserId != t.SellerUserId)
-            return null;
+            return (null, null);
 
         var store = await db.Stores.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == t.StoreId, cancellationToken);
         if (store is null)
-            return null;
+            return (null, null);
+
+        if (await ThreadHasAgreementWithSameTitleAsync(t.Id, draft.Title, excludeAgreementId: null, cancellationToken)
+                .ConfigureAwait(false))
+            return (null, TradeAgreementWriteErrors.DuplicateAgreementTitle);
 
         var id = NewAgrId();
         var now = DateTimeOffset.UtcNow;
         var ag = new TradeAgreementRow
         {
             Id = id,
-            ThreadId = threadId,
+            ThreadId = t.Id,
             Title = draft.Title.Trim(),
             IssuedAtUtc = now,
             IssuedByStoreId = t.StoreId,
@@ -92,10 +106,11 @@ public sealed class TradeAgreementService(
             new PostAgreementAnnouncementArgs(sellerUserId, threadId, id, ag.Title, "pending_buyer"),
             cancellationToken);
 
-        return await GetTrackedResponseAsync(id, cancellationToken);
+        var createdResp = await GetTrackedResponseAsync(id, cancellationToken);
+        return (createdResp, null);
     }
 
-    public async Task<TradeAgreementApiResponse?> UpdateAsync(
+    public async Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> UpdateAsync(
         string sellerUserId,
         string threadId,
         string agreementId,
@@ -103,24 +118,30 @@ public sealed class TradeAgreementService(
         CancellationToken cancellationToken = default)
     {
         if (!ValidateDraft(draft))
-            return null;
+            return (null, null);
 
         var t = await db.ChatThreads.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
-            return null;
+            return (null, null);
         if (sellerUserId != t.SellerUserId)
-            return null;
+            return (null, null);
 
         var ag = await LoadTrackedAgreementAsync(threadId, agreementId, cancellationToken);
         if (ag is null)
-            return null;
+            return (null, null);
         if (ag.IssuedByStoreId != t.StoreId)
-            return null;
+            return (null, null);
+        if (await HasSucceededPaymentAsync(ag.Id, cancellationToken))
+            return (null, null);
         if (ag.SellerEditBlockedUntilBuyerResponse)
-            return null;
+            return (null, null);
         if (ag.Status is not ("pending_buyer" or "rejected" or "accepted"))
-            return null;
+            return (null, null);
+
+        if (await ThreadHasAgreementWithSameTitleAsync(t.Id, draft.Title, excludeAgreementId: ag.Id,
+                cancellationToken).ConfigureAwait(false))
+            return (null, TradeAgreementWriteErrors.DuplicateAgreementTitle);
 
         var wasAccepted = ag.Status == "accepted";
         var wasRejected = ag.Status == "rejected";
@@ -155,7 +176,8 @@ public sealed class TradeAgreementService(
 
         await chat.PostSystemThreadNoticeAsync(sellerUserId, threadId, sys, cancellationToken);
 
-        return await GetTrackedResponseAsync(ag.Id, cancellationToken);
+        var updated = await GetTrackedResponseAsync(ag.Id, cancellationToken);
+        return (updated, null);
     }
 
     public async Task<TradeAgreementApiResponse?> RespondAsync(
@@ -259,6 +281,8 @@ public sealed class TradeAgreementService(
             || ag.Status == "accepted"
             || ag.IssuedByStoreId != t.StoreId)
             return false;
+        if (await HasSucceededPaymentAsync(ag.Id, cancellationToken))
+            return false;
 
         var title = ag.Title;
         ag.DeletedAtUtc = DateTimeOffset.UtcNow;
@@ -274,22 +298,31 @@ public sealed class TradeAgreementService(
         return true;
     }
 
-    public async Task<TradeAgreementApiResponse?> SetRouteSheetLinkAsync(
+    public async Task<TradeAgreementRouteSheetLinkOutcome> SetRouteSheetLinkAsync(
         string sellerUserId,
         string threadId,
         string agreementId,
         string? routeSheetId,
         CancellationToken cancellationToken = default)
     {
+        const string notFoundMsg = "No se pudo actualizar el vínculo con la hoja de ruta.";
+        const string noMerchMsg =
+            "Solo se puede vincular una hoja de ruta si el acuerdo incluye mercancía con al menos una línea con cantidad, precio unitario y moneda válidos.";
+
+        TradeAgreementRouteSheetLinkOutcome Fail(int code, string msg) =>
+            new(null, code, msg);
+
         var t = await db.ChatThreads
             .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null
             || t.DeletedAtUtc is not null
             || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t)
             || sellerUserId != t.SellerUserId)
-            return null;
+            return Fail(404, notFoundMsg);
 
         var ag = await db.TradeAgreements
+            .Include(a => a.MerchandiseLines)
+            .Include(a => a.MerchandiseMeta)
             .FirstOrDefaultAsync(
                 x => x.Id == agreementId
                      && x.ThreadId == threadId
@@ -297,13 +330,31 @@ public sealed class TradeAgreementService(
                      && x.IssuedByStoreId == t.StoreId,
                 cancellationToken);
         if (ag is null)
-            return null;
+            return Fail(404, notFoundMsg);
 
+        async Task<TradeAgreementRouteSheetLinkOutcome> OkResponseAsync()
+        {
+            var r = await GetTrackedResponseAsync(ag.Id, cancellationToken)
+                .ConfigureAwait(false);
+            return r is null ? Fail(404, notFoundMsg) : new TradeAgreementRouteSheetLinkOutcome(r, null, null);
+        }
+
+        var paid = await HasSucceededPaymentAsync(ag.Id, cancellationToken);
         var incoming = (routeSheetId ?? "").Trim();
+        var prevRs = (ag.RouteSheetId ?? "").Trim();
+        if (paid)
+        {
+            if (string.Equals(incoming, prevRs, StringComparison.OrdinalIgnoreCase))
+                return await OkResponseAsync().ConfigureAwait(false);
+            if (string.IsNullOrEmpty(incoming))
+                return Fail(400, "No se puede desvincular la hoja de ruta: ya hay pagos registrados para este acuerdo.");
+            return Fail(400, "No se puede cambiar la hoja de ruta vinculada: ya hay pagos registrados para este acuerdo.");
+        }
+
         if (string.IsNullOrEmpty(incoming))
         {
             if (string.IsNullOrWhiteSpace(ag.RouteSheetId))
-                return await GetTrackedResponseAsync(ag.Id, cancellationToken);
+                return await OkResponseAsync().ConfigureAwait(false);
 
             var prevId = ag.RouteSheetId!.Trim();
             var prevRow = await db.ChatRouteSheets.AsNoTracking()
@@ -313,11 +364,14 @@ public sealed class TradeAgreementService(
                          && x.DeletedAtUtc == null,
                     cancellationToken);
             if (prevRow?.PublishedToPlatform == true)
-                return null;
+                return Fail(404, notFoundMsg);
             ag.RouteSheetId = null;
         }
         else
         {
+            if (!AgreementHasMerchandiseForRouteLink(ag))
+                return Fail(400, noMerchMsg);
+
             var okRow = await db.ChatRouteSheets.AsNoTracking()
                 .AnyAsync(
                     x => x.ThreadId == threadId
@@ -325,12 +379,12 @@ public sealed class TradeAgreementService(
                          && x.DeletedAtUtc == null,
                     cancellationToken);
             if (!okRow)
-                return null;
+                return Fail(404, notFoundMsg);
             ag.RouteSheetId = incoming;
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        return await GetTrackedResponseAsync(ag.Id, cancellationToken);
+        return await OkResponseAsync().ConfigureAwait(false);
     }
 
     private async Task<TradeAgreementApiResponse?> GetTrackedResponseAsync(
@@ -338,7 +392,18 @@ public sealed class TradeAgreementService(
         CancellationToken cancellationToken)
     {
         var ag = await LoadTrackedAgreementAsync(null, agreementId, cancellationToken);
-        return ag is null ? null : TradeAgreementEntityToApiMapper.ToApiResponse(ag);
+        if (ag is null)
+            return null;
+        var paid = await HasSucceededPaymentAsync(ag.Id, cancellationToken);
+        return TradeAgreementEntityToApiMapper.ToApiResponse(ag, paid);
+    }
+
+    private async Task<bool> HasSucceededPaymentAsync(string agreementId, CancellationToken cancellationToken)
+    {
+        return await db.AgreementCurrencyPayments.AsNoTracking()
+            .AnyAsync(
+                p => p.TradeAgreementId == agreementId && p.Status == AgreementPaymentStatuses.Succeeded,
+                cancellationToken);
     }
 
     private async Task<TradeAgreementRow?> LoadTrackedAgreementAsync(
@@ -365,11 +430,42 @@ public sealed class TradeAgreementService(
         return await q.FirstOrDefaultAsync(cancellationToken);
     }
 
+    /// <summary>Acuerdos no eliminados en el mismo hilo; título comparado tras trim y sin distinguir mayúsculas.</summary>
+    private async Task<bool> ThreadHasAgreementWithSameTitleAsync(
+        string threadId,
+        string title,
+        string? excludeAgreementId,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var wanted = NormalizeAgreementTitle(title);
+        if (wanted.Length == 0)
+            return false;
+
+        var titles = await db.TradeAgreements.AsNoTracking()
+            .Where(a => a.ThreadId == tid && a.DeletedAtUtc == null)
+            .Where(a => excludeAgreementId == null || a.Id != excludeAgreementId)
+            .Select(a => a.Title)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var existing in titles)
+        {
+            if (NormalizeAgreementTitle(existing) == wanted)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string NormalizeAgreementTitle(string title) => (title ?? "").Trim().ToLowerInvariant();
+
     private static bool ValidateDraft(TradeAgreementDraftRequest d)
     {
         if (string.IsNullOrWhiteSpace(d.Title) || d.Title.Trim().Length > 512)
             return false;
-        if (!d.IncludeMerchandise && !d.IncludeService)
+        // XOR: debe elegir exactamente uno (mercancía o servicio).
+        if (d.IncludeMerchandise == d.IncludeService)
             return false;
         return ValidateExtraFields(d);
     }
@@ -392,8 +488,7 @@ public sealed class TradeAgreementService(
                 return false;
             if (sc == "service" && !d.IncludeService)
                 return false;
-            if (sc == "legacy_combined" && !(d.IncludeMerchandise && d.IncludeService))
-                return false;
+            // Compatibilidad: `legacy_combined` se acepta y se trata como el bloque activo.
 
             var title = (x.Title ?? "").Trim();
             if (title.Length < 1 || title.Length > 256)
@@ -452,4 +547,34 @@ public sealed class TradeAgreementService(
     }
 
     private static string NewAgrId() => "agr_" + Guid.NewGuid().ToString("N")[..16];
+
+    private static bool AgreementHasMerchandiseForRouteLink(TradeAgreementRow ag)
+    {
+        if (!ag.IncludeMerchandise)
+            return false;
+        foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
+        {
+            if (!TryParsePositiveDecimal(m.Cantidad, out _))
+                continue;
+            if (!TryParsePositiveDecimal(m.ValorUnitario, out _))
+                continue;
+            var mon = PaymentCheckoutComputation.NormalizeCurrencyFirst(m.Moneda ?? ag.MerchandiseMeta?.Moneda);
+            if (string.IsNullOrEmpty(mon))
+                continue;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryParsePositiveDecimal(string? raw, out decimal value)
+    {
+        value = 0;
+        var t = (raw ?? "").Trim().Replace(",", ".", StringComparison.Ordinal)
+            .Replace('\u00a0', ' ');
+        if (!decimal.TryParse(t, NumberStyles.Number, CultureInfo.InvariantCulture, out var d))
+            return false;
+        value = d;
+        return d > 0;
+    }
 }

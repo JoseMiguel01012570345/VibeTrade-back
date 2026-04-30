@@ -93,7 +93,35 @@ public sealed class RouteSheetChatService(
         return copy;
     }
 
-    public async Task<bool> UpsertAsync(
+    public Task<bool> RouteSheetIsLockedByPaidAgreementAsync(
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken = default)
+        => RouteSheetHasPaidAgreementLinkAsync(threadId, routeSheetId, cancellationToken);
+
+    private async Task<bool> RouteSheetHasPaidAgreementLinkAsync(
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var rs = (routeSheetId ?? "").Trim();
+        if (tid.Length < 4 || rs.Length < 1)
+            return false;
+
+        var agrIds = await db.TradeAgreements.AsNoTracking()
+            .Where(a => a.ThreadId == tid && a.DeletedAtUtc == null && a.RouteSheetId == rs)
+            .Select(a => a.Id)
+            .ToListAsync(cancellationToken);
+        if (agrIds.Count == 0)
+            return false;
+        return await db.AgreementCurrencyPayments.AsNoTracking()
+            .AnyAsync(
+                p => agrIds.Contains(p.TradeAgreementId) && p.Status == AgreementPaymentStatuses.Succeeded,
+                cancellationToken);
+    }
+
+    public async Task<RouteSheetMutationResult> UpsertAsync(
         string userId,
         string threadId,
         string routeSheetId,
@@ -102,17 +130,20 @@ public sealed class RouteSheetChatService(
     {
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(userId, t))
-            return false;
+            return RouteSheetMutationResult.NotFoundOrForbidden;
         if (!string.Equals((t.SellerUserId ?? "").Trim(), (userId ?? "").Trim(), StringComparison.Ordinal))
-            return false;
+            return RouteSheetMutationResult.NotFoundOrForbidden;
 
         var rsId = (routeSheetId ?? "").Trim();
         if (rsId.Length == 0)
-            return false;
+            return RouteSheetMutationResult.NotFoundOrForbidden;
+
+        if (await RouteSheetHasPaidAgreementLinkAsync(threadId, rsId, cancellationToken))
+            return RouteSheetMutationResult.LockedByPaidAgreement;
 
         var idInPayload = (payload.Id ?? "").Trim();
         if (idInPayload.Length > 0 && !string.Equals(idInPayload, rsId, StringComparison.Ordinal))
-            return false;
+            return RouteSheetMutationResult.NotFoundOrForbidden;
 
         var row = await db.ChatRouteSheets.FirstOrDefaultAsync(
             x => x.ThreadId == threadId && x.RouteSheetId == rsId,
@@ -175,7 +206,7 @@ public sealed class RouteSheetChatService(
             ?? merged;
 
         if (RouteSheetPayloadValidator.Validate(persisted) is not null)
-            return false;
+            return RouteSheetMutationResult.NotFoundOrForbidden;
 
         if (row is null)
         {
@@ -257,7 +288,7 @@ public sealed class RouteSheetChatService(
                 cancellationToken);
         }
 
-        return true;
+        return RouteSheetMutationResult.Ok;
     }
 
     private static string BuildRouteSheetEditedNoticeText(RouteSheetPayload payload)
@@ -291,7 +322,7 @@ public sealed class RouteSheetChatService(
         ag.RouteSheetId = routeSheetId;
     }
 
-    public async Task<bool> DeleteAsync(
+    public async Task<RouteSheetMutationResult> DeleteAsync(
         string userId,
         string threadId,
         string routeSheetId,
@@ -299,22 +330,25 @@ public sealed class RouteSheetChatService(
     {
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(userId, t))
-            return false;
+            return RouteSheetMutationResult.NotFoundOrForbidden;
         if (!string.Equals((t.SellerUserId ?? "").Trim(), (userId ?? "").Trim(), StringComparison.Ordinal))
-            return false;
+            return RouteSheetMutationResult.NotFoundOrForbidden;
 
         var rsId = (routeSheetId ?? "").Trim();
         if (rsId.Length == 0)
-            return false;
+            return RouteSheetMutationResult.NotFoundOrForbidden;
 
         var row = await db.ChatRouteSheets.FirstOrDefaultAsync(
             x => x.ThreadId == threadId && x.RouteSheetId == rsId,
             cancellationToken);
         if (row is null)
-            return false;
+            return RouteSheetMutationResult.NotFoundOrForbidden;
 
         if (row.DeletedAtUtc is not null)
-            return true;
+            return RouteSheetMutationResult.Ok;
+
+        if (await RouteSheetHasPaidAgreementLinkAsync(threadId, rsId, cancellationToken))
+            return RouteSheetMutationResult.LockedByPaidAgreement;
 
         var retractNow = DateTimeOffset.UtcNow;
         var subs = await db.RouteTramoSubscriptions
@@ -415,7 +449,7 @@ public sealed class RouteSheetChatService(
                 emergentPubId),
             cancellationToken);
 
-        return true;
+        return RouteSheetMutationResult.Ok;
     }
 
     public async Task<bool> CarrierRespondToSheetEditAsync(

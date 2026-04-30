@@ -33,6 +33,10 @@ public sealed class TradeAgreementApiResponse
 
     public string? RouteSheetId { get; set; }
     public string? RouteSheetUrl { get; set; }
+
+    /// <summary>Hay al menos un cobro Stripe exitoso asociado a este acuerdo (bloquea edición y vínculo de ruta).</summary>
+    [JsonPropertyName("hasSucceededPayments")]
+    public bool HasSucceededPayments { get; set; }
 }
 
 public sealed class MerchandiseLineApi

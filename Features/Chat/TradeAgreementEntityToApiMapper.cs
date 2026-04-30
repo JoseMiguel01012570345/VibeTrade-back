@@ -10,9 +10,11 @@ public static class TradeAgreementEntityToApiMapper
         PropertyNameCaseInsensitive = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
-    public static TradeAgreementApiResponse ToApiResponse(TradeAgreementRow ag)
+    public static TradeAgreementApiResponse ToApiResponse(
+        TradeAgreementRow ag,
+        bool hasSucceededPayments = false)
     {
-        var resp = MapAgreementHeader(ag);
+        var resp = MapAgreementHeader(ag, hasSucceededPayments);
         MapMerchandiseMeta(ag, resp);
         MapMerchandiseLines(ag, resp);
         MapServiceItems(ag, resp);
@@ -20,7 +22,9 @@ public static class TradeAgreementEntityToApiMapper
         return resp;
     }
 
-    private static TradeAgreementApiResponse MapAgreementHeader(TradeAgreementRow ag)
+    private static TradeAgreementApiResponse MapAgreementHeader(
+        TradeAgreementRow ag,
+        bool hasSucceededPayments)
     {
         var deleted = ag.DeletedAtUtc is not null;
         return new TradeAgreementApiResponse
@@ -40,6 +44,7 @@ public static class TradeAgreementEntityToApiMapper
             IncludeService = ag.IncludeService,
             RouteSheetId = ag.RouteSheetId,
             RouteSheetUrl = ag.RouteSheetUrl,
+            HasSucceededPayments = hasSucceededPayments,
         };
     }
 
