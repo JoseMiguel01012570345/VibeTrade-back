@@ -1,0 +1,677 @@
+using System.Diagnostics.CodeAnalysis;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using Stripe;
+using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Data.RouteSheets;
+using VibeTrade.Backend.Features.Chat;
+
+namespace VibeTrade.Backend.Features.Payments;
+
+public sealed class PaymentsService(
+    AppDbContext db,
+    IChatService chat,
+    IPaymentFeeReceiptEmailDispatcher paymentFeeReceiptEmail)
+    : IPaymentsService
+{
+    private sealed record AgreementCheckoutTarget(
+        string ThreadId,
+        string AgreementId,
+        string CurrencyLower,
+        string PaymentMethodId,
+        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? ServicePicks);
+
+    public StripeConfigDto GetStripeConfig()
+    {
+        var serverKey = PaymentStripeEnv.StripeServerApiKey();
+        var pub = PaymentStripeEnv.StripePublishableKey();
+        var enabled = serverKey is not null && pub is not null;
+        return new StripeConfigDto(enabled, enabled ? pub : null, PaymentStripeEnv.SkipStripePaymentIntentCreate());
+    }
+
+    public async Task<IReadOnlyList<StripeCardPaymentMethodDto>> ListCardPaymentMethodsAsync(
+        string userId,
+        CancellationToken cancellationToken = default)
+    {
+        var serverKey = PaymentStripeEnv.StripeServerApiKey();
+        if (serverKey is null)
+            return [];
+
+        var u = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == userId.Trim(), cancellationToken)
+            .ConfigureAwait(false);
+        var cusId = u?.StripeCustomerId?.Trim();
+        if (string.IsNullOrWhiteSpace(cusId))
+            return [];
+
+        StripeConfiguration.ApiKey = serverKey;
+        var byId = new Dictionary<string, PaymentMethod>(StringComparer.Ordinal);
+        var cpmSvc = new CustomerPaymentMethodService();
+
+        async Task AddAllPagesAsync(CustomerPaymentMethodListOptions template, CancellationToken ct)
+        {
+            string? startingAfter = null;
+            while (true)
+            {
+                var opts = new CustomerPaymentMethodListOptions
+                {
+                    Type = template.Type,
+                    Limit = 100,
+                    StartingAfter = startingAfter,
+                    AllowRedisplay = template.AllowRedisplay,
+                };
+                var list = await cpmSvc.ListAsync(cusId, opts, requestOptions: null, cancellationToken: ct)
+                    .ConfigureAwait(false);
+                var data = list.Data ?? new List<PaymentMethod>();
+                foreach (var pm in data)
+                    byId[pm.Id] = pm;
+                if (!list.HasMore || data.Count == 0)
+                    break;
+                startingAfter = data[^1].Id;
+            }
+        }
+
+        await AddAllPagesAsync(new CustomerPaymentMethodListOptions { Type = "card" }, cancellationToken);
+        await AddAllPagesAsync(
+            new CustomerPaymentMethodListOptions { Type = "card", AllowRedisplay = "always" },
+            cancellationToken);
+        await AddAllPagesAsync(
+            new CustomerPaymentMethodListOptions { Type = "card", AllowRedisplay = "limited" },
+            cancellationToken);
+        await AddAllPagesAsync(
+            new CustomerPaymentMethodListOptions { Type = "card", AllowRedisplay = "unspecified" },
+            cancellationToken);
+
+        var outList = new List<StripeCardPaymentMethodDto>();
+        foreach (var pm in byId.Values)
+        {
+            var c = pm.Card;
+            if (c is null) continue;
+            var country = (c.Country ?? "").Trim().ToUpperInvariant();
+            var countryOut = country.Length == 2 ? country : null;
+            outList.Add(new StripeCardPaymentMethodDto(
+                pm.Id,
+                (c.Brand ?? "").Trim(),
+                (c.Last4 ?? "").Trim(),
+                (int)c.ExpMonth,
+                (int)c.ExpYear,
+                countryOut));
+        }
+
+        return outList;
+    }
+
+    public async Task<(bool Ok, object Problem, CreateSetupIntentResult? Data)> CreateSetupIntentAsync(
+        string userId,
+        CancellationToken cancellationToken = default)
+    {
+        var serverKey = PaymentStripeEnv.StripeServerApiKey();
+        if (serverKey is null)
+        {
+            return (false,
+                new
+                {
+                    error = "stripe_not_configured",
+                    message = "Falta STRIPE_RESTRICTED_KEY o STRIPE_SECRET_KEY en .env",
+                },
+                null);
+        }
+
+        StripeConfiguration.ApiKey = serverKey;
+        var (u, customerId) = await EnsureStripeCustomerAsync(userId.Trim(), cancellationToken)
+            .ConfigureAwait(false);
+        if (u is null || string.IsNullOrWhiteSpace(customerId))
+        {
+            return (false, new { error = "not_found", message = "Usuario no encontrado." }, null);
+        }
+
+        var setupSvc = new SetupIntentService();
+        var si = await setupSvc.CreateAsync(
+                new SetupIntentCreateOptions
+                {
+                    Customer = customerId,
+                    PaymentMethodTypes = new List<string> { "card" },
+                    Usage = "off_session",
+                    Metadata = new Dictionary<string, string> { ["vibetradeUserId"] = userId.Trim() },
+                },
+                requestOptions: null,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(si.ClientSecret))
+        {
+            return (false, new { error = "stripe_error", message = "Stripe no devolvió client_secret." }, null);
+        }
+
+        return (true, null!, new CreateSetupIntentResult(si.ClientSecret));
+    }
+
+    public async Task<(int StatusCode, object? Problem, CreatePaymentIntentResult? Data)> CreatePaymentIntentAsync(
+        string userId,
+        CreatePaymentIntentBody body,
+        CancellationToken cancellationToken = default)
+    {
+        if (!string.Equals(
+                (body.Kind ?? "").Trim(),
+                PaymentsStripePaymentKinds.AgreementCheckout,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Err(StatusCodes.Status400BadRequest, "invalid_kind", "Tipo de cobro no soportado o no indicado.");
+        }
+
+        if (!TryParseAgreementCheckoutTarget(body, out var target, out var err))
+            return err;
+
+        var buyer = userId.Trim();
+        var (qbOrNull, totalsErr) =
+            await ResolveAgreementCurrencyTotalsAsync(buyer, target, cancellationToken).ConfigureAwait(false);
+        if (totalsErr is { } te)
+            return te;
+        var qb = qbOrNull!;
+
+        if (await AgreementCurrencyAlreadySucceededAsync(target.AgreementId, target.CurrencyLower, cancellationToken)
+                .ConfigureAwait(false))
+        {
+            return Err(StatusCodes.Status400BadRequest, "already_paid", "Ya existe un cobro exitoso para esa moneda.");
+        }
+
+        if (PaymentStripeEnv.SkipStripePaymentIntentCreate())
+        {
+            return Ok(new CreatePaymentIntentResult("", PaymentSkipped: true, qb.TotalMinor, target.CurrencyLower));
+        }
+
+        return await CreateAgreementStripePaymentIntentAsync(buyer, target, qb, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<PaymentCheckoutComputation.BreakdownDto?> GetCheckoutBreakdownAsync(
+        string buyerUserId,
+        string threadId,
+        string agreementId,
+        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        CancellationToken cancellationToken = default)
+    {
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == threadId.Trim(), cancellationToken)
+            .ConfigureAwait(false);
+        if (t is null || t.BuyerUserId != buyerUserId.Trim()) return null;
+        if (!await chat.UserCanAccessThreadRowAsync(buyerUserId.Trim(), t, cancellationToken)
+                .ConfigureAwait(false))
+            return null;
+
+        var ag =
+            await AgreementCheckoutExecutor.LoadAgreementAsync(db, threadId.Trim(), agreementId.Trim(),
+                cancellationToken).ConfigureAwait(false);
+        if (ag is null) return null;
+
+        var rp = await AgreementCheckoutExecutor.LoadRoutePayloadAsync(db, threadId.Trim(), ag.RouteSheetId?.Trim(),
+            cancellationToken).ConfigureAwait(false);
+
+        return PaymentCheckoutComputation.ComputeForAgreement(ag, rp, selectedServicePayments);
+    }
+
+    public async Task<IReadOnlyList<AgreementPaymentStatusDto>> ListPaymentStatusesAsync(
+        string buyerUserId,
+        string threadId,
+        string agreementId,
+        CancellationToken cancellationToken = default)
+    {
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == threadId.Trim(), cancellationToken)
+            .ConfigureAwait(false);
+        if (t is null || t.BuyerUserId != buyerUserId.Trim()) return [];
+        if (!await chat.UserCanAccessThreadRowAsync(buyerUserId.Trim(), t, cancellationToken)
+                .ConfigureAwait(false))
+            return [];
+
+        return await db.AgreementCurrencyPayments.AsNoTracking()
+            .Where(x =>
+                x.ThreadId == threadId.Trim() && x.TradeAgreementId == agreementId.Trim())
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Select(x =>
+                new AgreementPaymentStatusDto(x.Currency, x.Status, x.TotalAmountMinor,
+                    x.StripePaymentIntentId ?? "", x.CompletedAtUtc))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<AgreementExecutePaymentResultDto?> ExecuteCurrencyPaymentAsync(
+        string buyerUserId,
+        string threadId,
+        string agreementId,
+        string currencyLower,
+        string paymentMethodStripeId,
+        string? idempotencyKey,
+        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        CancellationToken cancellationToken = default)
+    {
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == threadId.Trim(), cancellationToken)
+            .ConfigureAwait(false);
+        if (t is null || t.BuyerUserId != buyerUserId.Trim()) return null;
+        if (!await chat.UserCanAccessThreadRowAsync(buyerUserId.Trim(), t, cancellationToken)
+                .ConfigureAwait(false))
+            return null;
+
+        var cur = currencyLower.Trim().ToLowerInvariant();
+        var pmId = paymentMethodStripeId.Trim();
+        if (cur.Length is < 3 or > 8 || pmId.Length < 12)
+            return new AgreementExecutePaymentResultDto("", false, null,
+                "Parámetros de pago incompletos.", false, "invalid_request");
+
+        var ik = (idempotencyKey ?? "").Trim();
+        if (ik.Length >= 8)
+        {
+            var prev = await db.AgreementCurrencyPayments.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x =>
+                        x.ClientIdempotencyKey == ik && x.TradeAgreementId == agreementId.Trim(),
+                    cancellationToken).ConfigureAwait(false);
+
+            if (prev is not null)
+                return AgreementCheckoutExecutor.FromDup(prev);
+        }
+
+        if (await db.AgreementCurrencyPayments.AsNoTracking().AnyAsync(
+                x =>
+                    x.TradeAgreementId == agreementId.Trim() && x.Currency == cur &&
+                    x.Status == AgreementPaymentStatuses.Succeeded,
+                cancellationToken).ConfigureAwait(false))
+            return new AgreementExecutePaymentResultDto("", false, null,
+                "Ya existe un cobro exitoso para esa moneda.", false, "already_paid");
+
+        TradeAgreementRow? agr =
+            await AgreementCheckoutExecutor.LoadAgreementAsync(db, threadId.Trim(),
+                agreementId.Trim(), cancellationToken).ConfigureAwait(false);
+
+        if (agr is null)
+            return new AgreementExecutePaymentResultDto("", false, null, "Acuerdo no encontrado.", false,
+                "not_found");
+
+        var rp =
+            await AgreementCheckoutExecutor.LoadRoutePayloadAsync(db, threadId.Trim(),
+                agr.RouteSheetId?.Trim(),
+                cancellationToken).ConfigureAwait(false);
+
+        var breakdown = PaymentCheckoutComputation.ComputeForAgreement(agr, rp, selectedServicePayments);
+        var qb = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, cur);
+        if (!breakdown.Ok || qb is null)
+            return new AgreementExecutePaymentResultDto("", false, null,
+                breakdown.Errors.FirstOrDefault() ?? "No se pudo validar el desglose.",
+                false,
+                "checkout_invalid");
+
+        UserAccount? ua =
+            await db.UserAccounts.AsNoTracking().FirstOrDefaultAsync(u => u.Id == buyerUserId.Trim(),
+                cancellationToken).ConfigureAwait(false);
+
+        var custId = ua?.StripeCustomerId?.Trim();
+
+        if (string.IsNullOrEmpty(custId))
+            return new AgreementExecutePaymentResultDto("", false, null,
+                "Necesitas vincular tus tarjetas (cliente Stripe ausente).",
+                false,
+                "stripe_no_customer");
+
+        AgreementCurrencyPaymentRow pay = AgreementCheckoutExecutor.NewRow(threadId.Trim(),
+            agr.Id.Trim(), buyerUserId.Trim(),
+            cur,
+            qb, pmId,
+            ik.Length >= 8 ? ik : null);
+
+        var result = await AgreementCheckoutExecutor.PersistAndChargeAsync(db, pay, qb, pmId, custId!, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (result is { Succeeded: true, AgreementCurrencyPaymentId: { } pid })
+        {
+            if (selectedServicePayments is { Count: > 0 })
+            {
+                var serviceRows = BuildServicePaymentRowsForSelection(
+                    threadId.Trim(),
+                    agr,
+                    buyerUserId.Trim(),
+                    cur,
+                    pid,
+                    selectedServicePayments);
+                if (serviceRows.Count > 0)
+                {
+                    db.AgreementServicePayments.AddRange(serviceRows);
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            await TryPostPaymentFeeReceiptMessageAsync(
+                threadId.Trim(),
+                agr,
+                rp,
+                cur,
+                qb,
+                pid,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return result;
+    }
+
+    private static List<AgreementServicePaymentRow> BuildServicePaymentRowsForSelection(
+        string threadId,
+        TradeAgreementRow agr,
+        string buyerUserId,
+        string currencyLower,
+        string agreementCurrencyPaymentId,
+        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto> picks)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var outList = new List<AgreementServicePaymentRow>();
+        foreach (var svc in agr.ServiceItems.OrderBy(x => x.SortOrder))
+        {
+            if (!svc.Configured) continue;
+            var sid = (svc.Id ?? "").Trim();
+            if (sid.Length == 0) continue;
+            foreach (var pick in picks.Where(p => string.Equals(p.ServiceItemId?.Trim(), sid, StringComparison.Ordinal)))
+            {
+                if (pick.EntryMonth <= 0 || pick.EntryDay <= 0) continue;
+                var entry = svc.PaymentEntries
+                    .OrderBy(e => e.SortOrder)
+                    .FirstOrDefault(e => e.Month == pick.EntryMonth && e.Day == pick.EntryDay);
+                if (entry is null) continue;
+                var mon = (entry.Moneda ?? "").Trim().ToLowerInvariant();
+                if (!string.Equals(mon, currencyLower.Trim().ToLowerInvariant(), StringComparison.Ordinal))
+                    continue;
+                var rawAmt = (entry.Amount ?? "").Trim().Replace(",", ".", StringComparison.Ordinal).Replace('\u00a0', ' ');
+                if (!decimal.TryParse(rawAmt, System.Globalization.CultureInfo.InvariantCulture, out var amtMajor) || amtMajor <= 0)
+                {
+                    continue;
+                }
+
+                var amtMinor = PaymentCheckoutComputation.MajorToMinor(amtMajor, mon);
+                if (amtMinor <= 0) continue;
+                outList.Add(new AgreementServicePaymentRow
+                {
+                    Id = $"agsp_{Guid.NewGuid():n}",
+                    TradeAgreementId = agr.Id.Trim(),
+                    ThreadId = threadId,
+                    BuyerUserId = buyerUserId,
+                    ServiceItemId = sid,
+                    EntryMonth = pick.EntryMonth,
+                    EntryDay = pick.EntryDay,
+                    Currency = currencyLower.Trim().ToLowerInvariant(),
+                    AmountMinor = amtMinor,
+                    Status = AgreementServicePaymentStatuses.Held,
+                    AgreementCurrencyPaymentId = agreementCurrencyPaymentId,
+                    CreatedAtUtc = now,
+                });
+            }
+        }
+
+        return outList;
+    }
+
+    private async Task TryPostPaymentFeeReceiptMessageAsync(
+        string threadId,
+        TradeAgreementRow agr,
+        RouteSheetPayload? routePayload,
+        string currencyLower,
+        PaymentCheckoutComputation.CurrencyTotalsDto qb,
+        string paymentId,
+        CancellationToken cancellationToken)
+    {
+        var payRow = await db.AgreementCurrencyPayments.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == paymentId, cancellationToken).ConfigureAwait(false);
+        if (payRow is null)
+            return;
+
+        var breakdown = PaymentCheckoutComputation.ComputeForAgreement(agr, routePayload);
+        var qbFresh = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, currencyLower);
+        var estimated = qbFresh?.StripeFeeMinor ?? qb.StripeFeeMinor;
+
+        var lines = qb.Lines.Select(l => new ChatPaymentFeeReceiptLineDto
+        {
+            Label = l.Label,
+            AmountMinor = l.AmountMinor,
+        }).ToList();
+
+        var receiptPayload = new ChatPaymentFeeReceiptPayload
+        {
+            AgreementId = agr.Id.Trim(),
+            AgreementTitle = (agr.Title ?? "").Trim(),
+            PaymentId = payRow.Id,
+            CurrencyLower = currencyLower,
+            SubtotalMinor = payRow.SubtotalAmountMinor,
+            ClimateMinor = payRow.ClimateAmountMinor,
+            StripeFeeMinorActual = payRow.StripeFeeAmountMinor,
+            StripeFeeMinorEstimated = estimated,
+            TotalChargedMinor = payRow.TotalAmountMinor,
+            StripePricingUrl = StripePricingLinks.PricingPage,
+            Lines = lines,
+        };
+
+        await chat.PostAutomatedPaymentFeeReceiptAsync(
+            threadId,
+            receiptPayload,
+            cancellationToken).ConfigureAwait(false);
+
+        await paymentFeeReceiptEmail.TryDispatchToThreadParticipantsAsync(
+            threadId,
+            receiptPayload,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static (int StatusCode, object? Problem, CreatePaymentIntentResult? Data) Err(
+        int status,
+        string code,
+        string message) =>
+        (status, new { error = code, message }, null);
+
+    private static (int StatusCode, object? Problem, CreatePaymentIntentResult? Data) Ok(
+        CreatePaymentIntentResult data) =>
+        (StatusCodes.Status200OK, null, data);
+
+    private static bool TryParseAgreementCheckoutTarget(
+        CreatePaymentIntentBody body,
+        [NotNullWhen(true)] out AgreementCheckoutTarget? target,
+        out (int StatusCode, object? Problem, CreatePaymentIntentResult? Data) err)
+    {
+        var threadId = (body.ThreadId ?? "").Trim();
+        var agreementId = (body.AgreementId ?? "").Trim();
+        var cur = (body.Currency ?? "").Trim().ToLowerInvariant();
+        var pmId = (body.PaymentMethodId ?? "").Trim();
+
+        if (threadId.Length < 8 || agreementId.Length < 8)
+        {
+            err = Err(StatusCodes.Status400BadRequest, "invalid_target", "Indicá hilo y acuerdo válidos para el cobro.");
+            target = null;
+            return false;
+        }
+
+        if (cur.Length is < 3 or > 8)
+        {
+            err = Err(StatusCodes.Status400BadRequest, "invalid_currency", "Moneda inválida.");
+            target = null;
+            return false;
+        }
+
+        if (pmId.Length == 0)
+        {
+            err = Err(StatusCodes.Status400BadRequest, "missing_payment_method", "Selecciona una tarjeta para pagar.");
+            target = null;
+            return false;
+        }
+
+        target = new AgreementCheckoutTarget(threadId, agreementId, cur, pmId, MapServicePicks(body.SelectedServicePayments));
+        err = default;
+        return true;
+    }
+
+    private async Task<(
+        PaymentCheckoutComputation.CurrencyTotalsDto? Qb,
+        (int StatusCode, object? Problem, CreatePaymentIntentResult? Data)? Error)> ResolveAgreementCurrencyTotalsAsync(
+        string buyerUserId,
+        AgreementCheckoutTarget t,
+        CancellationToken cancellationToken)
+    {
+        var breakdown = await GetCheckoutBreakdownAsync(buyerUserId, t.ThreadId, t.AgreementId, t.ServicePicks, cancellationToken)
+            .ConfigureAwait(false);
+        if (breakdown is null)
+        {
+            return (null, Err(StatusCodes.Status404NotFound, "not_found", "No se encontró el acuerdo o no tenés acceso."));
+        }
+
+        if (!breakdown.Ok)
+        {
+            var msg = breakdown.Errors.FirstOrDefault() ?? "No se pudo validar el desglose.";
+            return (null, Err(StatusCodes.Status400BadRequest, "checkout_invalid", msg));
+        }
+
+        var qb = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, t.CurrencyLower);
+        if (qb is null || qb.TotalMinor <= 0)
+        {
+            return (
+                null,
+                Err(
+                    StatusCodes.Status400BadRequest,
+                    "invalid_amount",
+                    "No hay importe a cobrar para esa moneda en el acuerdo."));
+        }
+
+        return (qb, null);
+    }
+
+    private Task<bool> AgreementCurrencyAlreadySucceededAsync(
+        string agreementId,
+        string currencyLower,
+        CancellationToken cancellationToken) =>
+        db.AgreementCurrencyPayments.AsNoTracking()
+            .AnyAsync(
+                x =>
+                    x.TradeAgreementId == agreementId &&
+                    x.Currency == currencyLower &&
+                    x.Status == AgreementPaymentStatuses.Succeeded,
+                cancellationToken);
+
+    private async Task<(int StatusCode, object? Problem, CreatePaymentIntentResult? Data)>
+        CreateAgreementStripePaymentIntentAsync(
+            string buyerUserId,
+            AgreementCheckoutTarget t,
+            PaymentCheckoutComputation.CurrencyTotalsDto qb,
+            CancellationToken cancellationToken)
+    {
+        var serverKey = PaymentStripeEnv.StripeServerApiKey();
+        if (serverKey is null)
+        {
+            return Err(
+                StatusCodes.Status400BadRequest,
+                "stripe_not_configured",
+                "Falta STRIPE_RESTRICTED_KEY o STRIPE_SECRET_KEY en .env");
+        }
+
+        StripeConfiguration.ApiKey = serverKey;
+        var (_, customerId) = await EnsureStripeCustomerAsync(buyerUserId, cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(customerId))
+        {
+            return Err(
+                StatusCodes.Status400BadRequest,
+                "no_saved_cards",
+                "No hay tarjetas configuradas. Añade una tarjeta en Configurar antes de pagar.");
+        }
+
+        PaymentMethod pm;
+        try
+        {
+            pm = await new PaymentMethodService()
+                .GetAsync(t.PaymentMethodId, requestOptions: null, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (StripeException)
+        {
+            return Err(
+                StatusCodes.Status400BadRequest,
+                "invalid_payment_method",
+                "La tarjeta seleccionada no es válida.");
+        }
+
+        var pmCustomer = (pm.CustomerId ?? pm.Customer?.Id ?? "").Trim();
+        if (!string.Equals(pmCustomer, customerId, StringComparison.Ordinal))
+        {
+            return Err(
+                StatusCodes.Status400BadRequest,
+                "payment_method_not_owned",
+                "La tarjeta seleccionada no pertenece a tu cuenta.");
+        }
+
+        var pi = await new PaymentIntentService().CreateAsync(
+                new PaymentIntentCreateOptions
+                {
+                    Amount = qb.TotalMinor,
+                    Currency = t.CurrencyLower,
+                    Description = $"VibeTrade acuerdo {t.AgreementId}",
+                    Metadata = new Dictionary<string, string>
+                    {
+                        ["vibetradeUserId"] = buyerUserId,
+                        ["threadId"] = t.ThreadId,
+                        ["agreementId"] = t.AgreementId,
+                    },
+                    Customer = customerId,
+                    PaymentMethod = t.PaymentMethodId,
+                    PaymentMethodTypes = new List<string> { "card" },
+                },
+                requestOptions: null,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(pi.ClientSecret))
+        {
+            return Err(StatusCodes.Status400BadRequest, "stripe_error", "Stripe no devolvió client_secret.");
+        }
+
+        return Ok(new CreatePaymentIntentResult(pi.ClientSecret, false, qb.TotalMinor, t.CurrencyLower));
+    }
+
+    private static IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? MapServicePicks(
+        IReadOnlyList<AgreementCheckoutPaymentIntentItemDto>? items)
+    {
+        if (items is not { Count: > 0 }) return null;
+        var list = new List<PaymentCheckoutComputation.ServicePaymentPickDto>();
+        foreach (var x in items)
+        {
+            var sid = (x.ServiceItemId ?? "").Trim();
+            if (sid.Length == 0 || x.EntryMonth <= 0 || x.EntryDay <= 0) continue;
+            list.Add(new PaymentCheckoutComputation.ServicePaymentPickDto(sid, x.EntryMonth, x.EntryDay));
+        }
+
+        return list.Count > 0 ? list : null;
+    }
+
+    private async Task<(UserAccount? user, string? customerId)> EnsureStripeCustomerAsync(
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        var u = await db.UserAccounts.FirstOrDefaultAsync(x => x.Id == userId, cancellationToken)
+            .ConfigureAwait(false);
+        if (u is null)
+            return (null, null);
+
+        var existing = (u.StripeCustomerId ?? "").Trim();
+        if (existing.Length > 0)
+            return (u, existing);
+
+        var createSvc = new CustomerService();
+        var c = await createSvc.CreateAsync(
+                new CustomerCreateOptions
+                {
+                    Name = (u.DisplayName ?? "").Trim() is { Length: > 0 } dn ? dn : null,
+                    Email = (u.Email ?? "").Trim() is { Length: > 0 } em ? em : null,
+                    Metadata = new Dictionary<string, string> { ["vibetradeUserId"] = userId },
+                },
+                requestOptions: null,
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(c.Id))
+            return (u, null);
+
+        u.StripeCustomerId = c.Id.Trim();
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return (u, u.StripeCustomerId);
+    }
+}

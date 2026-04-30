@@ -11,6 +11,7 @@ using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Bootstrap;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Payments;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Search;
 using VibeTrade.Backend.Features.Routing;
@@ -76,7 +77,7 @@ builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IRouteSheetChatService, RouteSheetChatService>();
 builder.Services.AddScoped<IRouteTramoSubscriptionService, RouteTramoSubscriptionService>();
 builder.Services.AddScoped<ITradeAgreementService, TradeAgreementService>();
-builder.Services.AddScoped<IAgreementCheckoutService, AgreementCheckoutService>();
+builder.Services.AddScoped<IPaymentsService, PaymentsService>();
 builder.Services.AddScoped<IAgreementServiceEvidenceService, AgreementServiceEvidenceService>();
 builder.Services.Configure<EmailSmtpOptions>(
     builder.Configuration.GetSection(EmailSmtpOptions.SectionName));

@@ -1,24 +1,25 @@
-namespace VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Features.Chat;
 
-public sealed record AgreementPaymentStatusDto(
-    string Currency,
-    string Status,
-    long TotalAmountMinor,
-    string StripePaymentIntentId,
-    DateTimeOffset? CompletedAtUtc);
+namespace VibeTrade.Backend.Features.Payments;
 
-/// <summary>Resultado POST execute: Stripe PaymentIntent, éxito, client_secret opcional (3DS), mensaje Stripe, Accepted, código error.</summary>
-public sealed record AgreementExecutePaymentResultDto(
-    string PaymentIntentId,
-    bool Succeeded,
-    string? ClientSecretForConfirmation,
-    string? StripeErrorMessage,
-    bool Accepted,
-    string? ErrorCode,
-    string? AgreementCurrencyPaymentId = null);
-
-public interface IAgreementCheckoutService
+/// <summary>Pagos: Stripe (config, tarjetas, intents) y checkout/cobro de acuerdos en chat.</summary>
+public interface IPaymentsService
 {
+    StripeConfigDto GetStripeConfig();
+
+    Task<IReadOnlyList<StripeCardPaymentMethodDto>> ListCardPaymentMethodsAsync(
+        string userId,
+        CancellationToken cancellationToken = default);
+
+    Task<(bool Ok, object Problem, CreateSetupIntentResult? Data)> CreateSetupIntentAsync(
+        string userId,
+        CancellationToken cancellationToken = default);
+
+    Task<(int StatusCode, object? Problem, CreatePaymentIntentResult? Data)> CreatePaymentIntentAsync(
+        string userId,
+        CreatePaymentIntentBody body,
+        CancellationToken cancellationToken = default);
+
     Task<PaymentCheckoutComputation.BreakdownDto?> GetCheckoutBreakdownAsync(
         string buyerUserId,
         string threadId,

@@ -319,10 +319,10 @@ public sealed class AgreementServiceEvidenceService(
         if (customerId.Length == 0)
             return (StatusCodes.Status400BadRequest, "Configura tarjetas de pago en tu perfil antes de recibir el depósito.");
 
-        var skipStripePayout = PaymentStripeEnv.SkipStripeSellerServicePayout();
+        var skipStripePayout = PaymentStripeEnv.SkipStripePaymentIntentCreate();
         var now = DateTimeOffset.UtcNow;
 
-        // Demo / dev: SkipStripeSellerServicePayout incluye mismo flag que PersistAndChargeAsync cuando procesa intents.
+        // Demo / dev: VIBETRADE_SKIP_PAYMENT_INTENTS — sin Transfer Stripe (mismo criterio que cobros con PaymentIntent).
         if (skipStripePayout)
         {
             var tailSkip = pid.Length >= 12 ? pid.Substring(pid.Length - 12) : pid;

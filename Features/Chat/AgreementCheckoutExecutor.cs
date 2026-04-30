@@ -197,6 +197,7 @@ internal static class AgreementCheckoutExecutor
         string stripeCustomerId,
         CancellationToken ct)
     {
+        // VIBETRADE_SKIP_PAYMENT_INTENTS=true en .env → cobro simulado sin Stripe (PaymentStripeEnv.SkipStripePaymentIntentCreate).
         if (PaymentStripeEnv.SkipStripePaymentIntentCreate())
         {
             var tail = pay.Id.Length >= 12 ? pay.Id.Substring(pay.Id.Length - 12) : pay.Id;

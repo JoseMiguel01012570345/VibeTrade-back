@@ -70,24 +70,25 @@ public static class PaymentFeeReceiptPdfBuilder
                         });
                         sum.Item().PaddingTop(2).Row(r =>
                         {
-                            r.RelativeItem().Text("Clima / otros").FontSize(10);
+                            r.RelativeItem().Text("Climate 0,05 % (referencia, no cobrado)").FontSize(10);
                             r.ConstantItem(120).AlignRight().Text(Money(p.ClimateMinor)).FontSize(10);
                         });
                         sum.Item().PaddingTop(2).Row(r =>
                         {
-                            r.RelativeItem().Text("Tarifa Stripe (liquidación)").FontSize(10);
+                            r.RelativeItem().Text("Tarifa Stripe liquidación (referencia)").FontSize(10);
                             r.ConstantItem(120).AlignRight().Text(Money(p.StripeFeeMinorActual)).FontSize(10);
                         });
                         sum.Item().PaddingTop(2).Row(r =>
                         {
-                            r.RelativeItem().Text("Tarifa estimada (antes del cobro)").FontSize(9)
+                            r.RelativeItem().Text("Tarifa Stripe estimada antes del cobro (referencia)")
+                                .FontSize(9)
                                 .FontColor(Colors.Grey.Darken1);
                             r.ConstantItem(120).AlignRight().Text(Money(p.StripeFeeMinorEstimated)).FontSize(9)
                                 .FontColor(Colors.Grey.Darken1);
                         });
                         sum.Item().PaddingTop(6).Row(r =>
                         {
-                            r.RelativeItem().Text("Total cobrado").SemiBold().FontSize(11);
+                            r.RelativeItem().Text("Total cobrado al comprador (subtotal)").SemiBold().FontSize(11);
                             r.ConstantItem(120).AlignRight().Text(Money(p.TotalChargedMinor)).SemiBold()
                                 .FontSize(11);
                         });

@@ -1,23 +1,87 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Features.Payments;
 using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Api;
 
+/// <summary>Rutas de pago: Stripe bajo <c>/api/v1/payments/stripe/*</c> y checkout de acuerdos bajo <c>/api/v1/chat/threads/.../agreements/...</c> (URLs históricas).</summary>
 [ApiController]
-[Route("api/v1/chat/threads/{threadId}/agreements/{agreementId}")]
 [Produces("application/json")]
-[Tags("Chat")]
-public sealed class ChatAgreementPaymentsController(
-    IAuthService auth,
-    IAgreementCheckoutService checkout) : ControllerBase
+[Tags("Payments")]
+public sealed class PaymentsController(IAuthService auth, IPaymentsService payments) : ControllerBase
 {
-    [HttpGet("checkout")]
+    [HttpGet("/api/v1/payments/stripe/config")]
+    [ProducesResponseType(typeof(StripeConfigDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public IActionResult GetStripeConfig()
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        return Ok(payments.GetStripeConfig());
+    }
+
+    [HttpGet("/api/v1/payments/stripe/payment-methods")]
+    [ProducesResponseType(typeof(List<StripeCardPaymentMethodDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetStripePaymentMethods(CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+
+        var list = await payments.ListCardPaymentMethodsAsync(userId.Trim(), cancellationToken)
+            .ConfigureAwait(false);
+        return Ok(list);
+    }
+
+    [HttpPost("/api/v1/payments/stripe/setup-intents")]
+    [ProducesResponseType(typeof(CreateSetupIntentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> PostStripeSetupIntent(CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+
+        var (ok, problem, data) =
+            await payments.CreateSetupIntentAsync(userId.Trim(), cancellationToken).ConfigureAwait(false);
+        if (!ok || data is null)
+            return BadRequest(problem);
+        return Ok(data);
+    }
+
+    [HttpPost("/api/v1/payments/stripe/payment-intents")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(CreatePaymentIntentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> PostStripePaymentIntent(
+        [FromBody] CreatePaymentIntentBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+
+        var (status, problem, data) =
+            await payments.CreatePaymentIntentAsync(userId.Trim(), body, cancellationToken)
+                .ConfigureAwait(false);
+        if (status != StatusCodes.Status200OK || data is null)
+            return StatusCode(status, problem);
+        return Ok(data);
+    }
+
+    [HttpGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/checkout")]
     [ProducesResponseType(typeof(PaymentCheckoutComputation.BreakdownDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetCheckout(
+    public async Task<IActionResult> GetAgreementCheckout(
         string threadId,
         string agreementId,
         CancellationToken cancellationToken)
@@ -26,18 +90,18 @@ public sealed class ChatAgreementPaymentsController(
         if (userId is null)
             return Unauthorized();
 
-        var bd = await checkout.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null, cancellationToken)
+        var bd = await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null, cancellationToken)
             .ConfigureAwait(false);
         if (bd is null)
             return NotFound();
         return Ok(bd);
     }
 
-    [HttpGet("payments")]
+    [HttpGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/payments")]
     [ProducesResponseType(typeof(IReadOnlyList<AgreementPaymentStatusDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ListPayments(
+    public async Task<IActionResult> ListAgreementPayments(
         string threadId,
         string agreementId,
         CancellationToken cancellationToken)
@@ -46,12 +110,12 @@ public sealed class ChatAgreementPaymentsController(
         if (userId is null)
             return Unauthorized();
 
-        if (await checkout.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null, cancellationToken)
+        if (await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null, cancellationToken)
                 .ConfigureAwait(false)
             is null)
             return NotFound();
 
-        var list = await checkout.ListPaymentStatusesAsync(userId, threadId, agreementId, cancellationToken)
+        var list = await payments.ListPaymentStatusesAsync(userId, threadId, agreementId, cancellationToken)
             .ConfigureAwait(false);
 
         return Ok(list);
@@ -67,12 +131,12 @@ public sealed class ChatAgreementPaymentsController(
 
     public sealed record CheckoutBreakdownBody(IReadOnlyList<ServicePaymentPickBody>? SelectedServicePayments);
 
-    [HttpPost("checkout-breakdown")]
+    [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/checkout-breakdown")]
     [Consumes("application/json")]
     [ProducesResponseType(typeof(PaymentCheckoutComputation.BreakdownDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> PostCheckoutBreakdown(
+    public async Task<IActionResult> PostAgreementCheckoutBreakdown(
         string threadId,
         string agreementId,
         [FromBody] CheckoutBreakdownBody body,
@@ -90,20 +154,20 @@ public sealed class ChatAgreementPaymentsController(
                 x.EntryDay))
             .ToList();
 
-        var bd = await checkout.GetCheckoutBreakdownAsync(userId, threadId, agreementId, picks, cancellationToken)
+        var bd = await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, picks, cancellationToken)
             .ConfigureAwait(false);
         if (bd is null)
             return NotFound();
         return Ok(bd);
     }
 
-    [HttpPost("payments/execute")]
+    [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/payments/execute")]
     [Consumes("application/json")]
     [ProducesResponseType(typeof(AgreementExecutePaymentResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ExecutePayment(
+    public async Task<IActionResult> ExecuteAgreementPayment(
         string threadId,
         string agreementId,
         [FromBody] ExecutePaymentBody body,
@@ -116,7 +180,7 @@ public sealed class ChatAgreementPaymentsController(
         var headerKey = (Request.Headers["Idempotency-Key"].FirstOrDefault() ?? "").Trim();
         var idem = string.IsNullOrWhiteSpace(body.IdempotencyKey) ? headerKey : body.IdempotencyKey!.Trim();
 
-        var r = await checkout.ExecuteCurrencyPaymentAsync(
+        var r = await payments.ExecuteCurrencyPaymentAsync(
             userId,
             threadId,
             agreementId,
