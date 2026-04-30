@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Data.RouteSheets;
 
 namespace VibeTrade.Backend.Features.Chat;
 
@@ -143,7 +144,64 @@ public sealed class AgreementCheckoutService(AppDbContext db, IChatService chat)
             qb, pmId,
             ik.Length >= 8 ? ik : null);
 
-        return await AgreementCheckoutExecutor.PersistAndChargeAsync(db, pay, qb, pmId, custId!, cancellationToken)
+        var result = await AgreementCheckoutExecutor.PersistAndChargeAsync(db, pay, qb, pmId, custId!, cancellationToken)
             .ConfigureAwait(false);
+
+        if (result is { Succeeded: true, AgreementCurrencyPaymentId: { } pid })
+        {
+            await TryPostPaymentFeeReceiptMessageAsync(
+                threadId.Trim(),
+                agr,
+                rp,
+                cur,
+                qb,
+                pid,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return result;
+    }
+
+    private async Task TryPostPaymentFeeReceiptMessageAsync(
+        string threadId,
+        TradeAgreementRow agr,
+        RouteSheetPayload? routePayload,
+        string currencyLower,
+        PaymentCheckoutComputation.CurrencyTotalsDto qb,
+        string paymentId,
+        CancellationToken cancellationToken)
+    {
+        var payRow = await db.AgreementCurrencyPayments.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == paymentId, cancellationToken).ConfigureAwait(false);
+        if (payRow is null)
+            return;
+
+        var breakdown = PaymentCheckoutComputation.ComputeForAgreement(agr, routePayload);
+        var qbFresh = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, currencyLower);
+        var estimated = qbFresh?.StripeFeeMinor ?? qb.StripeFeeMinor;
+
+        var lines = qb.Lines.Select(l => new ChatPaymentFeeReceiptLineDto
+        {
+            Label = l.Label,
+            AmountMinor = l.AmountMinor,
+        }).ToList();
+
+        await chat.PostAutomatedPaymentFeeReceiptAsync(
+            threadId,
+            new ChatPaymentFeeReceiptPayload
+            {
+                AgreementId = agr.Id.Trim(),
+                AgreementTitle = (agr.Title ?? "").Trim(),
+                PaymentId = payRow.Id,
+                CurrencyLower = currencyLower,
+                SubtotalMinor = payRow.SubtotalAmountMinor,
+                ClimateMinor = payRow.ClimateAmountMinor,
+                StripeFeeMinorActual = payRow.StripeFeeAmountMinor,
+                StripeFeeMinorEstimated = estimated,
+                TotalChargedMinor = payRow.TotalAmountMinor,
+                StripePricingUrl = StripePricingLinks.PricingPage,
+                Lines = lines,
+            },
+            cancellationToken).ConfigureAwait(false);
     }
 }

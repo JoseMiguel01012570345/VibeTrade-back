@@ -23,6 +23,7 @@ public static class ChatMarketMessageJsonMapper
             ChatDocsBundlePayload p => MapDocs(m.Id, from, at, read, p),
             ChatAgreementPayload p => MapAgreement(m.Id, from, at, read, statusStr, p),
             ChatSystemTextPayload p => MapSystemText(m.Id, at, read, p),
+            ChatPaymentFeeReceiptPayload p => MapPaymentFeeReceipt(m.Id, at, read, p),
             ChatCertificatePayload p => MapCertificate(m.Id, from, at, read, statusStr, p),
             _ => TextFallback(m.Id, from, at, read, statusStr, ""),
         };
@@ -224,6 +225,38 @@ public static class ChatMarketMessageJsonMapper
             Text = p.Text,
             At = at,
             Read = read,
+        };
+
+    private static ChatThreadMessageView MapPaymentFeeReceipt(
+        string id,
+        long at,
+        bool read,
+        ChatPaymentFeeReceiptPayload p) =>
+        new()
+        {
+            Id = id,
+            From = "system",
+            Type = "payment_fee_receipt",
+            At = at,
+            Read = read,
+            PaymentFeeReceipt = new ChatPaymentFeeReceiptView
+            {
+                AgreementId = p.AgreementId,
+                AgreementTitle = p.AgreementTitle,
+                PaymentId = p.PaymentId,
+                CurrencyLower = p.CurrencyLower,
+                SubtotalMinor = p.SubtotalMinor,
+                ClimateMinor = p.ClimateMinor,
+                StripeFeeMinorActual = p.StripeFeeMinorActual,
+                StripeFeeMinorEstimated = p.StripeFeeMinorEstimated,
+                TotalChargedMinor = p.TotalChargedMinor,
+                StripePricingUrl = p.StripePricingUrl,
+                Lines = p.Lines.Select(x => new ChatPaymentFeeReceiptLineView
+                {
+                    Label = x.Label,
+                    AmountMinor = x.AmountMinor,
+                }).ToList(),
+            },
         };
 
     private static ChatThreadMessageView TextFallback(

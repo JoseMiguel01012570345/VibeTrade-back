@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Stripe;
 using VibeTrade.Backend.Data;
@@ -97,6 +98,7 @@ internal static class AgreementCheckoutExecutor
             dup.ClientSecretForConfirmation,
             dup.StripeErrorMessage,
             true,
+            null,
             null);
 
     internal static async Task<AgreementExecutePaymentResultDto> PersistAndChargeAsync(
@@ -116,7 +118,7 @@ internal static class AgreementCheckoutExecutor
             AttachSplits(pay, qb);
             db.AgreementCurrencyPayments.Add(pay);
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return Ok(pay.StripePaymentIntentId!);
+            return Ok(pay.StripePaymentIntentId!, pay.Id);
         }
 
         var key = PaymentStripeEnv.StripeServerApiKey();
@@ -176,12 +178,34 @@ internal static class AgreementCheckoutExecutor
 
         if (string.Equals(pi.Status, "succeeded", StringComparison.OrdinalIgnoreCase))
         {
+            var estimatedStripe = qb.StripeFeeMinor;
+            var actualStripe = estimatedStripe;
+            try
+            {
+                var piFull = await new PaymentIntentService().GetAsync(
+                    pi.Id,
+                    new PaymentIntentGetOptions
+                    {
+                        Expand = new List<string> { "latest_charge.balance_transaction" },
+                    },
+                    requestOptions: null,
+                    cancellationToken: ct).ConfigureAwait(false);
+                var fee = piFull.LatestCharge?.BalanceTransaction?.Fee;
+                if (fee is { } f && f >= 0)
+                    actualStripe = f;
+            }
+            catch
+            {
+                // Sin balance_transaction: conservar estimación previa al cobro.
+            }
+
+            pay.StripeFeeAmountMinor = actualStripe;
             pay.Status = AgreementPaymentStatuses.Succeeded;
             pay.CompletedAtUtc = DateTimeOffset.UtcNow;
             AttachSplits(pay, qb);
             db.AgreementCurrencyPayments.Add(pay);
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
-            return Ok(pay.StripePaymentIntentId ?? "");
+            return Ok(pay.StripePaymentIntentId ?? "", pay.Id);
         }
 
         if (pi.Status is "requires_action" or "requires_confirmation")
@@ -191,7 +215,7 @@ internal static class AgreementCheckoutExecutor
             await db.SaveChangesAsync(ct).ConfigureAwait(false);
             return new AgreementExecutePaymentResultDto(pay.StripePaymentIntentId!, false,
                 pay.ClientSecretForConfirmation, null,
-                true, "requires_confirmation");
+                true, "requires_confirmation", null);
         }
 
         pay.Status = AgreementPaymentStatuses.Failed;
@@ -203,11 +227,11 @@ internal static class AgreementCheckoutExecutor
         return Err(pay.StripeErrorMessage, false, "stripe_bad_status");
     }
 
-    internal static AgreementExecutePaymentResultDto Ok(string pi) =>
-        new(pi, true, null, null, true, null);
+    internal static AgreementExecutePaymentResultDto Ok(string paymentIntentId, string agreementCurrencyPaymentId) =>
+        new(paymentIntentId, true, null, null, true, null, agreementCurrencyPaymentId);
 
     private static AgreementExecutePaymentResultDto Err(string msg, bool accepted, string code) =>
-        new("", false, null, msg, accepted, code);
+        new("", false, null, msg, accepted, code, null);
 
     private static string StripeMsg(StripeException sx) =>
         string.IsNullOrWhiteSpace(sx.StripeError?.Message) ? sx.Message : sx.StripeError!.Message;

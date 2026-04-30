@@ -146,3 +146,43 @@ public sealed record ChatSystemTextPayload : ChatMessagePayload
 
     public required string Text { get; init; }
 }
+
+/// <summary>Línea del desglose (mercancía, servicio, tramo, etc.).</summary>
+public sealed record ChatPaymentFeeReceiptLineDto
+{
+    public required string Label { get; init; }
+
+    public required long AmountMinor { get; init; }
+}
+
+/// <summary>
+/// Recibo post-pago con tarifa Stripe según liquidación (<c>balance_transaction.fee</c>) y enlace a políticas Stripe.
+/// </summary>
+public sealed record ChatPaymentFeeReceiptPayload : ChatMessagePayload
+{
+    public ChatPaymentFeeReceiptPayload() => Type = "payment_fee_receipt";
+
+    public required string AgreementId { get; init; }
+
+    public required string AgreementTitle { get; init; }
+
+    public required string PaymentId { get; init; }
+
+    public required string CurrencyLower { get; init; }
+
+    public required long SubtotalMinor { get; init; }
+
+    public required long ClimateMinor { get; init; }
+
+    /// <summary>Tarifa registrada por Stripe en esta operación (minor units).</summary>
+    public required long StripeFeeMinorActual { get; init; }
+
+    /// <summary>Estimación previa al cobro (2,9 % + fijo), para comparación.</summary>
+    public required long StripeFeeMinorEstimated { get; init; }
+
+    public required long TotalChargedMinor { get; init; }
+
+    public required string StripePricingUrl { get; init; }
+
+    public required List<ChatPaymentFeeReceiptLineDto> Lines { get; init; } = [];
+}

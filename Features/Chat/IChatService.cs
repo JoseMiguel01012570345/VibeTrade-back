@@ -189,6 +189,12 @@ public interface IChatService
         string text,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Recibo de pago con desglose y tarifa Stripe real (mensaje persistido + hub).</summary>
+    Task<ChatMessageDto?> PostAutomatedPaymentFeeReceiptAsync(
+        string threadId,
+        ChatPaymentFeeReceiptPayload payload,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Actualiza entrega/lectura (solo participantes; destinatario para delivered/read).</summary>
     Task<ChatMessageDto?> UpdateMessageStatusAsync(
         UpdateChatMessageStatusArgs request,

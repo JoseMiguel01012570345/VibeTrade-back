@@ -14,7 +14,8 @@ public sealed record AgreementExecutePaymentResultDto(
     string? ClientSecretForConfirmation,
     string? StripeErrorMessage,
     bool Accepted,
-    string? ErrorCode);
+    string? ErrorCode,
+    string? AgreementCurrencyPaymentId = null);
 
 public interface IAgreementCheckoutService
 {

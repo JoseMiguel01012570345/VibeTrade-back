@@ -32,6 +32,42 @@ public sealed class ChatThreadMessageView
     public string? Title { get; set; }
     [JsonPropertyName("replyQuotes")]
     public IReadOnlyList<ChatReplyQuoteView>? ReplyQuotes { get; set; }
+
+    /// <summary>Recibo post-pago con desglose y tarifa Stripe real (mensaje <c>payment_fee_receipt</c>).</summary>
+    [JsonPropertyName("paymentFeeReceipt")]
+    public ChatPaymentFeeReceiptView? PaymentFeeReceipt { get; set; }
+}
+
+public sealed class ChatPaymentFeeReceiptLineView
+{
+    public string Label { get; set; } = "";
+
+    public long AmountMinor { get; set; }
+}
+
+public sealed class ChatPaymentFeeReceiptView
+{
+    public string AgreementId { get; set; } = "";
+
+    public string AgreementTitle { get; set; } = "";
+
+    public string PaymentId { get; set; } = "";
+
+    public string CurrencyLower { get; set; } = "";
+
+    public long SubtotalMinor { get; set; }
+
+    public long ClimateMinor { get; set; }
+
+    public long StripeFeeMinorActual { get; set; }
+
+    public long StripeFeeMinorEstimated { get; set; }
+
+    public long TotalChargedMinor { get; set; }
+
+    public string StripePricingUrl { get; set; } = "";
+
+    public List<ChatPaymentFeeReceiptLineView> Lines { get; set; } = [];
 }
 
 public sealed class ChatMessageImageView

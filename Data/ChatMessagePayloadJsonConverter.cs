@@ -39,6 +39,7 @@ internal sealed class ChatMessagePayloadJsonConverter : JsonConverter<ChatMessag
                 "certificate" => DeserializeOrEmpty<ChatCertificatePayload>(json, o),
                 "agreement" => DeserializeOrEmpty<ChatAgreementPayload>(json, o),
                 "system_text" => DeserializeOrEmpty<ChatSystemTextPayload>(json, o),
+                "payment_fee_receipt" => DeserializeOrEmpty<ChatPaymentFeeReceiptPayload>(json, o),
                 _ => EmptyText(),
             };
         }
