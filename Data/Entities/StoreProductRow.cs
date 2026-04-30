@@ -36,6 +36,9 @@ public sealed class StoreProductRow
 
     public string? TaxesShippingInstall { get; set; }
 
+    /// <summary>Si el transporte está incluido en este producto (según ficha).</summary>
+    public bool TransportIncluded { get; set; }
+
     /// <summary>Disponibilidad (texto en el cliente; p. ej. stock o plazo).</summary>
     public string Availability { get; set; } = "";
 

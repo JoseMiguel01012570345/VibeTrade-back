@@ -17,6 +17,7 @@ public sealed record StoreProductPutRequest
     public IReadOnlyList<string>? Monedas { get; init; }
     public string? Moneda { get; init; }
     public string? TaxesShippingInstall { get; init; }
+    public bool? TransportIncluded { get; init; }
     public string? Availability { get; init; }
     public string? WarrantyReturn { get; init; }
     public string? ContentIncluded { get; init; }

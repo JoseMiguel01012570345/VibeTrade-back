@@ -18,6 +18,7 @@ internal static class MarketCatalogProductRowMapper
         row.MonedaPrecio = p.MonedaPrecio;
         row.Monedas = MarketCatalogCurrency.BuildMonedasList(p);
         row.TaxesShippingInstall = p.TaxesShippingInstall;
+        row.TransportIncluded = p.TransportIncluded == true;
         row.Availability = p.Availability ?? "";
         row.WarrantyReturn = p.WarrantyReturn ?? "";
         row.ContentIncluded = p.ContentIncluded ?? "";
