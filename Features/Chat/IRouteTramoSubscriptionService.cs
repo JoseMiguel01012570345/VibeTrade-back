@@ -38,8 +38,8 @@ public interface IRouteTramoSubscriptionService
 
     /// <summary>
     /// Transportista: se retira del hilo (des-suscripción a tramos, limpieza de teléfonos en hoja).
-    /// En la demo, la baja de confianza aplica con tramos confirmados y ruta no entregada, salvo que ya haya
-    /// salido del hilo al menos una de las partes del acuerdo (comprador o vendedor; <c>BuyerExpelledAtUtc</c> o <c>SellerExpelledAtUtc</c>).
+    /// En la demo, la baja de confianza aplica con tramos confirmados solo si alguna hoja implicada no está en estado «entregada»,
+    /// salvo que ya haya salido del hilo al menos una de las partes del acuerdo (comprador o vendedor; <c>BuyerExpelledAtUtc</c> o <c>SellerExpelledAtUtc</c>).
     /// </summary>
     Task<CarrierWithdrawFromThreadResult?> WithdrawCarrierFromThreadAsync(
         string carrierUserId,

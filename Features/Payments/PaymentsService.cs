@@ -237,121 +237,177 @@ public sealed class PaymentsService(
     }
 
     public async Task<AgreementExecutePaymentResultDto?> ExecuteCurrencyPaymentAsync(
-        string buyerUserId,
-        string threadId,
-        string agreementId,
-        string currencyLower,
-        string paymentMethodStripeId,
-        string? idempotencyKey,
+        string buyerUserId, string threadId, string agreementId, string currencyLower,
+        string paymentMethodStripeId, string? idempotencyKey,
         IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
         CancellationToken cancellationToken = default)
     {
-        var t = await db.ChatThreads.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == threadId.Trim(), cancellationToken)
-            .ConfigureAwait(false);
-        if (t is null || t.BuyerUserId != buyerUserId.Trim()) return null;
-        if (!await chat.UserCanAccessThreadRowAsync(buyerUserId.Trim(), t, cancellationToken)
-                .ConfigureAwait(false))
+        if (!await BuyerMayExecuteAgreementPaymentAsync(buyerUserId, threadId, cancellationToken).ConfigureAwait(false))
             return null;
-
         var cur = currencyLower.Trim().ToLowerInvariant();
         var pmId = paymentMethodStripeId.Trim();
         if (cur.Length is < 3 or > 8 || pmId.Length < 12)
-            return new AgreementExecutePaymentResultDto("", false, null,
-                "Parámetros de pago incompletos.", false, "invalid_request");
-
+            return ExecutePaymentErr.InvalidParams();
         var ik = (idempotencyKey ?? "").Trim();
-        if (ik.Length >= 8)
+        var blocked = await TryPreChargeExitAsync(ik, agreementId, cur, selectedServicePayments, cancellationToken)
+            .ConfigureAwait(false);
+        if (blocked is not null)
+            return blocked;
+
+        var agr = await AgreementCheckoutExecutor.LoadAgreementAsync(db, threadId.Trim(), agreementId.Trim(),
+            cancellationToken).ConfigureAwait(false);
+        if (agr is null)
+            return ExecutePaymentErr.AgreementNotFound();
+        var rp = await AgreementCheckoutExecutor.LoadRoutePayloadAsync(db, threadId.Trim(),
+            agr.RouteSheetId?.Trim(), cancellationToken).ConfigureAwait(false);
+        var breakdown = PaymentCheckoutComputation.ComputeForAgreement(agr, rp, selectedServicePayments);
+        var qb = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, cur);
+        if (!breakdown.Ok || qb is null)
+            return ExecutePaymentErr.CheckoutInvalid(breakdown.Errors.FirstOrDefault());
+        var custId = await ResolveBuyerStripeCustomerIdAsync(buyerUserId.Trim(), cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(custId))
+            return ExecutePaymentErr.StripeNoCustomer();
+
+        var pay = AgreementCheckoutExecutor.NewRow(threadId.Trim(), agr.Id.Trim(), buyerUserId.Trim(), cur, qb, pmId,
+            ik.Length >= 8 ? ik : null);
+        var result = await AgreementCheckoutExecutor.PersistAndChargeAsync(db, pay, qb, pmId, custId!, cancellationToken)
+            .ConfigureAwait(false);
+        if (result is { Succeeded: true, AgreementCurrencyPaymentId: { } pid })
+            await PersistSucceededAgreementCurrencyPaymentSideEffectsAsync(threadId.Trim(), agr, buyerUserId.Trim(),
+                cur, rp, qb, pid, selectedServicePayments, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    private async Task<bool> BuyerMayExecuteAgreementPaymentAsync(
+        string buyerUserId, string threadId, CancellationToken cancellationToken)
+    {
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == threadId.Trim(), cancellationToken).ConfigureAwait(false);
+        if (t is null || t.BuyerUserId != buyerUserId.Trim())
+            return false;
+        return await chat.UserCanAccessThreadRowAsync(buyerUserId.Trim(), t, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<AgreementExecutePaymentResultDto?> TryPreChargeExitAsync(
+        string idempotencyKeyTrimmed,
+        string agreementId,
+        string currencyLower,
+        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        CancellationToken cancellationToken)
+    {
+        if (idempotencyKeyTrimmed.Length >= 8)
         {
             var prev = await db.AgreementCurrencyPayments.AsNoTracking()
                 .FirstOrDefaultAsync(
                     x =>
-                        x.ClientIdempotencyKey == ik && x.TradeAgreementId == agreementId.Trim(),
+                        x.ClientIdempotencyKey == idempotencyKeyTrimmed &&
+                        x.TradeAgreementId == agreementId.Trim(),
                     cancellationToken).ConfigureAwait(false);
-
             if (prev is not null)
                 return AgreementCheckoutExecutor.FromDup(prev);
         }
 
-        if (await db.AgreementCurrencyPayments.AsNoTracking().AnyAsync(
-                x =>
-                    x.TradeAgreementId == agreementId.Trim() && x.Currency == cur &&
-                    x.Status == AgreementPaymentStatuses.Succeeded,
-                cancellationToken).ConfigureAwait(false))
-            return new AgreementExecutePaymentResultDto("", false, null,
-                "Ya existe un cobro exitoso para esa moneda.", false, "already_paid");
+        return await TryRejectDuplicateAgreementChargeAsync(
+            agreementId.Trim(), currencyLower, selectedServicePayments, cancellationToken).ConfigureAwait(false);
+    }
 
-        TradeAgreementRow? agr =
-            await AgreementCheckoutExecutor.LoadAgreementAsync(db, threadId.Trim(),
-                agreementId.Trim(), cancellationToken).ConfigureAwait(false);
+    private async Task<AgreementExecutePaymentResultDto?> TryRejectDuplicateAgreementChargeAsync(
+        string agreementId,
+        string currencyLower,
+        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        CancellationToken cancellationToken)
+    {
+        var svcPicks = selectedServicePayments?
+            .Where(p =>
+                !string.IsNullOrWhiteSpace(p.ServiceItemId)
+                && p.EntryMonth > 0
+                && p.EntryDay > 0)
+            .ToList();
 
-        if (agr is null)
-            return new AgreementExecutePaymentResultDto("", false, null, "Acuerdo no encontrado.", false,
-                "not_found");
-
-        var rp =
-            await AgreementCheckoutExecutor.LoadRoutePayloadAsync(db, threadId.Trim(),
-                agr.RouteSheetId?.Trim(),
-                cancellationToken).ConfigureAwait(false);
-
-        var breakdown = PaymentCheckoutComputation.ComputeForAgreement(agr, rp, selectedServicePayments);
-        var qb = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, cur);
-        if (!breakdown.Ok || qb is null)
-            return new AgreementExecutePaymentResultDto("", false, null,
-                breakdown.Errors.FirstOrDefault() ?? "No se pudo validar el desglose.",
-                false,
-                "checkout_invalid");
-
-        UserAccount? ua =
-            await db.UserAccounts.AsNoTracking().FirstOrDefaultAsync(u => u.Id == buyerUserId.Trim(),
-                cancellationToken).ConfigureAwait(false);
-
-        var custId = ua?.StripeCustomerId?.Trim();
-
-        if (string.IsNullOrEmpty(custId))
-            return new AgreementExecutePaymentResultDto("", false, null,
-                "Necesitas vincular tus tarjetas (cliente Stripe ausente).",
-                false,
-                "stripe_no_customer");
-
-        AgreementCurrencyPaymentRow pay = AgreementCheckoutExecutor.NewRow(threadId.Trim(),
-            agr.Id.Trim(), buyerUserId.Trim(),
-            cur,
-            qb, pmId,
-            ik.Length >= 8 ? ik : null);
-
-        var result = await AgreementCheckoutExecutor.PersistAndChargeAsync(db, pay, qb, pmId, custId!, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (result is { Succeeded: true, AgreementCurrencyPaymentId: { } pid })
+        if (svcPicks is not { Count: > 0 })
         {
-            if (selectedServicePayments is { Count: > 0 })
-            {
-                var serviceRows = BuildServicePaymentRowsForSelection(
-                    threadId.Trim(),
-                    agr,
-                    buyerUserId.Trim(),
-                    cur,
-                    pid,
-                    selectedServicePayments);
-                if (serviceRows.Count > 0)
-                {
-                    db.AgreementServicePayments.AddRange(serviceRows);
-                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-                }
-            }
-
-            await TryPostPaymentFeeReceiptMessageAsync(
-                threadId.Trim(),
-                agr,
-                rp,
-                cur,
-                qb,
-                pid,
+            var exists = await db.AgreementCurrencyPayments.AsNoTracking().AnyAsync(
+                x =>
+                    x.TradeAgreementId == agreementId && x.Currency == currencyLower &&
+                    x.Status == AgreementPaymentStatuses.Succeeded,
                 cancellationToken).ConfigureAwait(false);
+            return exists ? ExecutePaymentErr.AlreadyPaidCurrency() : null;
         }
 
-        return result;
+        foreach (var pick in svcPicks)
+        {
+            var sid = pick.ServiceItemId.Trim();
+            var dup = await (
+                    from sp in db.AgreementServicePayments.AsNoTracking()
+                    join cp in db.AgreementCurrencyPayments.AsNoTracking()
+                        on sp.AgreementCurrencyPaymentId equals cp.Id
+                    where sp.TradeAgreementId == agreementId
+                          && sp.ServiceItemId == sid
+                          && sp.EntryMonth == pick.EntryMonth
+                          && sp.EntryDay == pick.EntryDay
+                          && cp.Status == AgreementPaymentStatuses.Succeeded
+                    select sp.Id)
+                .AnyAsync(cancellationToken).ConfigureAwait(false);
+            if (dup)
+                return ExecutePaymentErr.RecurrenceAlreadyPaid();
+        }
+
+        return null;
+    }
+
+    private async Task<string?> ResolveBuyerStripeCustomerIdAsync(string buyerUserId, CancellationToken cancellationToken)
+    {
+        var ua = await db.UserAccounts.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == buyerUserId, cancellationToken).ConfigureAwait(false);
+        return ua?.StripeCustomerId?.Trim();
+    }
+
+    private async Task PersistSucceededAgreementCurrencyPaymentSideEffectsAsync(
+        string threadId,
+        TradeAgreementRow agr,
+        string buyerUserId,
+        string currencyLower,
+        RouteSheetPayload? rp,
+        PaymentCheckoutComputation.CurrencyTotalsDto qb,
+        string agreementCurrencyPaymentId,
+        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        CancellationToken cancellationToken)
+    {
+        if (selectedServicePayments is { Count: > 0 })
+        {
+            var serviceRows = BuildServicePaymentRowsForSelection(
+                threadId, agr, buyerUserId, currencyLower, agreementCurrencyPaymentId, selectedServicePayments);
+            if (serviceRows.Count > 0)
+            {
+                db.AgreementServicePayments.AddRange(serviceRows);
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        await TryPostPaymentFeeReceiptMessageAsync(threadId, agr, rp, currencyLower, qb, agreementCurrencyPaymentId,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static class ExecutePaymentErr
+    {
+        internal static AgreementExecutePaymentResultDto InvalidParams() =>
+            new("", false, null, "Parámetros de pago incompletos.", false, "invalid_request");
+
+        internal static AgreementExecutePaymentResultDto AgreementNotFound() =>
+            new("", false, null, "Acuerdo no encontrado.", false, "not_found");
+
+        internal static AgreementExecutePaymentResultDto CheckoutInvalid(string? detail) =>
+            new("", false, null, detail ?? "No se pudo validar el desglose.", false, "checkout_invalid");
+
+        internal static AgreementExecutePaymentResultDto StripeNoCustomer() =>
+            new("", false, null, "Necesitas vincular tus tarjetas (cliente Stripe ausente).", false,
+                "stripe_no_customer");
+
+        internal static AgreementExecutePaymentResultDto AlreadyPaidCurrency() =>
+            new("", false, null, "Ya existe un cobro exitoso para esa moneda.", false, "already_paid");
+
+        internal static AgreementExecutePaymentResultDto RecurrenceAlreadyPaid() =>
+            new("", false, null, "Esta recurrencia ya fue incluida en un cobro.", false, "recurrence_already_paid");
     }
 
     private static List<AgreementServicePaymentRow> BuildServicePaymentRowsForSelection(
