@@ -160,19 +160,28 @@ public sealed class RouteTramoSubscriptionService(
 
         if (!await chat.UserCanAccessThreadRowAsync(uid, thread, cancellationToken))
             return null;
-        var narrowToCarrierOnly = !ChatThreadAccess.UserCanSeeThread(uid, thread);
 
-        var publishedSheets = await db.ChatRouteSheets.AsNoTracking()
-            .Where(x => x.ThreadId == tid && x.DeletedAtUtc == null && x.PublishedToPlatform)
-            .ToListAsync(cancellationToken);
+        // Quien ya es comprador o vendedor del hilo debe ver el mismo alcance de suscripciones que las hojas del chat
+        // (GET route-sheets lista todas las no eliminadas). Si sólo usáramos UserCanSeeThread, antes del primer mensaje
+        // el comprador podía quedar como «narrow» y el GET coincidía sólo con hojas publicadas — distinto al transportista.
+        var buyerId = (thread.BuyerUserId ?? "").Trim();
+        var sellerId = (thread.SellerUserId ?? "").Trim();
+        var isBuyerOrSellerParty =
+            (buyerId.Length > 0 && string.Equals(uid, buyerId, StringComparison.Ordinal))
+            || (sellerId.Length > 0 && string.Equals(uid, sellerId, StringComparison.Ordinal));
+        var narrowToCarrierOnly = !isBuyerOrSellerParty && !ChatThreadAccess.UserCanSeeThread(uid, thread);
 
-        var sheetsById = publishedSheets
-            .ToDictionary(x => x.RouteSheetId, x => x, StringComparer.Ordinal);
-
-        // Transportista sin Initiator/FirstMessage: puede tener suscripción (p. ej. presel) en hoja aún no publicada;
-        // sin esto GET devuelve [] y el cliente bloquea el chat aunque UserCanAccessThreadRowAsync sea true.
+        Dictionary<string, ChatRouteSheetRow> sheetsById;
         if (narrowToCarrierOnly)
         {
+            var publishedSheets = await db.ChatRouteSheets.AsNoTracking()
+                .Where(x => x.ThreadId == tid && x.DeletedAtUtc == null && x.PublishedToPlatform)
+                .ToListAsync(cancellationToken);
+            sheetsById = publishedSheets
+                .ToDictionary(x => x.RouteSheetId, x => x, StringComparer.Ordinal);
+
+            // Transportista sin Initiator/FirstMessage: puede tener suscripción (p. ej. presel) en hoja aún no publicada;
+            // sin esto GET devuelve [] y el cliente bloquea el chat aunque UserCanAccessThreadRowAsync sea true.
             var carrierRows = await db.RouteTramoSubscriptions.AsNoTracking()
                 .Where(x => x.ThreadId == tid && x.Status != "withdrawn")
                 .Select(x => new { x.RouteSheetId, x.CarrierUserId })
@@ -194,6 +203,14 @@ public sealed class RouteTramoSubscriptionService(
                 foreach (var row in extraSheets)
                     sheetsById[row.RouteSheetId] = row;
             }
+        }
+        else
+        {
+            var threadSheets = await db.ChatRouteSheets.AsNoTracking()
+                .Where(x => x.ThreadId == tid && x.DeletedAtUtc == null)
+                .ToListAsync(cancellationToken);
+            sheetsById = threadSheets
+                .ToDictionary(x => x.RouteSheetId, x => x, StringComparer.Ordinal);
         }
 
         if (sheetsById.Count == 0)

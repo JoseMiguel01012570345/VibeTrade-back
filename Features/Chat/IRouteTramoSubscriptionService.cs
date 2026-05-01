@@ -97,4 +97,5 @@ public sealed record RouteTramoSubscriptionItemDto(
     string OrigenLine,
     string DestinoLine,
     long CreatedAtUnixMs,
-    string? CarrierServiceStoreId);
+    string? CarrierServiceStoreId,
+    string? CarrierAvatarUrl);
