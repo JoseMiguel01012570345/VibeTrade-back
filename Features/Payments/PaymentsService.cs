@@ -478,6 +478,17 @@ public sealed class PaymentsService(
         if (payRow is null)
             return;
 
+        var storeDisplayName = "";
+        var threadRow = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == threadId.Trim(), cancellationToken).ConfigureAwait(false);
+        var sid = (threadRow?.StoreId ?? "").Trim();
+        if (sid.Length >= 2)
+        {
+            var st = await db.Stores.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == sid, cancellationToken).ConfigureAwait(false);
+            storeDisplayName = (st?.Name ?? "").Trim();
+        }
+
         var breakdown = PaymentCheckoutComputation.ComputeForAgreement(agr, routePayload);
         var qbFresh = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, currencyLower);
         var estimated = qbFresh?.StripeFeeMinor ?? qb.StripeFeeMinor;
@@ -501,6 +512,8 @@ public sealed class PaymentsService(
             TotalChargedMinor = payRow.TotalAmountMinor,
             StripePricingUrl = StripePricingLinks.PricingPage,
             Lines = lines,
+            InvoiceIssuerPlatform = "VibeTrade",
+            InvoiceStoreName = storeDisplayName,
         };
 
         await chat.PostAutomatedPaymentFeeReceiptAsync(

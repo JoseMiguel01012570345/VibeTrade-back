@@ -68,6 +68,12 @@ public sealed class ChatPaymentFeeReceiptView
     public string StripePricingUrl { get; set; } = "";
 
     public List<ChatPaymentFeeReceiptLineView> Lines { get; set; } = [];
+
+    [JsonPropertyName("invoiceIssuerPlatform")]
+    public string InvoiceIssuerPlatform { get; set; } = "VibeTrade";
+
+    [JsonPropertyName("invoiceStoreName")]
+    public string InvoiceStoreName { get; set; } = "";
 }
 
 public sealed class ChatMessageImageView

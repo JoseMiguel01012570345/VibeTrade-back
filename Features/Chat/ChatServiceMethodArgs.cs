@@ -128,3 +128,9 @@ public sealed record PartySoftLeaveArgs(
     string UserId,
     string ThreadId,
     string Reason);
+
+/// <summary>Resultado de <see cref="IChatService.SoftLeaveThreadAsPartyAsync"/>.</summary>
+public sealed record PartySoftLeaveResult(
+    bool Success,
+    string? ErrorCode,
+    bool SkipClientTrustPenalty);

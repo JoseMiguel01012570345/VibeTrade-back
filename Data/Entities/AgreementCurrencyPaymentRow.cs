@@ -53,6 +53,8 @@ public static class AgreementPaymentStatuses
     public const string Pending = "pending";
     public const string Succeeded = "succeeded";
     public const string Failed = "failed";
+    /// <summary>Reembolso total registrado en Stripe (p. ej. salida del vendedor en acuerdos solo servicios).</summary>
+    public const string Refunded = "refunded";
     // Pago iniciado pero requiere 3DS u otra confirmación cliente.
     public const string RequiresConfirmation = "requires_confirmation";
 }

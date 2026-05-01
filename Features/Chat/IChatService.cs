@@ -242,7 +242,7 @@ public interface IChatService
     /// <summary>
     /// Comprador o vendedor con acuerdo aceptado: oculta el hilo solo para quien sale, guarda motivo para el resto y mantiene el hilo activo.
     /// </summary>
-    Task<bool> SoftLeaveThreadAsPartyAsync(
+    Task<PartySoftLeaveResult> SoftLeaveThreadAsPartyAsync(
         PartySoftLeaveArgs request,
         CancellationToken cancellationToken = default);
 }

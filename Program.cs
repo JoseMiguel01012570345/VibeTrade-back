@@ -87,6 +87,7 @@ builder.Services.AddScoped<IUserContactsService, UserContactsService>();
 builder.Services.AddScoped<ITrustScoreLedgerService, TrustScoreLedgerService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IPartySoftLeaveCoordinator, PartySoftLeaveCoordinator>();
 builder.Services.AddScoped<IRouteSheetChatService, RouteSheetChatService>();
 builder.Services.AddScoped<IRouteTramoSubscriptionService, RouteTramoSubscriptionService>();
 builder.Services.AddScoped<ITradeAgreementService, TradeAgreementService>();

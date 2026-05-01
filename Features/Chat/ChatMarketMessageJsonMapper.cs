@@ -256,6 +256,10 @@ public static class ChatMarketMessageJsonMapper
                     Label = x.Label,
                     AmountMinor = x.AmountMinor,
                 }).ToList(),
+                InvoiceIssuerPlatform = string.IsNullOrWhiteSpace(p.InvoiceIssuerPlatform)
+                    ? "VibeTrade"
+                    : p.InvoiceIssuerPlatform.Trim(),
+                InvoiceStoreName = (p.InvoiceStoreName ?? "").Trim(),
             },
         };
 

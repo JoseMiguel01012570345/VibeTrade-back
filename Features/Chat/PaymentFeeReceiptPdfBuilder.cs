@@ -31,7 +31,14 @@ public static class PaymentFeeReceiptPdfBuilder
 
                 page.Header().Column(h =>
                 {
+                    var issuer = string.IsNullOrWhiteSpace(p.InvoiceIssuerPlatform)
+                        ? "VibeTrade"
+                        : p.InvoiceIssuerPlatform.Trim();
+                    var store = (p.InvoiceStoreName ?? "").Trim();
                     h.Item().Text("Informe de pago").FontSize(18).SemiBold();
+                    h.Item().PaddingTop(4).Text($"Emisor: {issuer}").FontSize(11);
+                    if (store.Length > 0)
+                        h.Item().Text($"Tienda (chat): {store}").FontSize(11);
                     h.Item().PaddingTop(4).Text($"Acuerdo: {p.AgreementTitle}").FontSize(11);
                     h.Item().Text($"Id. acuerdo: {p.AgreementId}").FontSize(9).FontColor(Colors.Grey.Darken2);
                     h.Item().Text($"Id. pago: {p.PaymentId}").FontSize(9).FontColor(Colors.Grey.Darken2);

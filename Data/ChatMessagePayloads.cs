@@ -185,4 +185,10 @@ public sealed record ChatPaymentFeeReceiptPayload : ChatMessagePayload
     public required string StripePricingUrl { get; init; }
 
     public required List<ChatPaymentFeeReceiptLineDto> Lines { get; init; } = [];
+
+    /// <summary>Plataforma emisora del documento (factura / informe).</summary>
+    public string InvoiceIssuerPlatform { get; init; } = "VibeTrade";
+
+    /// <summary>Tienda del chat (vendedor) asociada al cobro.</summary>
+    public string InvoiceStoreName { get; init; } = "";
 }

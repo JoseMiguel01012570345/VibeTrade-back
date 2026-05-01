@@ -10,7 +10,10 @@ using VibeTrade.Backend.Features.Chat.Utils;
 
 namespace VibeTrade.Backend.Features.Chat;
 
-public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : IChatService
+public sealed partial class ChatService(
+    AppDbContext db,
+    IHubContext<ChatHub> hub,
+    IPartySoftLeaveCoordinator partySoftLeave) : IChatService
 {
     private async Task<HashSet<string>> GetThreadParticipantUserIdsAsync(
         ChatThreadRow thread,
