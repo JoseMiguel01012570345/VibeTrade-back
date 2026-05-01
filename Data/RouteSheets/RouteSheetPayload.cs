@@ -55,6 +55,12 @@ public sealed class RouteStopPayload
 
     /// <summary>Moneda del precio de este tramo (ej. USD, CUP); mismo catálogo que <c>GET /market/currencies</c>.</summary>
     public string? MonedaPago { get; set; }
+
+    /// <summary>Km por carretera (OSRM) en este tramo O→D; rellenado al persistir la hoja (una petición OSRM por cadena conexa).</summary>
+    public double? OsrmRoadKm { get; set; }
+
+    /// <summary>Puntos [lat, lng] de la polilínea por carretera (OSRM); rellenado al persistir la hoja.</summary>
+    public List<List<double>>? OsrmRouteLatLngs { get; set; }
 }
 
 /// <summary>Hoja de ruta; mismo contrato que <c>RouteSheet</c> en el cliente (JSON camelCase).</summary>

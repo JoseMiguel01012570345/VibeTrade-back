@@ -84,6 +84,8 @@ internal static class EmergentRoutePublicationViewFactory
                 if (!string.IsNullOrWhiteSpace(leg.MonedaPago)) v.MonedaPago = leg.MonedaPago.Trim();
                 if (!string.IsNullOrWhiteSpace(leg.PrecioTransportista))
                     v.PrecioTransportista = leg.PrecioTransportista.Trim();
+                if (leg.OsrmRouteLatLngs is { Count: >= 2 })
+                    v.OsrmRouteLatLngs = leg.OsrmRouteLatLngs;
                 paradas.Add(v);
             }
 
@@ -116,6 +118,8 @@ internal static class EmergentRoutePublicationViewFactory
             var sid = (match?.Id ?? "").Trim();
             if (sid.Length > 0)
                 legNode.StopId = sid;
+            if (match?.OsrmRouteLatLngs is { Count: >= 2 })
+                legNode.OsrmRouteLatLngs = match.OsrmRouteLatLngs;
         }
     }
 

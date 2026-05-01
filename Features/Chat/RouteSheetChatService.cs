@@ -5,6 +5,7 @@ using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Chat.Utils;
+using VibeTrade.Backend.Features.Routing;
 using VibeTrade.Backend.Features.Trust;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -12,7 +13,9 @@ namespace VibeTrade.Backend.Features.Chat;
 public sealed class RouteSheetChatService(
     AppDbContext db,
     IChatService chat,
-    ITrustScoreLedgerService trustLedger) : IRouteSheetChatService
+    ITrustScoreLedgerService trustLedger,
+    IDrivingLegRoutingService drivingLegRouting,
+    ILogger<RouteSheetChatService> logger) : IRouteSheetChatService
 {
     public const string EmergentKindRouteSheet = EmergentRouteOfferRanking.EmergentKindRouteSheet;
 
@@ -204,6 +207,8 @@ public sealed class RouteSheetChatService(
                 JsonSerializer.Serialize(merged, RouteSheetJson.Options),
                 RouteSheetJson.Options)
             ?? merged;
+
+        await RouteSheetOsrmRoadKmPopulator.ApplyAsync(persisted, drivingLegRouting, logger, cancellationToken);
 
         if (RouteSheetPayloadValidator.Validate(persisted) is not null)
             return RouteSheetMutationResult.NotFoundOrForbidden;
