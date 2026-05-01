@@ -137,4 +137,10 @@ public sealed class ChatThreadWorkspaceDto
     public string? PartyExitedReason { get; set; }
     [JsonPropertyName("partyExitedAtUtc")]
     public DateTimeOffset? PartyExitedAtUtc { get; set; }
+
+    [JsonPropertyName("isSocialGroup")]
+    public bool IsSocialGroup { get; set; }
+
+    [JsonPropertyName("socialGroupTitle")]
+    public string? SocialGroupTitle { get; set; }
 }

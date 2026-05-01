@@ -17,7 +17,11 @@ public sealed record ChatThreadDto(
     string? BuyerAvatarUrl = null,
     string? PartyExitedUserId = null,
     string? PartyExitedReason = null,
-    DateTimeOffset? PartyExitedAtUtc = null);
+    DateTimeOffset? PartyExitedAtUtc = null,
+    bool IsSocialGroup = false,
+    string? SocialGroupTitle = null);
+
+public sealed record ChatThreadMemberDto(string UserId, string? DisplayName, string? AvatarUrl);
 
 public sealed record ChatMessageDto(
     string Id,
@@ -43,7 +47,9 @@ public sealed record ChatThreadSummaryDto(
     string? BuyerAvatarUrl = null,
     string? PartyExitedUserId = null,
     string? PartyExitedReason = null,
-    DateTimeOffset? PartyExitedAtUtc = null);
+    DateTimeOffset? PartyExitedAtUtc = null,
+    bool IsSocialGroup = false,
+    string? SocialGroupTitle = null);
 
 public sealed record ChatNotificationDto(
     string Id,
@@ -141,6 +147,12 @@ public interface IChatService
         bool forceNewThread = false,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Hilo de mensajería directa o grupal (sin oferta; sin acuerdos comerciales).</summary>
+    Task<ChatThreadDto?> CreateSocialGroupThreadAsync(
+        string creatorUserId,
+        IReadOnlyList<string> otherUserIds,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Tras actualizar <c>OfferQaJson</c>, asegura un mensaje de chat del vendedor por cada respuesta (idempotente).
     /// </summary>
@@ -161,6 +173,19 @@ public interface IChatService
     Task<ChatThreadDto?> GetThreadByOfferIfVisibleAsync(string userId, string offerId, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ChatThreadSummaryDto>> ListThreadsForUserAsync(string userId, CancellationToken cancellationToken = default);
+
+    /// <summary>Miembros del chat social (comprador, vendedor «ancla» y filas en <c>chat_social_group_members</c>).</summary>
+    Task<IReadOnlyList<ChatThreadMemberDto>?> ListSocialThreadMembersAsync(
+        string userId,
+        string threadId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Solo <see cref="ChatThreadRow.InitiatorUserId"/> puede fijar el nombre del grupo.</summary>
+    Task<ChatThreadDto?> PatchSocialGroupTitleAsync(
+        string userId,
+        string threadId,
+        string? title,
+        CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ChatMessageDto>> ListMessagesAsync(string userId, string threadId, CancellationToken cancellationToken = default);
 

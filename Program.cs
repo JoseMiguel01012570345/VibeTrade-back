@@ -112,6 +112,11 @@ builder.Services.AddHttpClient<IDrivingLegRoutingService, GraphHopperDrivingLegS
     if (Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
         client.BaseAddress = uri;
 });
+builder.Services.AddHttpClient("linkPreview", c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(8);
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("VibeTradeLinkPreview/1.0");
+});
 builder.Services.AddMemoryCache();
 
 builder.Services.Configure<ElasticsearchStoreSearchOptions>(

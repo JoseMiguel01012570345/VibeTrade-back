@@ -50,4 +50,10 @@ public sealed class ChatThreadRow
     public ICollection<ChatMessageRow> Messages { get; set; } = new List<ChatMessageRow>();
 
     public ICollection<TradeAgreementRow> TradeAgreements { get; set; } = new List<TradeAgreementRow>();
+
+    /// <summary>Hilo de chat directo o grupal (sin oferta comercial: sin acuerdos ni hojas de ruta).</summary>
+    public bool IsSocialGroup { get; set; }
+
+    /// <summary>Nombre mostrado del grupo social; solo lo puede editar <see cref="InitiatorUserId"/>.</summary>
+    public string? SocialGroupTitle { get; set; }
 }

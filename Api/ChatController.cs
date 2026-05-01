@@ -56,6 +56,37 @@ public sealed class ChatController(
         return Ok(dto);
     }
 
+    public sealed record CreateSocialGroupBody(IReadOnlyList<string>? MemberUserIds);
+
+    /// <summary>Crea un hilo de mensajería entre tu cuenta y otros usuarios (chat directo o grupal; sin acuerdos ni rutas).</summary>
+    [HttpPost("threads/social-group")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(ChatThreadDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> PostSocialGroupThread(
+        [FromBody] CreateSocialGroupBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+
+        var ids = body.MemberUserIds ?? Array.Empty<string>();
+        var dto = await chat.CreateSocialGroupThreadAsync(userId, ids, cancellationToken);
+        if (dto is null)
+        {
+            return BadRequest(new
+            {
+                error = "invalid_social_thread",
+                message =
+                    "No se pudo crear el chat. Necesitás al menos un contacto válido, una tienda asociada a tu cuenta, y no podés incluirte dos veces.",
+            });
+        }
+
+        return Ok(dto);
+    }
+
     /// <summary>Lista resumida de hilos donde participa el usuario.</summary>
     [HttpGet("threads")]
     [ProducesResponseType(typeof(IReadOnlyList<ChatThreadSummaryDto>), StatusCodes.Status200OK)]
@@ -231,6 +262,51 @@ public sealed class ChatController(
         var dto = await chat.GetThreadIfVisibleAsync(userId, threadId, cancellationToken);
         if (dto is null)
             return NotFound();
+        return Ok(dto);
+    }
+
+    /// <summary>Integrantes del chat social (misma visibilidad que el hilo).</summary>
+    [HttpGet("threads/{threadId}/members")]
+    [ProducesResponseType(typeof(IReadOnlyList<ChatThreadMemberDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetSocialThreadMembers(string threadId, CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var list = await chat.ListSocialThreadMembersAsync(userId, threadId, cancellationToken);
+        if (list is null)
+            return NotFound();
+        return Ok(list);
+    }
+
+    public sealed record PatchSocialGroupTitleBody(string? Title);
+
+    /// <summary>Solo quien creó el grupo puede cambiar el nombre mostrado.</summary>
+    [HttpPatch("threads/{threadId}/social-title")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(ChatThreadDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PatchSocialGroupTitle(
+        string threadId,
+        [FromBody] PatchSocialGroupTitleBody? body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var dto = await chat.PatchSocialGroupTitleAsync(userId, threadId, body?.Title, cancellationToken);
+        if (dto is null)
+        {
+            return NotFound(new
+            {
+                error = "not_found",
+                message = "No se pudo actualizar el nombre (sin permiso o chat no social).",
+            });
+        }
+
         return Ok(dto);
     }
 

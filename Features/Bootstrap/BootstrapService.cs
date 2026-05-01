@@ -122,6 +122,10 @@ public sealed class BootstrapService(
                     existing.PartyExitedAtUtc = partyAt;
                 else
                     existing.PartyExitedAtUtc = null;
+                existing.IsSocialGroup = summ.IsSocialGroup;
+                existing.SocialGroupTitle = string.IsNullOrWhiteSpace(summ.SocialGroupTitle)
+                    ? null
+                    : summ.SocialGroupTitle.Trim();
                 continue;
             }
 
@@ -167,6 +171,10 @@ public sealed class BootstrapService(
                 Messages = messages,
                 Contracts = new List<ChatThreadContractView>(),
                 RouteSheets = routeSheetsList,
+                IsSocialGroup = summ.IsSocialGroup,
+                SocialGroupTitle = string.IsNullOrWhiteSpace(summ.SocialGroupTitle)
+                    ? null
+                    : summ.SocialGroupTitle.Trim(),
             };
             if (!string.IsNullOrWhiteSpace(summ.BuyerDisplayName))
                 th.BuyerDisplayName = summ.BuyerDisplayName.Trim();

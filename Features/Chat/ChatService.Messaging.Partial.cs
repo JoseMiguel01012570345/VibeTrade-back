@@ -93,6 +93,21 @@ public sealed partial class ChatService
         string senderUserId,
         CancellationToken cancellationToken)
     {
+        if (thread.IsSocialGroup)
+        {
+            var acc = await db.UserAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == senderUserId, cancellationToken);
+            if (acc == null)
+                return "Usuario";
+            if (!string.IsNullOrWhiteSpace(acc.DisplayName))
+                return acc.DisplayName.Trim();
+            if (!string.IsNullOrWhiteSpace(acc.PhoneDisplay))
+                return acc.PhoneDisplay.Trim();
+            if (!string.IsNullOrWhiteSpace(acc.PhoneDigits))
+                return acc.PhoneDigits.Trim();
+            return senderUserId.Length >= 6 ? senderUserId[..6] : "Usuario";
+        }
+
         if (senderUserId == thread.BuyerUserId)
         {
             var acc = await db.UserAccounts.AsNoTracking()
@@ -255,18 +270,30 @@ public sealed partial class ChatService
         if (type.Length == 0)
             return null;
 
-        if (senderUserId != t.BuyerUserId
-            && senderUserId != t.SellerUserId
-            && !await IsUserActiveCarrierOnThreadAsync(senderUserId, t.Id, cancellationToken))
+        var sid = (senderUserId ?? "").Trim();
+        if (sid.Length < 2)
+            return null;
+        var buyerId = (t.BuyerUserId ?? "").Trim();
+        var sellerId = (t.SellerUserId ?? "").Trim();
+        var isBuyerOrSeller =
+            string.Equals(sid, buyerId, StringComparison.Ordinal)
+            || string.Equals(sid, sellerId, StringComparison.Ordinal);
+        var isSocialExtraMember =
+            t.IsSocialGroup
+            && await db.ChatSocialGroupMembers.AsNoTracking()
+                .AnyAsync(m => m.ThreadId == t.Id && m.UserId == sid, cancellationToken);
+        if (!isBuyerOrSeller
+            && !isSocialExtraMember
+            && !await IsUserActiveCarrierOnThreadAsync(sid, t.Id, cancellationToken))
             return null;
 
         return type switch
         {
-            "text" => await PostTextChatMessageAsync(senderUserId, t, body, cancellationToken),
-            "audio" => await PostAudioChatMessageAsync(senderUserId, t, body, cancellationToken),
-            "image" => await PostImageChatMessageAsync(senderUserId, t, body, cancellationToken),
-            "doc" => await PostSingleDocChatMessageAsync(senderUserId, t, body, cancellationToken),
-            "docs" => await PostDocsBundleChatMessageAsync(senderUserId, t, body, cancellationToken),
+            "text" => await PostTextChatMessageAsync(sid, t, body, cancellationToken),
+            "audio" => await PostAudioChatMessageAsync(sid, t, body, cancellationToken),
+            "image" => await PostImageChatMessageAsync(sid, t, body, cancellationToken),
+            "doc" => await PostSingleDocChatMessageAsync(sid, t, body, cancellationToken),
+            "docs" => await PostDocsBundleChatMessageAsync(sid, t, body, cancellationToken),
             _ => null,
         };
     }
