@@ -11,6 +11,7 @@ using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Bootstrap;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Payments;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Search;
 using VibeTrade.Backend.Features.Routing;
@@ -18,6 +19,7 @@ using VibeTrade.Backend.Features.EmergentOffers;
 using VibeTrade.Backend.Features.SavedOffers;
 using VibeTrade.Backend.Features.Trust;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using VibeTrade.Backend.Infrastructure;
 using VibeTrade.Backend.Infrastructure.Email;
 using VibeTrade.Backend.Infrastructure.DemoData;
@@ -36,6 +38,18 @@ TryLoadEnv(Path.Combine(builder.Environment.ContentRootPath, ".env"));
 var emailSmtpPassword = Environment.GetEnvironmentVariable("EMAIL_SMTP_PASSWORD");
 if (!string.IsNullOrEmpty(emailSmtpPassword))
     builder.Configuration["EmailSmtp:Password"] = emailSmtpPassword;
+
+// .env (DotNetEnv): GraphHopper_ApiKey → Routing:GraphHopperApiKey (IOptions<RoutingOptions>).
+var graphHopperApiKey = Environment.GetEnvironmentVariable("GraphHopper_ApiKey")?.Trim();
+if (!string.IsNullOrEmpty(graphHopperApiKey))
+{
+    builder.Configuration.AddInMemoryCollection(
+        new Dictionary<string, string?>
+        {
+            [$"{RoutingOptions.SectionName}:{nameof(RoutingOptions.GraphHopperApiKey)}"] =
+                graphHopperApiKey,
+        });
+}
 
 const long maxRequestBodyBytes = 524_288_000L; // 500 MiB
 builder.WebHost.ConfigureKestrel(o =>
@@ -73,10 +87,11 @@ builder.Services.AddScoped<IUserContactsService, UserContactsService>();
 builder.Services.AddScoped<ITrustScoreLedgerService, TrustScoreLedgerService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IPartySoftLeaveCoordinator, PartySoftLeaveCoordinator>();
 builder.Services.AddScoped<IRouteSheetChatService, RouteSheetChatService>();
 builder.Services.AddScoped<IRouteTramoSubscriptionService, RouteTramoSubscriptionService>();
 builder.Services.AddScoped<ITradeAgreementService, TradeAgreementService>();
-builder.Services.AddScoped<IAgreementCheckoutService, AgreementCheckoutService>();
+builder.Services.AddScoped<IPaymentsService, PaymentsService>();
 builder.Services.AddScoped<IAgreementServiceEvidenceService, AgreementServiceEvidenceService>();
 builder.Services.Configure<EmailSmtpOptions>(
     builder.Configuration.GetSection(EmailSmtpOptions.SectionName));
@@ -84,10 +99,23 @@ builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<IPaymentFeeReceiptEmailDispatcher, PaymentFeeReceiptEmailDispatcher>();
 builder.Services.Configure<RoutingOptions>(
     builder.Configuration.GetSection(RoutingOptions.SectionName));
-builder.Services.AddHttpClient<IOsrmLegDistanceService, OsrmLegDistanceService>(client =>
+builder.Services.AddHttpClient<IDrivingLegRoutingService, GraphHopperDrivingLegService>((sp, client) =>
 {
-    client.Timeout = TimeSpan.FromSeconds(30);
+    client.Timeout = TimeSpan.FromSeconds(60);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("VibeTradeBackend/1.0");
+    var opt = sp.GetRequiredService<IOptions<RoutingOptions>>().Value;
+    var baseUrl = (opt.GraphHopperBaseUrl ?? "").Trim();
+    if (baseUrl.Length == 0)
+        return;
+    if (!baseUrl.EndsWith('/'))
+        baseUrl += "/";
+    if (Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
+        client.BaseAddress = uri;
+});
+builder.Services.AddHttpClient("linkPreview", c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(8);
+    c.DefaultRequestHeaders.UserAgent.ParseAdd("VibeTradeLinkPreview/1.0");
 });
 builder.Services.AddMemoryCache();
 

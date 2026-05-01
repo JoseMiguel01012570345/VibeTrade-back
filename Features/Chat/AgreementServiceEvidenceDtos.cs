@@ -25,7 +25,11 @@ public sealed record AgreementServicePaymentWithEvidenceDto(
     string Status,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? ReleasedAtUtc,
-    ServiceEvidenceDto? Evidence);
+    ServiceEvidenceDto? Evidence,
+    DateTimeOffset? SellerPayoutRecordedAtUtc,
+    string? SellerPayoutCardBrand,
+    string? SellerPayoutCardLast4,
+    string? SellerPayoutStripeTransferId);
 
 public sealed record UpsertServiceEvidenceRequest(
     string Text,
@@ -33,4 +37,6 @@ public sealed record UpsertServiceEvidenceRequest(
     bool Submit);
 
 public sealed record DecideServiceEvidenceRequest(string Decision);
+
+public sealed record RecordSellerServicePayoutRequest(string PaymentMethodId);
 

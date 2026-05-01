@@ -56,6 +56,37 @@ public sealed class ChatController(
         return Ok(dto);
     }
 
+    public sealed record CreateSocialGroupBody(IReadOnlyList<string>? MemberUserIds);
+
+    /// <summary>Crea un hilo de mensajería entre tu cuenta y otros usuarios (chat directo o grupal; sin acuerdos ni rutas).</summary>
+    [HttpPost("threads/social-group")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(ChatThreadDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> PostSocialGroupThread(
+        [FromBody] CreateSocialGroupBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+
+        var ids = body.MemberUserIds ?? Array.Empty<string>();
+        var dto = await chat.CreateSocialGroupThreadAsync(userId, ids, cancellationToken);
+        if (dto is null)
+        {
+            return BadRequest(new
+            {
+                error = "invalid_social_thread",
+                message =
+                    "No se pudo crear el chat. Necesitás al menos un contacto válido, una tienda asociada a tu cuenta, y no podés incluirte dos veces.",
+            });
+        }
+
+        return Ok(dto);
+    }
+
     /// <summary>Lista resumida de hilos donde participa el usuario.</summary>
     [HttpGet("threads")]
     [ProducesResponseType(typeof(IReadOnlyList<ChatThreadSummaryDto>), StatusCodes.Status200OK)]
@@ -109,12 +140,16 @@ public sealed class ChatController(
     /// <summary>
     /// Comprador o vendedor con acuerdo aceptado: oculta el hilo en su lista, notifica al resto con el motivo; el hilo no se borra.
     /// </summary>
+    public sealed record PartySoftLeaveOkBody(bool SkipClientTrustPenalty);
+
     [HttpPost("threads/{threadId}/party-soft-leave")]
     [Consumes("application/json")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(PartySoftLeaveOkBody), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
     public async Task<IActionResult> PostPartySoftLeave(
         string threadId,
         [FromBody] PartySoftLeaveBody body,
@@ -126,10 +161,54 @@ public sealed class ChatController(
         var r = (body?.Reason ?? "").Trim();
         if (r.Length < 1)
             return BadRequest(new { error = "reason_required", message = "Indica un motivo para salir." });
-        var ok = await chat.SoftLeaveThreadAsPartyAsync(new PartySoftLeaveArgs(userId, threadId, r), cancellationToken);
-        if (!ok)
+        var result = await chat.SoftLeaveThreadAsPartyAsync(new PartySoftLeaveArgs(userId, threadId, r), cancellationToken);
+        if (!result.Success)
+        {
+            if (string.Equals(result.ErrorCode, "held_payments_buyer", StringComparison.Ordinal))
+            {
+                return Conflict(new
+                {
+                    error = result.ErrorCode,
+                    message =
+                        "No podés salir del chat mientras haya pagos de servicios retenidos (en espera). Esperá la liberación o el reembolso.",
+                });
+            }
+
+            if (string.Equals(result.ErrorCode, "held_payments_seller_merchandise", StringComparison.Ordinal))
+            {
+                return Conflict(new
+                {
+                    error = result.ErrorCode,
+                    message =
+                        "No podés salir del chat con pagos retenidos si el acuerdo incluye mercancía u otros rubros distintos de solo servicios.",
+                });
+            }
+
+            if (string.Equals(result.ErrorCode, "service_evidence_pending", StringComparison.Ordinal))
+            {
+                return Conflict(new
+                {
+                    error = result.ErrorCode,
+                    message =
+                        "No podés salir del chat mientras haya evidencia de servicio enviada al comprador sin respuesta (pendiente de aceptación o rechazo).",
+                });
+            }
+
+            if (string.Equals(result.ErrorCode, "stripe_refund_failed", StringComparison.Ordinal))
+            {
+                return StatusCode(StatusCodes.Status502BadGateway,
+                    new
+                    {
+                        error = result.ErrorCode,
+                        message =
+                            "No se pudieron reembolsar los pagos retenidos en este momento. Reintentá en unos minutos o contactá soporte.",
+                    });
+            }
+
             return NotFound(new { error = "not_found", message = "No se pudo registrar la salida (sin acuerdo aceptado o sin permiso)." });
-        return NoContent();
+        }
+
+        return Ok(new { skipClientTrustPenalty = result.SkipClientTrustPenalty });
     }
 
     /// <summary>
@@ -183,6 +262,51 @@ public sealed class ChatController(
         var dto = await chat.GetThreadIfVisibleAsync(userId, threadId, cancellationToken);
         if (dto is null)
             return NotFound();
+        return Ok(dto);
+    }
+
+    /// <summary>Integrantes del chat social (misma visibilidad que el hilo).</summary>
+    [HttpGet("threads/{threadId}/members")]
+    [ProducesResponseType(typeof(IReadOnlyList<ChatThreadMemberDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetSocialThreadMembers(string threadId, CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var list = await chat.ListSocialThreadMembersAsync(userId, threadId, cancellationToken);
+        if (list is null)
+            return NotFound();
+        return Ok(list);
+    }
+
+    public sealed record PatchSocialGroupTitleBody(string? Title);
+
+    /// <summary>Solo quien creó el grupo puede cambiar el nombre mostrado.</summary>
+    [HttpPatch("threads/{threadId}/social-title")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(ChatThreadDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> PatchSocialGroupTitle(
+        string threadId,
+        [FromBody] PatchSocialGroupTitleBody? body,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+        var dto = await chat.PatchSocialGroupTitleAsync(userId, threadId, body?.Title, cancellationToken);
+        if (dto is null)
+        {
+            return NotFound(new
+            {
+                error = "not_found",
+                message = "No se pudo actualizar el nombre (sin permiso o chat no social).",
+            });
+        }
+
         return Ok(dto);
     }
 

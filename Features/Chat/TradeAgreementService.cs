@@ -68,6 +68,8 @@ public sealed class TradeAgreementService(
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
             return (null, null);
+        if (t.IsSocialGroup)
+            return (null, null);
         if (sellerUserId != t.SellerUserId)
             return (null, null);
 
@@ -123,6 +125,8 @@ public sealed class TradeAgreementService(
         var t = await db.ChatThreads.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
+            return (null, null);
+        if (t.IsSocialGroup)
             return (null, null);
         if (sellerUserId != t.SellerUserId)
             return (null, null);
@@ -189,6 +193,8 @@ public sealed class TradeAgreementService(
     {
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(buyerUserId, t))
+            return null;
+        if (t.IsSocialGroup)
             return null;
         if (buyerUserId != t.BuyerUserId)
             return null;

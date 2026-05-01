@@ -9,8 +9,65 @@ using VibeTrade.Backend.Features.Payments;
 
 namespace VibeTrade.Backend.Features.Chat;
 
+/// <summary>
+/// Resultado de resolver PaymentMethod Stripe de un customer.
+/// <see cref="Accepted"/>: igual que cobro acuerdo, true si el error permite reintento (p. ej. PM).
+/// </summary>
+internal readonly record struct StripeCustomerPaymentMethodResolve(
+    bool Success,
+    PaymentMethod? PaymentMethod,
+    string? ErrorMessage,
+    string? ErrorCode,
+    bool Accepted);
+
 internal static class AgreementCheckoutExecutor
 {
+    /// <summary>
+    /// Clave servidor, <see cref="PaymentMethodService.GetAsync"/> y titularidad del PM respecto al customer.
+    /// Misma secuencia que en <see cref="PersistAndChargeAsync"/> antes del PaymentIntent.
+    /// </summary>
+    internal static async Task<StripeCustomerPaymentMethodResolve> ResolveCustomerPaymentMethodAsync(
+        string paymentMethodId,
+        string stripeCustomerId,
+        CancellationToken cancellationToken)
+    {
+        var key = PaymentStripeEnv.StripeServerApiKey();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return new StripeCustomerPaymentMethodResolve(
+                false, null,
+                "Falta configurar STRIPE_* en el servidor.", "stripe_not_configured",
+                Accepted: false);
+        }
+
+        StripeConfiguration.ApiKey = key;
+
+        PaymentMethod pm;
+        try
+        {
+            pm = await new PaymentMethodService()
+                .GetAsync(paymentMethodId, requestOptions: null, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (StripeException sx)
+        {
+            return new StripeCustomerPaymentMethodResolve(
+                false, null, StripeErrorUserMessage(sx), "stripe_pm_error",
+                Accepted: true);
+        }
+
+        var pcm = (pm.CustomerId ?? "").Trim();
+        if (pcm.Length < 10 || !pcm.Equals(stripeCustomerId.Trim(), StringComparison.Ordinal))
+        {
+            return new StripeCustomerPaymentMethodResolve(
+                false, null,
+                "La tarjeta no pertenece a tu cliente Stripe.", "payment_method_not_owned",
+                Accepted: false);
+        }
+
+        return new StripeCustomerPaymentMethodResolve(true, pm, null, null, false);
+    }
+
     internal static async Task<TradeAgreementRow?> LoadAgreementAsync(
         AppDbContext db,
         string threadId,
@@ -140,6 +197,7 @@ internal static class AgreementCheckoutExecutor
         string stripeCustomerId,
         CancellationToken ct)
     {
+        // VIBETRADE_SKIP_PAYMENT_INTENTS=true en .env → cobro simulado sin Stripe (PaymentStripeEnv.SkipStripePaymentIntentCreate).
         if (PaymentStripeEnv.SkipStripePaymentIntentCreate())
         {
             var tail = pay.Id.Length >= 12 ? pay.Id.Substring(pay.Id.Length - 12) : pay.Id;
@@ -154,27 +212,9 @@ internal static class AgreementCheckoutExecutor
             return Ok(pay.StripePaymentIntentId!, pay.Id);
         }
 
-        var key = PaymentStripeEnv.StripeServerApiKey();
-        if (string.IsNullOrWhiteSpace(key))
-            return Err("Falta configurar STRIPE_* en el servidor.", false, "stripe_not_configured");
-
-        StripeConfiguration.ApiKey = key;
-
-        PaymentMethod pm;
-        try
-        {
-            pm = await new PaymentMethodService()
-                .GetAsync(paymentMethodId, requestOptions: null, cancellationToken: ct)
-                .ConfigureAwait(false);
-        }
-        catch (StripeException sx)
-        {
-            return Err(StripeMsg(sx), true, "stripe_pm_error");
-        }
-
-        var pcm = (pm.CustomerId ?? "").Trim();
-        if (pcm.Length < 10 || !pcm.Equals(stripeCustomerId.Trim(), StringComparison.Ordinal))
-            return Err("La tarjeta no pertenece a tu cliente Stripe.", false, "payment_method_not_owned");
+        var pmResolve = await ResolveCustomerPaymentMethodAsync(paymentMethodId, stripeCustomerId, ct).ConfigureAwait(false);
+        if (!pmResolve.Success)
+            return Err(pmResolve.ErrorMessage!, pmResolve.Accepted, pmResolve.ErrorCode!);
 
         PaymentIntent pi;
         try
@@ -198,7 +238,7 @@ internal static class AgreementCheckoutExecutor
         catch (StripeException sx)
         {
             pay.Status = AgreementPaymentStatuses.Failed;
-            pay.StripeErrorMessage = StripeMsg(sx);
+            pay.StripeErrorMessage = StripeErrorUserMessage(sx);
             pay.CompletedAtUtc = DateTimeOffset.UtcNow;
             db.AgreementCurrencyPayments.Add(pay);
             var chargeFailDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
@@ -274,6 +314,6 @@ internal static class AgreementCheckoutExecutor
     private static AgreementExecutePaymentResultDto Err(string msg, bool accepted, string code) =>
         new("", false, null, msg, accepted, code, null);
 
-    private static string StripeMsg(StripeException sx) =>
+    internal static string StripeErrorUserMessage(StripeException sx) =>
         string.IsNullOrWhiteSpace(sx.StripeError?.Message) ? sx.Message : sx.StripeError!.Message;
 }

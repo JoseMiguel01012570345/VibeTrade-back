@@ -34,6 +34,8 @@ internal static class RouteTramoSubscriptionItemMapper
             && serviceIdToStoreId.TryGetValue(r.StoreServiceId.Trim(), out var st))
             svcStore = st;
 
+        var avatarUrl = string.IsNullOrWhiteSpace(acc?.AvatarUrl) ? null : acc.AvatarUrl.Trim();
+
         return new RouteTramoItemDto(
             r.RouteSheetId,
             r.StopId,
@@ -48,6 +50,7 @@ internal static class RouteTramoSubscriptionItemMapper
             origen,
             destino,
             createdMs,
-            svcStore);
+            svcStore,
+            avatarUrl);
     }
 }

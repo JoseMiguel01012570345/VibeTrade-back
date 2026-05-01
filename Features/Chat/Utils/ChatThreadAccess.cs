@@ -10,6 +10,9 @@ public static class ChatThreadAccess
     public static bool UserCanSeeThread(string userId, ChatThreadRow t) =>
         t.DeletedAtUtc is null
         && (NormId(t.InitiatorUserId) == NormId(userId)
+            || (t.IsSocialGroup
+                && (NormId(t.BuyerUserId) == NormId(userId)
+                    || NormId(t.SellerUserId) == NormId(userId)))
             || (t.FirstMessageSentAtUtc is not null
                 && (NormId(t.BuyerUserId) == NormId(userId)
                     || NormId(t.SellerUserId) == NormId(userId))));

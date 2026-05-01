@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using VibeTrade.Backend.Data;
@@ -11,9 +12,11 @@ using VibeTrade.Backend.Data;
 namespace VibeTrade.Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260430195738_AddSellerServicePayoutToAgreementServicePayments")]
+    partial class AddSellerServicePayoutToAgreementServicePayments
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -183,10 +186,6 @@ namespace VibeTrade.Backend.Migrations
 
                     b.Property<DateTimeOffset?>("SellerPayoutRecordedAtUtc")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("SellerPayoutStripeTransferId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
 
                     b.Property<string>("ServiceItemId")
                         .IsRequired()
@@ -418,35 +417,6 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("chat_route_sheets", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatSocialGroupMemberRow", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(48)
-                        .HasColumnType("character varying(48)");
-
-                    b.Property<DateTimeOffset>("JoinedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ThreadId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ThreadId");
-
-                    b.HasIndex("ThreadId", "UserId")
-                        .IsUnique();
-
-                    b.ToTable("chat_social_group_members", (string)null);
-                });
-
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatThreadRow", b =>
                 {
                     b.Property<string>("Id")
@@ -475,9 +445,6 @@ namespace VibeTrade.Backend.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<bool>("IsSocialGroup")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("OfferId")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -504,10 +471,6 @@ namespace VibeTrade.Backend.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
-
-                    b.Property<string>("SocialGroupTitle")
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("StoreId")
                         .IsRequired()
@@ -1766,10 +1729,6 @@ namespace VibeTrade.Backend.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("SavedOfferIdsJson");
 
-                    b.Property<string>("StripeConnectedAccountId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<string>("StripeCustomerId")
                         .HasMaxLength(96)
                         .HasColumnType("character varying(96)");
@@ -1923,15 +1882,6 @@ namespace VibeTrade.Backend.Migrations
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatRouteSheetRow", b =>
-                {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", null)
-                        .WithMany()
-                        .HasForeignKey("ThreadId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatSocialGroupMemberRow", b =>
                 {
                     b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", null)
                         .WithMany()

@@ -32,11 +32,15 @@ public static class DemoDataSeed
         IHostEnvironment hostEnvironment,
         CancellationToken cancellationToken = default)
     {
-        if (!configuration.GetValue("DemoSeed:Enabled", false))
-            return;
-
         var relativePath = configuration["DemoSeed:DataFile"] ?? DefaultRelativeDataFile;
         var path = Path.Combine(hostEnvironment.ContentRootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+        if (!configuration.GetValue("DemoSeed:Enabled", false))
+        {
+            await JsonDemoDataCleanup.RunWhenDisabledAsync(db, logger, path, cancellationToken);
+            return;
+        }
+
         if (!File.Exists(path))
         {
             logger.LogWarning("Demo seed: archivo no encontrado ({Path}).", path);
@@ -50,9 +54,6 @@ public static class DemoDataSeed
             logger.LogWarning("Demo seed: JSON vacío o inválido ({Path}).", path);
             return;
         }
-
-        if (configuration.GetValue("DemoSeed:RemoveLegacyDemoData", true))
-            await LegacyDemoDataCleanup.RunAsync(db, cancellationToken);
 
         var expectedIds = doc.Users.Select(u => u.Id).ToList();
         var existingCount = await db.UserAccounts

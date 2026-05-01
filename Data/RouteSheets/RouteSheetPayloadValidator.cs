@@ -42,6 +42,13 @@ public static class RouteSheetPayloadValidator
     }
 
     /// <summary>
+    /// Índices 0-based de <paramref name="paradas"/> agrupados en cadenas enlazadas por coordenadas
+    /// (mismo criterio que la validación temporal y que OSRM por hoja).
+    /// </summary>
+    public static List<List<int>> GetTramoChainsInParadasListOrder(IReadOnlyList<RouteStopPayload> paradas) =>
+        BuildTramoChainsByCoords(paradas);
+
+    /// <summary>
     /// Lista de listas con índices 0-based de tramos. Dos tramos consecutivos quedan en la misma cadena
     /// si el origen del segundo coincide con el destino del primero (lat/lng tras <c>trim</c>); si difieren, abre cadena nueva.
     /// </summary>

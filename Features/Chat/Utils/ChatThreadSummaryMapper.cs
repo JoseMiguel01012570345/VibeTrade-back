@@ -32,6 +32,8 @@ public static class ChatThreadSummaryMapper
             bav,
             string.IsNullOrWhiteSpace(t.PartyExitedUserId) ? null : t.PartyExitedUserId.Trim(),
             string.IsNullOrWhiteSpace(t.PartyExitedReason) ? null : t.PartyExitedReason.Trim(),
-            t.PartyExitedAtUtc);
+            t.PartyExitedAtUtc,
+            t.IsSocialGroup,
+            string.IsNullOrWhiteSpace(t.SocialGroupTitle) ? null : t.SocialGroupTitle.Trim());
     }
 }

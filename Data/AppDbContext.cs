@@ -19,6 +19,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<UserContactRow> UserContacts => Set<UserContactRow>();
     public DbSet<UserOfferInteractionRow> UserOfferInteractions => Set<UserOfferInteractionRow>();
     public DbSet<ChatThreadRow> ChatThreads => Set<ChatThreadRow>();
+    public DbSet<ChatSocialGroupMemberRow> ChatSocialGroupMembers => Set<ChatSocialGroupMemberRow>();
     public DbSet<ChatMessageRow> ChatMessages => Set<ChatMessageRow>();
     public DbSet<TradeAgreementRow> TradeAgreements => Set<TradeAgreementRow>();
     public DbSet<ChatRouteSheetRow> ChatRouteSheets => Set<ChatRouteSheetRow>();
@@ -72,6 +73,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Telegram).HasMaxLength(256);
             e.Property(x => x.XAccount).HasMaxLength(256);
             e.Property(x => x.StripeCustomerId).HasMaxLength(96);
+            e.Property(x => x.StripeConnectedAccountId).HasMaxLength(64);
             e.Property(x => x.SavedOfferIds)
                 .HasColumnName("SavedOfferIdsJson")
                 .HasColumnType("jsonb")
@@ -292,6 +294,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.PartyExitedUserId).HasMaxLength(64);
             e.Property(x => x.PartyExitedReason).HasMaxLength(2000);
             e.Property(x => x.PartyExitedAtUtc);
+            e.Property(x => x.IsSocialGroup);
+            e.Property(x => x.SocialGroupTitle).HasMaxLength(120);
             e.HasIndex(x => x.OfferId);
             e.HasIndex(x => x.BuyerUserId);
             e.HasIndex(x => x.SellerUserId);
@@ -304,6 +308,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.Cascade);
             e.HasMany(x => x.TradeAgreements)
                 .WithOne(x => x.Thread)
+                .HasForeignKey(x => x.ThreadId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChatSocialGroupMemberRow>(e =>
+        {
+            e.ToTable("chat_social_group_members");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(48);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.UserId).HasMaxLength(64);
+            e.Property(x => x.JoinedAtUtc);
+            e.HasIndex(x => x.ThreadId);
+            e.HasIndex(x => new { x.ThreadId, x.UserId }).IsUnique();
+            e.HasOne<ChatThreadRow>()
+                .WithMany()
                 .HasForeignKey(x => x.ThreadId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
@@ -755,6 +775,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Currency).HasMaxLength(16);
             e.Property(x => x.Status).HasMaxLength(32);
             e.Property(x => x.AgreementCurrencyPaymentId).HasMaxLength(64);
+            e.Property(x => x.SellerPayoutPaymentMethodStripeId).HasMaxLength(96);
+            e.Property(x => x.SellerPayoutCardBrandSnapshot).HasMaxLength(32);
+            e.Property(x => x.SellerPayoutCardLast4Snapshot).HasMaxLength(8);
+            e.Property(x => x.SellerPayoutStripeTransferId).HasMaxLength(128);
             e.HasIndex(x => new { x.TradeAgreementId, x.ThreadId });
             e.HasIndex(x => new { x.TradeAgreementId, x.ServiceItemId, x.EntryMonth, x.EntryDay, x.Currency })
                 .IsUnique()

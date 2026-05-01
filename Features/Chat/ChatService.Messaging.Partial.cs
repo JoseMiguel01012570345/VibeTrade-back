@@ -93,6 +93,21 @@ public sealed partial class ChatService
         string senderUserId,
         CancellationToken cancellationToken)
     {
+        if (thread.IsSocialGroup)
+        {
+            var acc = await db.UserAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == senderUserId, cancellationToken);
+            if (acc == null)
+                return "Usuario";
+            if (!string.IsNullOrWhiteSpace(acc.DisplayName))
+                return acc.DisplayName.Trim();
+            if (!string.IsNullOrWhiteSpace(acc.PhoneDisplay))
+                return acc.PhoneDisplay.Trim();
+            if (!string.IsNullOrWhiteSpace(acc.PhoneDigits))
+                return acc.PhoneDigits.Trim();
+            return senderUserId.Length >= 6 ? senderUserId[..6] : "Usuario";
+        }
+
         if (senderUserId == thread.BuyerUserId)
         {
             var acc = await db.UserAccounts.AsNoTracking()
@@ -255,18 +270,30 @@ public sealed partial class ChatService
         if (type.Length == 0)
             return null;
 
-        if (senderUserId != t.BuyerUserId
-            && senderUserId != t.SellerUserId
-            && !await IsUserActiveCarrierOnThreadAsync(senderUserId, t.Id, cancellationToken))
+        var sid = (senderUserId ?? "").Trim();
+        if (sid.Length < 2)
+            return null;
+        var buyerId = (t.BuyerUserId ?? "").Trim();
+        var sellerId = (t.SellerUserId ?? "").Trim();
+        var isBuyerOrSeller =
+            string.Equals(sid, buyerId, StringComparison.Ordinal)
+            || string.Equals(sid, sellerId, StringComparison.Ordinal);
+        var isSocialExtraMember =
+            t.IsSocialGroup
+            && await db.ChatSocialGroupMembers.AsNoTracking()
+                .AnyAsync(m => m.ThreadId == t.Id && m.UserId == sid, cancellationToken);
+        if (!isBuyerOrSeller
+            && !isSocialExtraMember
+            && !await IsUserActiveCarrierOnThreadAsync(sid, t.Id, cancellationToken))
             return null;
 
         return type switch
         {
-            "text" => await PostTextChatMessageAsync(senderUserId, t, body, cancellationToken),
-            "audio" => await PostAudioChatMessageAsync(senderUserId, t, body, cancellationToken),
-            "image" => await PostImageChatMessageAsync(senderUserId, t, body, cancellationToken),
-            "doc" => await PostSingleDocChatMessageAsync(senderUserId, t, body, cancellationToken),
-            "docs" => await PostDocsBundleChatMessageAsync(senderUserId, t, body, cancellationToken),
+            "text" => await PostTextChatMessageAsync(sid, t, body, cancellationToken),
+            "audio" => await PostAudioChatMessageAsync(sid, t, body, cancellationToken),
+            "image" => await PostImageChatMessageAsync(sid, t, body, cancellationToken),
+            "doc" => await PostSingleDocChatMessageAsync(sid, t, body, cancellationToken),
+            "docs" => await PostDocsBundleChatMessageAsync(sid, t, body, cancellationToken),
             _ => null,
         };
     }
@@ -622,7 +649,7 @@ public sealed partial class ChatService
     }
 
     /// <inheritdoc />
-    public async Task<bool> SoftLeaveThreadAsPartyAsync(
+    public async Task<PartySoftLeaveResult> SoftLeaveThreadAsPartyAsync(
         PartySoftLeaveArgs request,
         CancellationToken cancellationToken = default)
     {
@@ -630,34 +657,49 @@ public sealed partial class ChatService
         var uid = (request.UserId ?? "").Trim();
         var reasonTrim = (request.Reason ?? "").Trim();
         if (tid.Length < 4 || uid.Length < 2 || reasonTrim.Length < 1)
-            return false;
+            return new PartySoftLeaveResult(false, null, false);
 
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == tid && x.DeletedAtUtc == null, cancellationToken);
         if (t is null)
-            return false;
+            return new PartySoftLeaveResult(false, null, false);
 
         var isBuyer = string.Equals(uid, t.BuyerUserId, StringComparison.Ordinal);
         var isSeller = string.Equals(uid, t.SellerUserId, StringComparison.Ordinal);
         if (!isBuyer && !isSeller)
-            return false;
+            return new PartySoftLeaveResult(false, null, false);
 
         if (isBuyer && t.BuyerExpelledAtUtc is not null)
-            return true;
+            return new PartySoftLeaveResult(true, null, false);
         if (isSeller && t.SellerExpelledAtUtc is not null)
-            return true;
+            return new PartySoftLeaveResult(true, null, false);
 
         if (!await HasAcceptedNonDeletedTradeAgreementOnThreadAsync(tid, cancellationToken))
-            return false;
+            return new PartySoftLeaveResult(false, null, false);
+
+        var paymentPrep = await partySoftLeave.ProcessPaymentRulesAsync(t, isBuyer, isSeller, cancellationToken)
+            .ConfigureAwait(false);
+        if (!paymentPrep.AllowProceed)
+            return new PartySoftLeaveResult(false, paymentPrep.ErrorCode, false);
 
         if (!await TryPostSystemNoticeForSoftLeaveAsync(uid, tid, isSeller, reasonTrim, cancellationToken))
-            return false;
+            return new PartySoftLeaveResult(false, null, false);
 
         var now = DateTimeOffset.UtcNow;
         ApplyPartyExpulsionToThread(t, uid, isBuyer, reasonTrim, now);
         await db.SaveChangesAsync(cancellationToken);
+        if (paymentPrep.RefundedBuyerHeldPayments)
+        {
+            const string defaultRefundNotice =
+                "Los pagos retenidos por servicios en este chat fueron reembolsados al comprador por la salida del vendedor (acuerdos solo servicios).";
+            var refundBody = string.IsNullOrWhiteSpace(paymentPrep.RefundNoticeText)
+                ? defaultRefundNotice
+                : paymentPrep.RefundNoticeText.Trim();
+            await PostAutomatedSystemThreadNoticeAsync(tid, refundBody, cancellationToken).ConfigureAwait(false);
+        }
+
         await NotifyCounterpartyOfPartySoftLeaveAsync(t, uid, isSeller, reasonTrim, cancellationToken);
         await BroadcastPeerPartyExitedForSoftLeaveAsync(tid, t, uid, isSeller, cancellationToken);
-        return true;
+        return new PartySoftLeaveResult(true, null, paymentPrep.SkipClientTrustPenalty);
     }
 
     private async Task<bool> HasAcceptedNonDeletedTradeAgreementOnThreadAsync(

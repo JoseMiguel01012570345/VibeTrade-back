@@ -14,6 +14,22 @@ public sealed partial class MarketCatalogSyncService
         if (oid.Length < 2)
             return null;
 
+        // Placeholder de hilos solo mensajería (misma constante que ChatService.SocialThreadOfferId).
+        if (string.Equals(oid, "__vt_social__", StringComparison.Ordinal))
+        {
+            var synthetic = new HomeOfferViewDto
+            {
+                Id = oid,
+                StoreId = "",
+                Title = "Chat",
+                Price = "\u2014",
+                Tags = new List<string>(),
+                ImageUrl = "",
+                ImageUrls = Array.Empty<string>(),
+            };
+            return new PublicOfferCardSnapshot(synthetic, new StoreProfileWorkspaceData());
+        }
+
         var map = await RecommendationBatchOfferLoader.BuildOffersViewInOrderAsync(db, new[] { oid }, cancellationToken);
         if (!map.TryGetValue(oid, out var offerView))
             return null;

@@ -160,19 +160,28 @@ public sealed class RouteTramoSubscriptionService(
 
         if (!await chat.UserCanAccessThreadRowAsync(uid, thread, cancellationToken))
             return null;
-        var narrowToCarrierOnly = !ChatThreadAccess.UserCanSeeThread(uid, thread);
 
-        var publishedSheets = await db.ChatRouteSheets.AsNoTracking()
-            .Where(x => x.ThreadId == tid && x.DeletedAtUtc == null && x.PublishedToPlatform)
-            .ToListAsync(cancellationToken);
+        // Quien ya es comprador o vendedor del hilo debe ver el mismo alcance de suscripciones que las hojas del chat
+        // (GET route-sheets lista todas las no eliminadas). Si sólo usáramos UserCanSeeThread, antes del primer mensaje
+        // el comprador podía quedar como «narrow» y el GET coincidía sólo con hojas publicadas — distinto al transportista.
+        var buyerId = (thread.BuyerUserId ?? "").Trim();
+        var sellerId = (thread.SellerUserId ?? "").Trim();
+        var isBuyerOrSellerParty =
+            (buyerId.Length > 0 && string.Equals(uid, buyerId, StringComparison.Ordinal))
+            || (sellerId.Length > 0 && string.Equals(uid, sellerId, StringComparison.Ordinal));
+        var narrowToCarrierOnly = !isBuyerOrSellerParty && !ChatThreadAccess.UserCanSeeThread(uid, thread);
 
-        var sheetsById = publishedSheets
-            .ToDictionary(x => x.RouteSheetId, x => x, StringComparer.Ordinal);
-
-        // Transportista sin Initiator/FirstMessage: puede tener suscripción (p. ej. presel) en hoja aún no publicada;
-        // sin esto GET devuelve [] y el cliente bloquea el chat aunque UserCanAccessThreadRowAsync sea true.
+        Dictionary<string, ChatRouteSheetRow> sheetsById;
         if (narrowToCarrierOnly)
         {
+            var publishedSheets = await db.ChatRouteSheets.AsNoTracking()
+                .Where(x => x.ThreadId == tid && x.DeletedAtUtc == null && x.PublishedToPlatform)
+                .ToListAsync(cancellationToken);
+            sheetsById = publishedSheets
+                .ToDictionary(x => x.RouteSheetId, x => x, StringComparer.Ordinal);
+
+            // Transportista sin Initiator/FirstMessage: puede tener suscripción (p. ej. presel) en hoja aún no publicada;
+            // sin esto GET devuelve [] y el cliente bloquea el chat aunque UserCanAccessThreadRowAsync sea true.
             var carrierRows = await db.RouteTramoSubscriptions.AsNoTracking()
                 .Where(x => x.ThreadId == tid && x.Status != "withdrawn")
                 .Select(x => new { x.RouteSheetId, x.CarrierUserId })
@@ -194,6 +203,14 @@ public sealed class RouteTramoSubscriptionService(
                 foreach (var row in extraSheets)
                     sheetsById[row.RouteSheetId] = row;
             }
+        }
+        else
+        {
+            var threadSheets = await db.ChatRouteSheets.AsNoTracking()
+                .Where(x => x.ThreadId == tid && x.DeletedAtUtc == null)
+                .ToListAsync(cancellationToken);
+            sheetsById = threadSheets
+                .ToDictionary(x => x.RouteSheetId, x => x, StringComparer.Ordinal);
         }
 
         if (sheetsById.Count == 0)
@@ -617,8 +634,6 @@ public sealed class RouteTramoSubscriptionService(
 
         var hadConfirmed = subs.Exists(x =>
             string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase));
-        if (!hadConfirmed)
-            return null;
 
         var confirmedStopsWithdrawnCount = subs
             .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
@@ -762,12 +777,14 @@ public sealed class RouteTramoSubscriptionService(
             string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase));
 
         var distinctSheetIds = subs.Select(x => x.RouteSheetId).Distinct().ToList();
-        var anyRouteIncomplete = await AnyRouteNotDeliveredOnSheetsAsync(
-            distinctSheetIds, tid, cancellationToken);
 
-        var applyTrustPenalty = hadConfirmed && anyRouteIncomplete;
-        if (thread.BuyerExpelledAtUtc is not null || thread.SellerExpelledAtUtc is not null)
-            applyTrustPenalty = false;
+        var expelledParty =
+            thread.BuyerExpelledAtUtc is not null || thread.SellerExpelledAtUtc is not null;
+        var routeSheetsAllDelivered = hadConfirmed
+            && await AllConfirmedRouteSheetsMarkedDeliveredAsync(tid, subs, cancellationToken);
+
+        // Penalización si tenía tramos confirmados y las hojas implicadas no están todas «entregadas» (demo).
+        var applyTrustPenalty = hadConfirmed && !expelledParty && !routeSheetsAllDelivered;
 
         var now = DateTimeOffset.UtcNow;
         await ClearCarrierPhoneOnSheetsForWithdrawAsync(tid, subs, now, cancellationToken);
@@ -785,7 +802,8 @@ public sealed class RouteTramoSubscriptionService(
             display ?? "",
             subs.Count,
             distinctSheetIds.Count,
-            applyTrustPenalty);
+            applyTrustPenalty,
+            noPenaltyBecauseSheetsDelivered: hadConfirmed && !applyTrustPenalty && !expelledParty && routeSheetsAllDelivered);
         await chat.PostAutomatedSystemThreadNoticeAsync(tid, sys, cancellationToken);
 
         foreach (var rsid in distinctSheetIds)
@@ -1195,6 +1213,44 @@ public sealed class RouteTramoSubscriptionService(
         }
     }
 
+    /// <summary>
+    /// Cada hoja que tiene al menos un tramo confirmado en <paramref name="subs"/> debe existir y tener <see cref="RouteSheetPayload.Estado"/> «entregada».
+    /// </summary>
+    private async Task<bool> AllConfirmedRouteSheetsMarkedDeliveredAsync(
+        string threadId,
+        List<RouteTramoSubscriptionRow> subs,
+        CancellationToken cancellationToken)
+    {
+        var sheetIds = subs
+            .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+            .Select(x => (x.RouteSheetId ?? "").Trim())
+            .Where(id => id.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (sheetIds.Count == 0)
+            return true;
+
+        var rows = await db.ChatRouteSheets.AsNoTracking()
+            .Where(x => x.ThreadId == threadId && sheetIds.Contains(x.RouteSheetId) && x.DeletedAtUtc == null)
+            .Select(x => new { x.RouteSheetId, x.Payload })
+            .ToListAsync(cancellationToken);
+
+        if (rows.Count != sheetIds.Count)
+            return false;
+
+        var bySheet = rows.ToDictionary(r => r.RouteSheetId, StringComparer.Ordinal);
+        foreach (var sid in sheetIds)
+        {
+            if (!bySheet.TryGetValue(sid, out var row))
+                return false;
+            var estado = (row.Payload.Estado ?? "").Trim();
+            if (!string.Equals(estado, "entregada", StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        return true;
+    }
+
     private async Task<int?> ApplyTrustPenaltyIfNeededAsync(
         bool apply,
         string uid,
@@ -1213,7 +1269,7 @@ public sealed class RouteTramoSubscriptionService(
             uid,
             acc.TrustScore - prev,
             acc.TrustScore,
-            "Abandono de ruta como transportista antes de entregar (demo)");
+            "Retiro como transportista con suscripción confirmada (demo)");
         return after;
     }
 
@@ -1245,25 +1301,6 @@ public sealed class RouteTramoSubscriptionService(
             storeRow.TrustScore,
             $"Expulsión de transportista confirmado por la tienda — {tramosTxt} (demo). Motivo: {r}");
         return storeRow.TrustScore;
-    }
-
-    private async Task<bool> AnyRouteNotDeliveredOnSheetsAsync(
-        List<string> distinctSheetIds,
-        string tid,
-        CancellationToken cancellationToken)
-    {
-        foreach (var rsid in distinctSheetIds)
-        {
-            var sh = await db.ChatRouteSheets.AsNoTracking()
-                .FirstOrDefaultAsync(
-                    x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
-                    cancellationToken);
-            if (sh is null)
-                continue;
-            if (RouteTramoRouteTrustUtil.IsRouteStateNotDelivered(sh.Payload))
-                return true;
-        }
-        return false;
     }
 
     private async Task ClearCarrierPhoneOnSheetsForWithdrawAsync(

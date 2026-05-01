@@ -10,8 +10,14 @@ using VibeTrade.Backend.Features.Chat.Utils;
 
 namespace VibeTrade.Backend.Features.Chat;
 
-public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hub) : IChatService
+public sealed partial class ChatService(
+    AppDbContext db,
+    IHubContext<ChatHub> hub,
+    IPartySoftLeaveCoordinator partySoftLeave) : IChatService
 {
+    /// <summary>Oferta ficticia para hilos solo mensajería (lista/chat sin catálogo).</summary>
+    private const string SocialThreadOfferId = "__vt_social__";
+
     private async Task<HashSet<string>> GetThreadParticipantUserIdsAsync(
         ChatThreadRow thread,
         CancellationToken cancellationToken)
@@ -33,6 +39,19 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
             if (string.IsNullOrWhiteSpace(c))
                 continue;
             set.Add(c.Trim());
+        }
+
+        if (thread.IsSocialGroup)
+        {
+            var socialExtra = await db.ChatSocialGroupMembers.AsNoTracking()
+                .Where(x => x.ThreadId == thread.Id)
+                .Select(x => x.UserId)
+                .ToListAsync(cancellationToken);
+            foreach (var x in socialExtra)
+            {
+                if (!string.IsNullOrWhiteSpace(x))
+                    set.Add(x.Trim());
+            }
         }
 
         var participatedHereIds = await db.RouteTramoSubscriptions.AsNoTracking()
@@ -128,6 +147,10 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
                 return false;
             return true;
         }
+        if (thread.IsSocialGroup
+            && await db.ChatSocialGroupMembers.AsNoTracking()
+                .AnyAsync(m => m.ThreadId == thread.Id && m.UserId == uid, cancellationToken))
+            return true;
         if (ChatThreadAccess.UserCanSeeThread(uid, thread))
             return true;
         if (await db.RouteTramoSubscriptions.AsNoTracking()
@@ -1068,6 +1091,7 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
                 && !(t.BuyerUserId == uid && t.BuyerExpelledAtUtc != null)
                 && !(t.SellerUserId == uid && t.SellerExpelledAtUtc != null)
                 && (t.InitiatorUserId == uid
+                    || (t.IsSocialGroup && (t.BuyerUserId == uid || t.SellerUserId == uid))
                     || (t.FirstMessageSentAtUtc != null
                         && (t.BuyerUserId == uid || t.SellerUserId == uid))));
 
@@ -1084,7 +1108,18 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
 
         var partyIds = await partyQuery.Select(t => t.Id).ToListAsync(cancellationToken);
         var carrierIds = await carrierQuery.Select(t => t.Id).Distinct().ToListAsync(cancellationToken);
-        var unionIds = partyIds.Union(carrierIds).ToList();
+        var socialExtraIds = await db.ChatSocialGroupMembers.AsNoTracking()
+            .Where(m => m.UserId == uid)
+            .Join(db.ChatThreads.AsNoTracking(), m => m.ThreadId, t => t.Id, (_, t) => t)
+            .Where(t =>
+                t.DeletedAtUtc == null
+                && t.IsSocialGroup
+                && !(t.BuyerUserId == uid && t.BuyerExpelledAtUtc != null)
+                && !(t.SellerUserId == uid && t.SellerExpelledAtUtc != null))
+            .Select(t => t.Id)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var unionIds = partyIds.Union(carrierIds).Union(socialExtraIds).ToList();
         return unionIds.Count == 0 ? null : unionIds;
     }
 
@@ -1196,6 +1231,195 @@ public sealed partial class ChatService(AppDbContext db, IHubContext<ChatHub> hu
 
         var set = await GetThreadParticipantUserIdsAsync(t, cancellationToken).ConfigureAwait(false);
         return set.ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<ChatThreadDto?> CreateSocialGroupThreadAsync(
+        string creatorUserId,
+        IReadOnlyList<string> otherUserIds,
+        CancellationToken cancellationToken = default)
+    {
+        var creator = (creatorUserId ?? "").Trim();
+        if (creator.Length < 2)
+            return null;
+
+        var others = otherUserIds
+            .Select(x => (x ?? "").Trim())
+            .Where(x => x.Length >= 2)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (others.Count == 0)
+            return null;
+        if (others.Any(u => string.Equals(u, creator, StringComparison.Ordinal)))
+            return null;
+
+        var allIds = others.Append(creator).ToList();
+        var existingCount = await db.UserAccounts.AsNoTracking()
+            .Where(u => allIds.Contains(u.Id))
+            .CountAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (existingCount != allIds.Count)
+            return null;
+
+        var store = await db.Stores.AsNoTracking()
+            .Where(s => s.OwnerUserId == creator)
+            .OrderBy(s => s.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (store is null)
+            return null;
+
+        var buyerId = creator;
+        var sellerId = others[0];
+        var rest = others.Skip(1).ToList();
+
+        var id = "cth_" + Guid.NewGuid().ToString("N")[..16];
+        var now = DateTimeOffset.UtcNow;
+        var row = new ChatThreadRow
+        {
+            Id = id,
+            OfferId = SocialThreadOfferId,
+            StoreId = store.Id,
+            BuyerUserId = buyerId,
+            SellerUserId = sellerId,
+            InitiatorUserId = creator,
+            FirstMessageSentAtUtc = null,
+            CreatedAtUtc = now,
+            PurchaseMode = false,
+            IsSocialGroup = true,
+        };
+        db.ChatThreads.Add(row);
+
+        foreach (var uid in rest)
+        {
+            db.ChatSocialGroupMembers.Add(new ChatSocialGroupMemberRow
+            {
+                Id = "csgm_" + Guid.NewGuid().ToString("N")[..12],
+                ThreadId = id,
+                UserId = uid,
+                JoinedAtUtc = now,
+            });
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        var dto = await MapThreadWithBuyerLabelAsync(row, cancellationToken).ConfigureAwait(false);
+
+        var notifyIds = new HashSet<string>(StringComparer.Ordinal) { buyerId, sellerId };
+        foreach (var u in rest)
+            notifyIds.Add(u);
+        foreach (var n in notifyIds)
+        {
+            await hub.Clients.Group(ChatHubGroupNames.ForUser(n)).SendAsync(
+                    "threadCreated",
+                    new { thread = dto },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return dto;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ChatThreadMemberDto>?> ListSocialThreadMembersAsync(
+        string userId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = ChatThreadIds.NormalizePersistedId(threadId);
+        if (tid.Length < 4)
+            return null;
+
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken)
+            .ConfigureAwait(false);
+        if (t is null || t.DeletedAtUtc is not null)
+            return null;
+        if (!await UserCanAccessThreadRowAsync(userId, t, cancellationToken).ConfigureAwait(false))
+            return null;
+        if (!t.IsSocialGroup)
+            return null;
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        if (!string.IsNullOrWhiteSpace(t.BuyerUserId))
+            ids.Add(t.BuyerUserId.Trim());
+        if (!string.IsNullOrWhiteSpace(t.SellerUserId))
+            ids.Add(t.SellerUserId.Trim());
+        var extra = await db.ChatSocialGroupMembers.AsNoTracking()
+            .Where(m => m.ThreadId == tid)
+            .Select(m => m.UserId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        foreach (var u in extra)
+        {
+            var x = (u ?? "").Trim();
+            if (x.Length >= 2)
+                ids.Add(x);
+        }
+
+        var idList = ids.ToList();
+        if (idList.Count == 0)
+            return Array.Empty<ChatThreadMemberDto>();
+
+        var userRows = await db.UserAccounts.AsNoTracking()
+            .Where(u => idList.Contains(u.Id))
+            .Select(u => new { u.Id, u.DisplayName, u.AvatarUrl })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        string SortKey(string uid)
+        {
+            var row = userRows.FirstOrDefault(u => u.Id == uid);
+            var dn = row?.DisplayName;
+            if (!string.IsNullOrWhiteSpace(dn))
+                return dn.Trim();
+            return uid;
+        }
+
+        var ordered = idList.OrderBy(SortKey, StringComparer.OrdinalIgnoreCase).ToList();
+
+        return ordered.Select(uid =>
+        {
+            var row = userRows.FirstOrDefault(u => u.Id == uid);
+            var dn = row?.DisplayName is { Length: > 0 } s ? s.Trim() : null;
+            var av = row?.AvatarUrl is { Length: > 0 } a ? a.Trim() : null;
+            return new ChatThreadMemberDto(uid, dn, av);
+        }).ToList();
+    }
+
+    /// <inheritdoc />
+    public async Task<ChatThreadDto?> PatchSocialGroupTitleAsync(
+        string userId,
+        string threadId,
+        string? title,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = ChatThreadIds.NormalizePersistedId(threadId);
+        if (tid.Length < 4)
+            return null;
+
+        var t = await db.ChatThreads
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken)
+            .ConfigureAwait(false);
+        if (t is null || t.DeletedAtUtc is not null)
+            return null;
+        if (!t.IsSocialGroup)
+            return null;
+        if (!string.Equals(t.InitiatorUserId, userId, StringComparison.Ordinal))
+            return null;
+
+        string? normalized = null;
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            var tr = title.Trim();
+            if (tr.Length > 120)
+                tr = tr[..120];
+            normalized = tr;
+        }
+
+        t.SocialGroupTitle = normalized;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return await MapThreadWithBuyerLabelAsync(t, cancellationToken).ConfigureAwait(false);
     }
 }
 

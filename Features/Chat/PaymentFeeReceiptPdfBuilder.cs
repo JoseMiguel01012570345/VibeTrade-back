@@ -31,7 +31,14 @@ public static class PaymentFeeReceiptPdfBuilder
 
                 page.Header().Column(h =>
                 {
+                    var issuer = string.IsNullOrWhiteSpace(p.InvoiceIssuerPlatform)
+                        ? "VibeTrade"
+                        : p.InvoiceIssuerPlatform.Trim();
+                    var store = (p.InvoiceStoreName ?? "").Trim();
                     h.Item().Text("Informe de pago").FontSize(18).SemiBold();
+                    h.Item().PaddingTop(4).Text($"Emisor: {issuer}").FontSize(11);
+                    if (store.Length > 0)
+                        h.Item().Text($"Tienda (chat): {store}").FontSize(11);
                     h.Item().PaddingTop(4).Text($"Acuerdo: {p.AgreementTitle}").FontSize(11);
                     h.Item().Text($"Id. acuerdo: {p.AgreementId}").FontSize(9).FontColor(Colors.Grey.Darken2);
                     h.Item().Text($"Id. pago: {p.PaymentId}").FontSize(9).FontColor(Colors.Grey.Darken2);
@@ -70,24 +77,25 @@ public static class PaymentFeeReceiptPdfBuilder
                         });
                         sum.Item().PaddingTop(2).Row(r =>
                         {
-                            r.RelativeItem().Text("Clima / otros").FontSize(10);
+                            r.RelativeItem().Text("Climate 0,05 % (referencia, no cobrado)").FontSize(10);
                             r.ConstantItem(120).AlignRight().Text(Money(p.ClimateMinor)).FontSize(10);
                         });
                         sum.Item().PaddingTop(2).Row(r =>
                         {
-                            r.RelativeItem().Text("Tarifa Stripe (liquidación)").FontSize(10);
+                            r.RelativeItem().Text("Tarifa Stripe liquidación (referencia)").FontSize(10);
                             r.ConstantItem(120).AlignRight().Text(Money(p.StripeFeeMinorActual)).FontSize(10);
                         });
                         sum.Item().PaddingTop(2).Row(r =>
                         {
-                            r.RelativeItem().Text("Tarifa estimada (antes del cobro)").FontSize(9)
+                            r.RelativeItem().Text("Tarifa Stripe estimada antes del cobro (referencia)")
+                                .FontSize(9)
                                 .FontColor(Colors.Grey.Darken1);
                             r.ConstantItem(120).AlignRight().Text(Money(p.StripeFeeMinorEstimated)).FontSize(9)
                                 .FontColor(Colors.Grey.Darken1);
                         });
                         sum.Item().PaddingTop(6).Row(r =>
                         {
-                            r.RelativeItem().Text("Total cobrado").SemiBold().FontSize(11);
+                            r.RelativeItem().Text("Total cobrado al comprador (subtotal)").SemiBold().FontSize(11);
                             r.ConstantItem(120).AlignRight().Text(Money(p.TotalChargedMinor)).SemiBold()
                                 .FontSize(11);
                         });

@@ -4,7 +4,11 @@ using VibeTrade.Backend.Data.RouteSheets;
 
 namespace VibeTrade.Backend.Features.Chat;
 
-/// <summary>Replica la lógica de <c>paymentCheckoutBreakdown.ts</c> para validar montos en servidor.</summary>
+/// <summary>
+/// Replica la lógica de <c>paymentCheckoutBreakdown.ts</c> para validar montos en servidor.
+/// El importe cobrado (<see cref="CurrencyTotalsDto.TotalMinor"/>) es solo el subtotal de ítems;
+/// Climate y Stripe en el DTO son referencias informativas (no se suman al PaymentIntent).
+/// </summary>
 public static class PaymentCheckoutComputation
 {
     private static readonly HashSet<string> ZeroDecimalStripe = new[]
@@ -319,8 +323,8 @@ public static class PaymentCheckoutComputation
             var b = kv.Value;
             if (b.SubtotalMinor <= 0) continue;
             var climate = ClimateMinorFromSubtotal(b.SubtotalMinor);
-            var stripeFee = StripeFeeEstimate(b.SubtotalMinor + climate, curLower);
-            var total = b.SubtotalMinor + climate + stripeFee;
+            var stripeFee = StripeFeeEstimate(b.SubtotalMinor, curLower);
+            var total = b.SubtotalMinor;
             byCurrency.Add(new CurrencyTotalsDto(
                 curLower,
                 b.SubtotalMinor,
@@ -455,12 +459,12 @@ public static class PaymentCheckoutComputation
             ? 0
             : (long)Math.Ceiling(subtotalMinor * 0.0005m - 0.000001m);
 
-    // Stripe: 2.9 % + fijo opcional sobre (subtotal+climate).
-    public static long StripeFeeEstimate(long subPlusClimateMinor, string currencyLower)
+    /// <summary>2.9 % + fijo opcional sobre el subtotal cobrado (referencia; no se añade al importe del PI).</summary>
+    public static long StripeFeeEstimate(long subtotalMinor, string currencyLower)
     {
-        if (subPlusClimateMinor <= 0) return 0;
-        var pctPart = (long)Math.Ceiling(subPlusClimateMinor * 0.029m - 0.000001m);
-        var cf = currencyLower.ToLowerInvariant() switch { "usd" or "eur" or "ars" => 30L, _ => 0L };
+        if (subtotalMinor <= 0) return 0;
+        var pctPart = (long)Math.Ceiling(subtotalMinor * 0.029m - 0.000001m);
+        var cf = currencyLower.ToLowerInvariant() switch { "usd" or "eur" => 30L, _ => 0L };
         return pctPart + cf;
     }
 }

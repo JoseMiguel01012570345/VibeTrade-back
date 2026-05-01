@@ -1,4 +1,8 @@
-"""One-off generator for demo-seed.json — run: python generate_demo_seed.py"""
+"""One-off generator for demo-seed.json — run: python generate_demo_seed.py
+
+Id conventions (users cuba_demo_u##, stores *_s#, products cuba_p_*, services cuba_sv_*,
+contacts cuba_demo_uc_*) match backend JsonDemoDataCleanup when DemoSeed:Enabled is false.
+"""
 import json
 from pathlib import Path
 

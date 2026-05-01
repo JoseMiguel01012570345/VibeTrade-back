@@ -68,6 +68,12 @@ public sealed class ChatPaymentFeeReceiptView
     public string StripePricingUrl { get; set; } = "";
 
     public List<ChatPaymentFeeReceiptLineView> Lines { get; set; } = [];
+
+    [JsonPropertyName("invoiceIssuerPlatform")]
+    public string InvoiceIssuerPlatform { get; set; } = "VibeTrade";
+
+    [JsonPropertyName("invoiceStoreName")]
+    public string InvoiceStoreName { get; set; } = "";
 }
 
 public sealed class ChatMessageImageView
@@ -131,4 +137,10 @@ public sealed class ChatThreadWorkspaceDto
     public string? PartyExitedReason { get; set; }
     [JsonPropertyName("partyExitedAtUtc")]
     public DateTimeOffset? PartyExitedAtUtc { get; set; }
+
+    [JsonPropertyName("isSocialGroup")]
+    public bool IsSocialGroup { get; set; }
+
+    [JsonPropertyName("socialGroupTitle")]
+    public string? SocialGroupTitle { get; set; }
 }

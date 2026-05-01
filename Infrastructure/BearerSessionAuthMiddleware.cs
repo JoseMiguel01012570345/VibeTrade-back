@@ -23,6 +23,7 @@ public sealed class BearerSessionAuthMiddleware(RequestDelegate next)
         ("POST", "/api/v1/auth/verify"),
         ("POST", "/api/v1/market/stores"),
         ("GET", "/api/v1/market/currencies"),
+        ("GET", "/api/v1/routing/osrm"),
     };
 
     public async Task InvokeAsync(HttpContext context, IAuthService auth)
