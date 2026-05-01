@@ -26,6 +26,9 @@ public sealed class EmergentRouteLegSnapshot
     /// <summary>Precio / tarifa del transportista en este tramo (texto libre en la hoja).</summary>
     public string PrecioTransportista { get; set; } = "";
 
+    /// <summary>Km por carretera en este tramo (misma fuente que la hoja persistida).</summary>
+    public double? OsrmRoadKm { get; set; }
+
     /// <summary>Puntos [lat, lng] de la polilínea OSRM (si la hoja la persistió al guardar).</summary>
     public List<List<double>>? OsrmRouteLatLngs { get; set; }
 }
@@ -56,6 +59,7 @@ public sealed class EmergentRouteSheetSnapshot
                 DestinoLng = p.DestinoLng,
                 MonedaPago = p.MonedaPago?.Trim() ?? "",
                 PrecioTransportista = p.PrecioTransportista?.Trim() ?? "",
+                OsrmRoadKm = p.OsrmRoadKm,
                 OsrmRouteLatLngs = p.OsrmRouteLatLngs is { Count: >= 2 } ? p.OsrmRouteLatLngs : null,
             })
             .ToList();

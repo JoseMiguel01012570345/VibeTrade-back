@@ -76,6 +76,9 @@ public sealed class EmergentRouteParadaViewDto
     [JsonPropertyName("precioTransportista")]
     public string? PrecioTransportista { get; set; }
 
+    [JsonPropertyName("osrmRoadKm")]
+    public double? OsrmRoadKm { get; set; }
+
     [JsonPropertyName("osrmRouteLatLngs")]
     public List<List<double>>? OsrmRouteLatLngs { get; set; }
 }
