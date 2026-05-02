@@ -674,11 +674,14 @@ public sealed class RouteSheetChatService(
             var stopIdsForRecipient = kv.Value.ToList();
             if (stopIdsForRecipient.Count == 0)
                 continue;
-            if (ShouldSkipPreselectedNotifyForRecipient(
+            var stopsToNotify = stopIdsForRecipient
+                .Where(sid => !ShouldSkipPreselectedNotifyForSingleStop(
                     sheetRow.Payload,
                     uid,
-                    stopIdsForRecipient,
+                    sid,
                     subsForSheet))
+                .ToList();
+            if (stopsToNotify.Count == 0)
                 continue;
             await chat.NotifyRouteSheetPreselectedTransportistaAsync(
                 new RouteSheetPreselectedTransportistaNotificationArgs(
@@ -690,13 +693,13 @@ public sealed class RouteSheetChatService(
                     authorLabel,
                     authorTrust,
                     eid,
-                    stopIdsForRecipient),
+                    stopsToNotify),
                 cancellationToken);
             ApplyStopContentFingerprintsAfterPreselectedNotify(
                 sheetRow.Payload,
                 subsForSheet,
                 uid,
-                stopIdsForRecipient);
+                stopsToNotify);
             n++;
         }
 
@@ -706,41 +709,38 @@ public sealed class RouteSheetChatService(
         return n;
     }
 
-    /// <summary>No re-notificar presel si para cada tramo con ese teléfono ya hay suscripción pending/confirmed y el fingerprint del tramo coincide.</summary>
-    private static bool ShouldSkipPreselectedNotifyForRecipient(
+    /// <summary>
+    /// <c>true</c> si este tramo ya está cubierto (suscripción pending/confirmed + mismo fingerprint) y no hace falta otro aviso presel.
+    /// </summary>
+    private static bool ShouldSkipPreselectedNotifyForSingleStop(
         RouteSheetPayload payload,
         string recipientUserId,
-        IReadOnlyList<string> stopIdsForRecipient,
+        string stopId,
         IReadOnlyList<RouteTramoSubscriptionRow> subsForSheet)
     {
-        foreach (var stopId in stopIdsForRecipient)
-        {
-            var sid = (stopId ?? "").Trim();
-            if (sid.Length == 0)
-                return false;
-            var parada = payload.Paradas?
-                .FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
-            if (parada is null)
-                return false;
-            var fp = RouteSheetEditAckComputation.RouteStopFingerprint(parada);
-            var sub = subsForSheet.FirstOrDefault(s =>
-                string.Equals((s.StopId ?? "").Trim(), sid, StringComparison.Ordinal)
-                && ChatThreadAccess.UserIdsMatchLoose(recipientUserId, s.CarrierUserId));
-            if (sub is null)
-                return false;
-            var st = (sub.Status ?? "").Trim().ToLowerInvariant();
-            if (st is "rejected" or "withdrawn")
-                return false;
-            if (st is "pending" or "confirmed")
-            {
-                if (!string.Equals(fp, sub.StopContentFingerprint ?? "", StringComparison.Ordinal))
-                    return false;
-            }
-            else
-                return false;
-        }
+        var sid = (stopId ?? "").Trim();
+        if (sid.Length == 0)
+            return false;
 
-        return true;
+        var parada = payload.Paradas?
+            .FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
+        if (parada is null)
+            return false;
+
+        var fp = RouteSheetEditAckComputation.RouteStopFingerprint(parada);
+        var sub = subsForSheet.FirstOrDefault(s =>
+            string.Equals((s.StopId ?? "").Trim(), sid, StringComparison.Ordinal)
+            && ChatThreadAccess.UserIdsMatchLoose(recipientUserId, s.CarrierUserId));
+        if (sub is null)
+            return false;
+
+        var st = (sub.Status ?? "").Trim().ToLowerInvariant();
+        if (st is "rejected" or "withdrawn")
+            return false;
+        if (st is "pending" or "confirmed")
+            return string.Equals(fp, sub.StopContentFingerprint ?? "", StringComparison.Ordinal);
+
+        return false;
     }
 
     private static void ApplyStopContentFingerprintsAfterPreselectedNotify(

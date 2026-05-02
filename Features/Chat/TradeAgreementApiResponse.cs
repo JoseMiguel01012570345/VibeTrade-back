@@ -41,6 +41,9 @@ public sealed class TradeAgreementApiResponse
 
 public sealed class MerchandiseLineApi
 {
+    /// <summary>Id persistente de la línea (checkout parcial por ítem).</summary>
+    public string Id { get; set; } = "";
+
     public string? LinkedStoreProductId { get; set; }
     public string Tipo { get; set; } = "";
     public string Cantidad { get; set; } = "";

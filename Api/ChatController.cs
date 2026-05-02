@@ -194,6 +194,26 @@ public sealed class ChatController(
                 });
             }
 
+            if (string.Equals(result.ErrorCode, "route_delivery_active_buyer", StringComparison.Ordinal))
+            {
+                return Conflict(new
+                {
+                    error = result.ErrorCode,
+                    message =
+                        "No podés salir del chat mientras haya entregas de ruta activas en este acuerdo (tramos pagados / en curso). Esperá la evidencia o solicitá reembolso elegible.",
+                });
+            }
+
+            if (string.Equals(result.ErrorCode, "route_delivery_active_seller", StringComparison.Ordinal))
+            {
+                return Conflict(new
+                {
+                    error = result.ErrorCode,
+                    message =
+                        "No podés salir del chat mientras haya entregas de ruta activas en este acuerdo (tramos pagados / en curso). Coordiná la evidencia o el reembolso elegible con la contraparte.",
+                });
+            }
+
             if (string.Equals(result.ErrorCode, "stripe_refund_failed", StringComparison.Ordinal))
             {
                 return StatusCode(StatusCodes.Status502BadGateway,

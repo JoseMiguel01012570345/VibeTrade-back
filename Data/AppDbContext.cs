@@ -44,6 +44,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<ServiceEvidenceRow> ServiceEvidences => Set<ServiceEvidenceRow>();
 
+    public DbSet<RouteStopDeliveryRow> RouteStopDeliveries => Set<RouteStopDeliveryRow>();
+
+    public DbSet<CarrierOwnershipEventRow> CarrierOwnershipEvents => Set<CarrierOwnershipEventRow>();
+
+    public DbSet<CarrierTelemetrySampleRow> CarrierTelemetrySamples => Set<CarrierTelemetrySampleRow>();
+
+    public DbSet<CarrierDeliveryEvidenceRow> CarrierDeliveryEvidences => Set<CarrierDeliveryEvidenceRow>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<MarketWorkspaceRow>(e =>
@@ -817,6 +825,95 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(x => x.AgreementServicePayment)
                 .WithMany()
                 .HasForeignKey(x => x.AgreementServicePaymentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RouteStopDeliveryRow>(e =>
+        {
+            e.ToTable("route_stop_deliveries");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.TradeAgreementId).HasMaxLength(64);
+            e.Property(x => x.RouteSheetId).HasMaxLength(64);
+            e.Property(x => x.RouteStopId).HasMaxLength(96);
+            e.Property(x => x.State).HasMaxLength(40);
+            e.Property(x => x.CurrentOwnerUserId).HasMaxLength(64);
+            e.Property(x => x.RefundEligibleReason).HasMaxLength(32);
+            e.HasIndex(x => new { x.ThreadId, x.TradeAgreementId, x.RouteSheetId, x.RouteStopId }).IsUnique();
+            e.HasIndex(x => new { x.ThreadId, x.State });
+            e.HasIndex(x => x.CurrentOwnerUserId);
+            e.HasOne<ChatThreadRow>()
+                .WithMany()
+                .HasForeignKey(x => x.ThreadId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CarrierOwnershipEventRow>(e =>
+        {
+            e.ToTable("carrier_ownership_events");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.RouteSheetId).HasMaxLength(64);
+            e.Property(x => x.RouteStopId).HasMaxLength(96);
+            e.Property(x => x.CarrierUserId).HasMaxLength(64);
+            e.Property(x => x.Action).HasMaxLength(16);
+            e.Property(x => x.Reason).HasMaxLength(128);
+            e.HasIndex(x => new { x.ThreadId, x.AtUtc });
+            e.HasIndex(x => new { x.RouteSheetId, x.RouteStopId, x.AtUtc });
+            e.HasOne<ChatThreadRow>()
+                .WithMany()
+                .HasForeignKey(x => x.ThreadId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CarrierTelemetrySampleRow>(e =>
+        {
+            e.ToTable("carrier_telemetry_samples");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.RouteSheetId).HasMaxLength(64);
+            e.Property(x => x.RouteStopId).HasMaxLength(96);
+            e.Property(x => x.CarrierUserId).HasMaxLength(64);
+            e.Property(x => x.SourceClientId).HasMaxLength(128);
+            e.HasIndex(x => new { x.RouteStopId, x.ReportedAtUtc });
+            e.HasIndex(x => x.ThreadId);
+            e.HasOne<ChatThreadRow>()
+                .WithMany()
+                .HasForeignKey(x => x.ThreadId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CarrierDeliveryEvidenceRow>(e =>
+        {
+            e.ToTable("carrier_delivery_evidences");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.TradeAgreementId).HasMaxLength(64);
+            e.Property(x => x.RouteSheetId).HasMaxLength(64);
+            e.Property(x => x.RouteStopId).HasMaxLength(96);
+            e.Property(x => x.CarrierUserId).HasMaxLength(64);
+            e.Property(x => x.Text).HasColumnType("text");
+            e.Property(x => x.LastSubmittedText).HasColumnType("text");
+            e.Property(x => x.Status).HasMaxLength(32);
+            e.Property(x => x.DecidedByUserId).HasMaxLength(64);
+            e.Property(x => x.Attachments)
+                .HasColumnName("AttachmentsJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.ServiceEvidenceAttachments())
+                .Metadata.SetValueComparer(EntityValueConversions.ServiceEvidenceAttachmentsComparer());
+            e.Property(x => x.LastSubmittedAttachments)
+                .HasColumnName("LastSubmittedAttachmentsJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.ServiceEvidenceAttachments())
+                .Metadata.SetValueComparer(EntityValueConversions.ServiceEvidenceAttachmentsComparer());
+            e.HasIndex(x => new { x.ThreadId, x.TradeAgreementId, x.RouteSheetId, x.RouteStopId }).IsUnique();
+            e.HasOne<ChatThreadRow>()
+                .WithMany()
+                .HasForeignKey(x => x.ThreadId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

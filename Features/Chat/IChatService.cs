@@ -123,6 +123,32 @@ public interface IChatService
         RouteSheetPreselDeclinedByCarrierNotificationArgs request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Transportista: el tramo anterior completó entrega/evidencia y puede iniciarse el siguiente tramo (handoff).</summary>
+    Task NotifyRouteLegHandoffReadyAsync(
+        RouteLegHandoffReadyNotificationArgs request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Comprador/vendedor: proximidad al fin de tramo (para coordinar handoff).</summary>
+    Task NotifyRouteLegProximityAsync(
+        RouteLegProximityNotificationArgs request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Broadcast a participantes unidos al hilo (<c>JoinThread</c>): última telemetría GPS autorizada.
+    /// </summary>
+    Task BroadcastCarrierTelemetryUpdatedAsync(
+        string threadId,
+        string routeSheetId,
+        string agreementId,
+        string routeStopId,
+        string carrierUserId,
+        double lat,
+        double lng,
+        double? progressFraction,
+        bool offRoute,
+        DateTimeOffset reportedAtUtc,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Vendedor: notificación in-app cuando la confianza de su tienda se reduce por hoja de ruta / expulsión (demo).</summary>
     Task NotifySellerStoreTrustPenaltyAsync(
         SellerStoreTrustPenaltyNotificationArgs request,

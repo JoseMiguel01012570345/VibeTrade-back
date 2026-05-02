@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Utils;
@@ -17,6 +18,24 @@ public sealed partial class ChatService(
 {
     /// <summary>Oferta ficticia para hilos solo mensajería (lista/chat sin catálogo).</summary>
     private const string SocialThreadOfferId = "__vt_social__";
+
+    /// <summary>
+    /// Comprador/vendedor que hizo soft-leave ya no debe recibir mensajes ni avisos del hilo
+    /// (tampoco vía rol transportista en el mismo hilo).
+    /// </summary>
+    private static bool IsBuyerOrSellerExpelledFromThread(ChatThreadRow thread, string userId)
+    {
+        var uid = (userId ?? "").Trim();
+        if (uid.Length < 2)
+            return false;
+        var buyer = (thread.BuyerUserId ?? "").Trim();
+        var seller = (thread.SellerUserId ?? "").Trim();
+        if (string.Equals(uid, buyer, StringComparison.Ordinal) && thread.BuyerExpelledAtUtc is not null)
+            return true;
+        if (string.Equals(uid, seller, StringComparison.Ordinal) && thread.SellerExpelledAtUtc is not null)
+            return true;
+        return false;
+    }
 
     private async Task<HashSet<string>> GetThreadParticipantUserIdsAsync(
         ChatThreadRow thread,
@@ -38,7 +57,10 @@ public sealed partial class ChatService(
         {
             if (string.IsNullOrWhiteSpace(c))
                 continue;
-            set.Add(c.Trim());
+            var cid = c.Trim();
+            if (IsBuyerOrSellerExpelledFromThread(thread, cid))
+                continue;
+            set.Add(cid);
         }
 
         if (thread.IsSocialGroup)
@@ -73,6 +95,8 @@ public sealed partial class ChatService(
                 continue;
             var p = pid.Trim();
             if (set.Contains(p))
+                continue;
+            if (IsBuyerOrSellerExpelledFromThread(thread, p))
                 continue;
             if (activeElsewhereIds.Any(e =>
                     !string.IsNullOrWhiteSpace(e)
@@ -607,7 +631,10 @@ public sealed partial class ChatService(
             .Where(x => x.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .ToArray() ?? [];
-        var meta = System.Text.Json.JsonSerializer.Serialize(new { routeSheetId = rsid, stopIds });
+        var metaDict = new Dictionary<string, object?> { ["routeSheetId"] = rsid };
+        if (stopIds.Length > 0)
+            metaDict["stopIds"] = stopIds;
+        var meta = JsonSerializer.Serialize(metaDict, RouteSheetJson.Options);
         var now = DateTimeOffset.UtcNow;
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
         db.ChatNotifications.Add(new ChatNotificationRow
@@ -686,6 +713,153 @@ public sealed partial class ChatService(
                 offerId = oid,
                 routeSheetId = rsid,
                 carrierUserId = cid,
+            },
+            cancellationToken);
+    }
+
+    public async Task NotifyRouteLegHandoffReadyAsync(
+        RouteLegHandoffReadyNotificationArgs request,
+        CancellationToken cancellationToken = default)
+    {
+        var rid = (request.RecipientCarrierUserId ?? "").Trim();
+        var tid = (request.ThreadId ?? "").Trim();
+        var rsid = (request.RouteSheetId ?? "").Trim();
+        var aid = (request.AgreementId ?? "").Trim();
+        var sid = (request.RouteStopId ?? "").Trim();
+        if (rid.Length < 2 || tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1)
+            return;
+
+        var preview = request.MessagePreview.Length > 500
+            ? request.MessagePreview[..500] + "…"
+            : request.MessagePreview;
+        var meta = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            routeSheetId = rsid,
+            agreementId = aid,
+            routeStopId = sid,
+            threadId = tid,
+        });
+        var now = DateTimeOffset.UtcNow;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = rid,
+            ThreadId = tid,
+            MessageId = null,
+            OfferId = null,
+            MessagePreview = preview,
+            AuthorStoreName = "Entrega",
+            AuthorTrustScore = 0,
+            SenderUserId = rid,
+            CreatedAtUtc = now,
+            ReadAtUtc = null,
+            Kind = "rl_handoff_ready",
+            MetaJson = meta,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
+            "notificationCreated",
+            new
+            {
+                kind = "rl_handoff_ready",
+                threadId = tid,
+                routeSheetId = rsid,
+                agreementId = aid,
+                routeStopId = sid,
+            },
+            cancellationToken);
+    }
+
+    public async Task NotifyRouteLegProximityAsync(
+        RouteLegProximityNotificationArgs request,
+        CancellationToken cancellationToken = default)
+    {
+        var rid = (request.RecipientUserId ?? "").Trim();
+        var tid = (request.ThreadId ?? "").Trim();
+        var rsid = (request.RouteSheetId ?? "").Trim();
+        var aid = (request.AgreementId ?? "").Trim();
+        var sid = (request.RouteStopId ?? "").Trim();
+        if (rid.Length < 2 || tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1)
+            return;
+
+        var preview = request.MessagePreview.Length > 500
+            ? request.MessagePreview[..500] + "…"
+            : request.MessagePreview;
+        var meta = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            routeSheetId = rsid,
+            agreementId = aid,
+            routeStopId = sid,
+            threadId = tid,
+        });
+        var now = DateTimeOffset.UtcNow;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = rid,
+            ThreadId = tid,
+            MessageId = null,
+            OfferId = null,
+            MessagePreview = preview,
+            AuthorStoreName = "Entrega",
+            AuthorTrustScore = 0,
+            SenderUserId = rid,
+            CreatedAtUtc = now,
+            ReadAtUtc = null,
+            Kind = "rl_proximity",
+            MetaJson = meta,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
+            "notificationCreated",
+            new
+            {
+                kind = "rl_proximity",
+                threadId = tid,
+                routeSheetId = rsid,
+                agreementId = aid,
+                routeStopId = sid,
+            },
+            cancellationToken);
+    }
+
+    public Task BroadcastCarrierTelemetryUpdatedAsync(
+        string threadId,
+        string routeSheetId,
+        string agreementId,
+        string routeStopId,
+        string carrierUserId,
+        double lat,
+        double lng,
+        double? progressFraction,
+        bool offRoute,
+        DateTimeOffset reportedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        var rsid = (routeSheetId ?? "").Trim();
+        var aid = (agreementId ?? "").Trim();
+        var sid = (routeStopId ?? "").Trim();
+        var cid = (carrierUserId ?? "").Trim();
+        if (tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1 || cid.Length < 2)
+            return Task.CompletedTask;
+
+        return hub.Clients.Group(ChatHubGroupNames.ForThread(tid)).SendAsync(
+            "carrierTelemetryUpdated",
+            new
+            {
+                threadId = tid,
+                routeSheetId = rsid,
+                agreementId = aid,
+                routeStopId = sid,
+                carrierUserId = cid,
+                lat,
+                lng,
+                progressFraction,
+                offRoute,
+                reportedAtUtc,
             },
             cancellationToken);
     }

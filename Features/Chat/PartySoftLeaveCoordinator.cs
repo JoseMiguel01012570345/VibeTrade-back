@@ -29,6 +29,11 @@ public sealed class PartySoftLeaveCoordinator(
         if (tid.Length < 4)
             return new PartySoftLeavePaymentPrep(true, null, false, false, null);
 
+        var routeBlock = await EvaluateRouteDeliveryLeaveGateAsync(tid, isBuyer, isSeller, cancellationToken)
+            .ConfigureAwait(false);
+        if (routeBlock.AllowProceed == false)
+            return routeBlock;
+
         var hasHeld = await db.AgreementServicePayments.AsNoTracking()
             .AnyAsync(
                 x => x.ThreadId == tid
@@ -57,6 +62,53 @@ public sealed class PartySoftLeaveCoordinator(
                 (thread.StoreId ?? "").Trim(),
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private async Task<PartySoftLeavePaymentPrep> EvaluateRouteDeliveryLeaveGateAsync(
+        string threadId,
+        bool isBuyer,
+        bool isSeller,
+        CancellationToken cancellationToken)
+    {
+        var active = await db.RouteStopDeliveries.AsNoTracking()
+            .Where(x =>
+                x.ThreadId == threadId
+                && x.RefundedAtUtc == null
+                && x.RefundEligibleReason == null
+                && x.State != RouteStopDeliveryStates.Unpaid
+                && x.State != RouteStopDeliveryStates.RefundedExpired
+                && x.State != RouteStopDeliveryStates.RefundedCarrierExit
+                && x.State != RouteStopDeliveryStates.EvidenceAccepted)
+            .Select(x => new { x.TradeAgreementId, x.State })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (active.Count == 0)
+            return new PartySoftLeavePaymentPrep(true, null, false, false, null);
+
+        var agreementIds = active.Select(x => x.TradeAgreementId.Trim()).Where(x => x.Length >= 8).Distinct()
+            .ToList();
+        var acceptedAgreementIds = agreementIds.Count == 0
+            ? []
+            : await db.TradeAgreements.AsNoTracking()
+                .Where(a => agreementIds.Contains(a.Id) && a.Status == "accepted" && a.DeletedAtUtc == null)
+                .Select(a => a.Id)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+        if (acceptedAgreementIds.Count == 0)
+            return new PartySoftLeavePaymentPrep(true, null, false, false, null);
+
+        active = active.Where(x => acceptedAgreementIds.Contains(x.TradeAgreementId.Trim())).ToList();
+        if (active.Count == 0)
+            return new PartySoftLeavePaymentPrep(true, null, false, false, null);
+
+        if (isBuyer && active.Count > 0)
+            return new PartySoftLeavePaymentPrep(false, "route_delivery_active_buyer", false, false, null);
+
+        if (isSeller && active.Count > 0)
+            return new PartySoftLeavePaymentPrep(false, "route_delivery_active_seller", false, false, null);
+
+        return new PartySoftLeavePaymentPrep(true, null, false, false, null);
     }
 
     private async Task<bool> AllAcceptedAgreementsAreServiceOnlyAsync(

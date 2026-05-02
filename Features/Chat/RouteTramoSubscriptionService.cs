@@ -5,6 +5,7 @@ using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Chat.Utils;
+using VibeTrade.Backend.Features.Logistics;
 using VibeTrade.Backend.Features.Trust;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -373,6 +374,20 @@ public sealed class RouteTramoSubscriptionService(
         RouteSheetPayloadPersistence.ApplyPayloadAndTouch(sheetRow, payload, now);
         await db.SaveChangesAsync(cancellationToken);
 
+        await RouteStopDeliveryActivator.ApplyConfirmedCarriersAsync(db, k.ThreadId, k.RouteSheetId, metaStops.Select(x => x.StopId).ToList(),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        await RouteLegHandoffNotifications.NotifyAfterCarrierConfirmedAsync(
+                db,
+                chat,
+                k.ThreadId,
+                k.RouteSheetId,
+                payload,
+                metaStops.Select(x => x.StopId).ToList(),
+                cancellationToken)
+            .ConfigureAwait(false);
+
         var emergentPubId = await EmergentIdForThreadSheetAsync(
             k.ThreadId, k.RouteSheetId, cancellationToken);
 
@@ -552,6 +567,15 @@ public sealed class RouteTramoSubscriptionService(
             return null;
 
         var now = DateTimeOffset.UtcNow;
+        await ApplyRouteDeliveryRefundEligibilityForCarrierRemovalAsync(
+                ctx.ThreadId,
+                ctx.CarrierUserId,
+                ctx.Subs,
+                RouteStopRefundEligibleReasons.CarrierExpelled,
+                now,
+                cancellationToken)
+            .ConfigureAwait(false);
+
         await ClearCarrierPhoneOnSheetsForWithdrawAsync(ctx.ThreadId, ctx.Subs, now, cancellationToken);
         MarkSubscriptionsWithdrawn(ctx.Subs, now);
         int? storeTrustAfter = await ApplyStoreTrustPenaltyForSellerExpelIfNeededAsync(
@@ -787,6 +811,15 @@ public sealed class RouteTramoSubscriptionService(
         var applyTrustPenalty = hadConfirmed && !expelledParty && !routeSheetsAllDelivered;
 
         var now = DateTimeOffset.UtcNow;
+        await ApplyRouteDeliveryRefundEligibilityForCarrierRemovalAsync(
+                tid,
+                uid,
+                subs,
+                RouteStopRefundEligibleReasons.CarrierExit,
+                now,
+                cancellationToken)
+            .ConfigureAwait(false);
+
         await ClearCarrierPhoneOnSheetsForWithdrawAsync(tid, subs, now, cancellationToken);
         MarkSubscriptionsWithdrawn(subs, now);
         int? trustScoreAfterPenalty = await ApplyTrustPenaltyIfNeededAsync(
@@ -815,6 +848,65 @@ public sealed class RouteTramoSubscriptionService(
         }
 
         return new CarrierWithdrawFromThreadResult(subs.Count, applyTrustPenalty, trustScoreAfterPenalty);
+    }
+
+    private async Task ApplyRouteDeliveryRefundEligibilityForCarrierRemovalAsync(
+        string threadId,
+        string carrierUserId,
+        List<RouteTramoSubscriptionRow> subs,
+        string refundReason,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var cid = (carrierUserId ?? "").Trim();
+        if (tid.Length < 4 || cid.Length < 2 || subs.Count == 0)
+            return;
+
+        var keys = subs
+            .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+            .Select(x => ((x.RouteSheetId ?? "").Trim(), (x.StopId ?? "").Trim()))
+            .Where(t => t.Item1.Length > 0 && t.Item2.Length > 0)
+            .Distinct()
+            .ToList();
+        if (keys.Count == 0)
+            return;
+
+        var deliveries = await db.RouteStopDeliveries
+                .Where(x => x.ThreadId == tid && x.CurrentOwnerUserId == cid && x.RefundedAtUtc == null)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false)
+            ;
+
+        foreach (var d in deliveries)
+        {
+            var match = keys.Any(k =>
+                string.Equals(k.Item1, d.RouteSheetId.Trim(), StringComparison.Ordinal)
+                && string.Equals(k.Item2, d.RouteStopId.Trim(), StringComparison.Ordinal));
+            if (!match)
+                continue;
+
+            if (d.State == RouteStopDeliveryStates.EvidenceAccepted)
+                continue;
+
+            d.RefundEligibleReason = refundReason;
+            d.RefundEligibleSinceUtc = now;
+            d.CurrentOwnerUserId = null;
+            d.State = RouteStopDeliveryStates.AwaitingCarrierForHandoff;
+            d.UpdatedAtUtc = now;
+
+            db.CarrierOwnershipEvents.Add(new CarrierOwnershipEventRow
+            {
+                Id = "coe_" + Guid.NewGuid().ToString("N"),
+                ThreadId = tid,
+                RouteSheetId = d.RouteSheetId,
+                RouteStopId = d.RouteStopId,
+                CarrierUserId = cid,
+                Action = CarrierOwnershipActions.Released,
+                AtUtc = now,
+                Reason = refundReason,
+            });
+        }
     }
 
     private sealed record PreselCore(

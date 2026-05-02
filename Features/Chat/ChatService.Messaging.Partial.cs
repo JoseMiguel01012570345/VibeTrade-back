@@ -756,7 +756,7 @@ public sealed partial class ChatService
             atUtc = t.PartyExitedAtUtc,
             leaverRole = isSeller ? "seller" : "buyer",
         };
-        await hub.Clients.Group(ChatHubGroupNames.ForThread(tid)).SendAsync("peerPartyExitedChat", payload, cancellationToken);
+        // Solo participantes activos; evitar ForThread porque quien ya salió puede seguir en el grupo SignalR un momento.
         await HubSendToThreadParticipantsAsync(t, "peerPartyExitedChat", payload, cancellationToken);
     }
 
