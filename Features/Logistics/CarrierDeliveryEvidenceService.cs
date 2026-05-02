@@ -167,10 +167,9 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
         if (!await chat.UserCanAccessThreadRowAsync(uid, t, cancellationToken).ConfigureAwait(false))
             return (StatusCodes.Status404NotFound, null);
 
-        var isBuyer = string.Equals(t.BuyerUserId, uid, StringComparison.Ordinal);
         var isSeller = string.Equals(t.SellerUserId, uid, StringComparison.Ordinal);
-        if (!isBuyer && !isSeller)
-            return (StatusCodes.Status404NotFound, null);
+        if (!isSeller)
+            return (StatusCodes.Status403Forbidden, "Solo la tienda puede aceptar o rechazar esta evidencia.");
 
         var ev = await db.CarrierDeliveryEvidences.FirstOrDefaultAsync(
                 x => x.ThreadId == tid && x.TradeAgreementId == aid && x.RouteSheetId == rsid && x.RouteStopId == sid,
@@ -245,6 +244,45 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
         }
 
         return (StatusCodes.Status400BadRequest, "Decisión inválida.");
+    }
+
+    public async Task<(int StatusCode, string? Error, CarrierDeliveryEvidenceDto? Data)> GetAsync(
+        string userId,
+        string threadId,
+        string agreementId,
+        string routeSheetId,
+        string routeStopId,
+        CancellationToken cancellationToken)
+    {
+        var uid = (userId ?? "").Trim();
+        var tid = (threadId ?? "").Trim();
+        var aid = (agreementId ?? "").Trim();
+        var rsid = (routeSheetId ?? "").Trim();
+        var sid = (routeStopId ?? "").Trim();
+        if (uid.Length < 2 || tid.Length < 4 || aid.Length < 8 || rsid.Length < 1 || sid.Length < 1)
+            return (StatusCodes.Status404NotFound, null, null);
+
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken)
+            .ConfigureAwait(false);
+        if (t is null) return (StatusCodes.Status404NotFound, null, null);
+        if (!await chat.UserCanAccessThreadRowAsync(uid, t, cancellationToken).ConfigureAwait(false))
+            return (StatusCodes.Status404NotFound, null, null);
+
+        var ev = await db.CarrierDeliveryEvidences.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.TradeAgreementId == aid && x.RouteSheetId == rsid && x.RouteStopId == sid,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (ev is null)
+            return (StatusCodes.Status404NotFound, null, null);
+
+        var isCarrierAuthor = string.Equals(ev.CarrierUserId, uid, StringComparison.Ordinal);
+        var draft = string.Equals(ev.Status, ServiceEvidenceStatuses.Draft, StringComparison.OrdinalIgnoreCase);
+        if (draft && !isCarrierAuthor)
+            return (StatusCodes.Status404NotFound, null, null);
+
+        return (StatusCodes.Status200OK, null, Map(ev));
     }
 
     private async Task<Data.RouteSheets.RouteSheetPayload> LoadPayloadAsync(

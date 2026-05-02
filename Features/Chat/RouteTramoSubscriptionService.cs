@@ -804,11 +804,16 @@ public sealed class RouteTramoSubscriptionService(
 
         var expelledParty =
             thread.BuyerExpelledAtUtc is not null || thread.SellerExpelledAtUtc is not null;
-        var routeSheetsAllDelivered = hadConfirmed
-            && await AllConfirmedRouteSheetsMarkedDeliveredAsync(tid, subs, cancellationToken);
+        var carrierLeaveWithoutTrustPenalty = false;
+        if (hadConfirmed)
+        {
+            carrierLeaveWithoutTrustPenalty =
+                await AllConfirmedRouteSheetsMarkedDeliveredAsync(tid, subs, cancellationToken)
+                || await AllCarrierConfirmedStopsLogisticallyResolvedAsync(tid, uid, subs, cancellationToken);
+        }
 
-        // Penalización si tenía tramos confirmados y las hojas implicadas no están todas «entregadas» (demo).
-        var applyTrustPenalty = hadConfirmed && !expelledParty && !routeSheetsAllDelivered;
+        // Penalización si tenía tramos confirmados y aún había obligaciones abiertas (hoja no entregada y tramos sin cierre logístico).
+        var applyTrustPenalty = hadConfirmed && !expelledParty && !carrierLeaveWithoutTrustPenalty;
 
         var now = DateTimeOffset.UtcNow;
         await ApplyRouteDeliveryRefundEligibilityForCarrierRemovalAsync(
@@ -836,7 +841,7 @@ public sealed class RouteTramoSubscriptionService(
             subs.Count,
             distinctSheetIds.Count,
             applyTrustPenalty,
-            noPenaltyBecauseSheetsDelivered: hadConfirmed && !applyTrustPenalty && !expelledParty && routeSheetsAllDelivered);
+            noPenaltyBecauseSheetsDelivered: hadConfirmed && !applyTrustPenalty && !expelledParty && carrierLeaveWithoutTrustPenalty);
         await chat.PostAutomatedSystemThreadNoticeAsync(tid, sys, cancellationToken);
 
         foreach (var rsid in distinctSheetIds)
@@ -1341,6 +1346,59 @@ public sealed class RouteTramoSubscriptionService(
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Cada tramo <b>confirmado</b> del transportista tiene filas de entrega y todas están en estado terminal
+    /// (evidencia aceptada o reembolso por vencimiento/salida): ya no queda logística activa en esos tramos.
+    /// </summary>
+    private async Task<bool> AllCarrierConfirmedStopsLogisticallyResolvedAsync(
+        string threadId,
+        string carrierUserId,
+        List<RouteTramoSubscriptionRow> subs,
+        CancellationToken cancellationToken)
+    {
+        var cid = (carrierUserId ?? "").Trim();
+        if (cid.Length < 2)
+            return false;
+
+        var keys = subs
+            .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+            .Select(x => ((x.RouteSheetId ?? "").Trim(), (x.StopId ?? "").Trim()))
+            .Where(t => t.Item1.Length > 0 && t.Item2.Length > 0)
+            .Distinct()
+            .ToList();
+        if (keys.Count == 0)
+            return true;
+
+        foreach (var (rsid, stopId) in keys)
+        {
+            var states = await db.RouteStopDeliveries.AsNoTracking()
+                .Where(x =>
+                    x.ThreadId == threadId
+                    && x.RouteSheetId == rsid
+                    && x.RouteStopId == stopId)
+                .Select(x => x.State)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (states.Count == 0)
+                return false;
+
+            var allTerminal = states.TrueForAll(IsCarrierLegTrustTerminalState);
+            if (!allTerminal)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsCarrierLegTrustTerminalState(string? stateRaw)
+    {
+        var s = (stateRaw ?? "").Trim().ToLowerInvariant();
+        return s is RouteStopDeliveryStates.EvidenceAccepted
+            or RouteStopDeliveryStates.RefundedExpired
+            or RouteStopDeliveryStates.RefundedCarrierExit;
     }
 
     private async Task<int?> ApplyTrustPenaltyIfNeededAsync(

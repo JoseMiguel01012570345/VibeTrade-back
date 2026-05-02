@@ -147,6 +147,7 @@ public sealed class ChatController(
     [ProducesResponseType(typeof(PartySoftLeaveOkBody), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
@@ -164,6 +165,50 @@ public sealed class ChatController(
         var result = await chat.SoftLeaveThreadAsPartyAsync(new PartySoftLeaveArgs(userId, threadId, r), cancellationToken);
         if (!result.Success)
         {
+            if (string.Equals(result.ErrorCode, "not_eligible_party", StringComparison.Ordinal))
+            {
+                return StatusCode(
+                    StatusCodes.Status403Forbidden,
+                    new
+                    {
+                        error = result.ErrorCode,
+                        message =
+                            "Tu usuario no es el comprador ni el vendedor registrados en este hilo (por ejemplo, sos transportista). Esta acción es la salida «con acuerdo» del comprador/vendedor: para abandonar los tramos como transportista usá Salir del chat desde la lista; el sistema des-suscribe los tramos automáticamente.",
+                    });
+            }
+
+            if (string.Equals(result.ErrorCode, "party_leave_no_accepted_agreement", StringComparison.Ordinal))
+            {
+                return Conflict(new
+                {
+                    error = result.ErrorCode,
+                    message =
+                        "No hay acuerdos aceptados en este hilo: no corresponde la salida con acuerdo. Podés quitar el chat de tu lista sin este paso.",
+                });
+            }
+
+            if (string.Equals(result.ErrorCode, "party_leave_thread_not_found", StringComparison.Ordinal))
+            {
+                return NotFound(new
+                {
+                    error = result.ErrorCode,
+                    message = "El chat no existe o ya no está disponible.",
+                });
+            }
+
+            if (string.Equals(result.ErrorCode, "party_leave_invalid_request", StringComparison.Ordinal)
+                || string.Equals(result.ErrorCode, "party_leave_notice_failed", StringComparison.Ordinal))
+            {
+                return BadRequest(new
+                {
+                    error = result.ErrorCode ?? "bad_request",
+                    message =
+                        string.Equals(result.ErrorCode, "party_leave_notice_failed", StringComparison.Ordinal)
+                            ? "No se pudo registrar el aviso de salida. Reintentá en unos segundos."
+                            : "Solicitud de salida inválida.",
+                });
+            }
+
             if (string.Equals(result.ErrorCode, "held_payments_buyer", StringComparison.Ordinal))
             {
                 return Conflict(new
@@ -225,7 +270,14 @@ public sealed class ChatController(
                     });
             }
 
-            return NotFound(new { error = "not_found", message = "No se pudo registrar la salida (sin acuerdo aceptado o sin permiso)." });
+            return StatusCode(
+                StatusCodes.Status400BadRequest,
+                new
+                {
+                    error = result.ErrorCode ?? "party_leave_failed",
+                    message =
+                        "No se pudo completar la salida. Si sos transportista, usá Salir desde la lista del chat (des-suscripción de tramos). Si el problema continúa, contactá soporte.",
+                });
         }
 
         return Ok(new { skipClientTrustPenalty = result.SkipClientTrustPenalty });

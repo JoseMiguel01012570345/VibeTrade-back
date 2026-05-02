@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
@@ -22,7 +23,8 @@ public static class PaymentCheckoutComputation
         string CurrencyLower,
         long AmountMinor,
         string? RouteSheetId,
-        string? RouteStopId);
+        string? RouteStopId,
+        string? MerchandiseLineId = null);
 
     public sealed record CurrencyTotalsDto(
         string CurrencyLower,
@@ -54,7 +56,8 @@ public static class PaymentCheckoutComputation
         RouteSheetPayload? routeSheetPayload,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments = null,
         IReadOnlyList<string>? selectedRouteStopIds = null,
-        IReadOnlyList<string>? selectedMerchandiseLineIds = null)
+        IReadOnlyList<string>? selectedMerchandiseLineIds = null,
+        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower = null)
     {
         var errs = ValidateAgreementForCheckout(ag);
         var buckets = new Dictionary<string, CurrencyBucket>(StringComparer.OrdinalIgnoreCase);
@@ -71,12 +74,13 @@ public static class PaymentCheckoutComputation
             if (merchSpecified)
             {
                 if (merchFiltered)
-                    AccumulateMerchandiseFiltered(ag, selectedMerchandiseLineIds!, errs, buckets);
+                    AccumulateMerchandiseFiltered(
+                        ag, selectedMerchandiseLineIds!, errs, buckets, paidMerchandiseLineIdsByCurrencyLower);
                 // explícito vacío → no suma líneas de mercadería
             }
             else if (!routesFiltered)
             {
-                AccumulateMerchandise(ag, errs, buckets);
+                AccumulateMerchandise(ag, errs, buckets, paidMerchandiseLineIdsByCurrencyLower);
             }
         }
 
@@ -122,7 +126,8 @@ public static class PaymentCheckoutComputation
         string currencyIso3,
         decimal amountMajor,
         string? routeSheetId = null,
-        string? routeStopId = null)
+        string? routeStopId = null,
+        string? merchandiseLineId = null)
     {
         if (amountMajor <= 0) return;
         var curLower = NormalizeCurrency(currencyIso3);
@@ -133,14 +138,29 @@ public static class PaymentCheckoutComputation
         if (!buckets.TryGetValue(curLower, out var b))
             b = new CurrencyBucket(new List<BasisLineDto>(), 0);
 
-        b.Lines.Add(new BasisLineDto(cat, label, curLower, minor, routeSheetId, routeStopId));
+        b.Lines.Add(new BasisLineDto(cat, label, curLower, minor, routeSheetId, routeStopId, merchandiseLineId));
         buckets[curLower] = b with { SubtotalMinor = b.SubtotalMinor + minor };
+    }
+
+    private static bool MerchandiseLineAlreadyPaidInCurrency(
+        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower,
+        string currencyIso3,
+        string merchandiseLineId)
+    {
+        if (paidMerchandiseLineIdsByCurrencyLower is null || paidMerchandiseLineIdsByCurrencyLower.Count == 0)
+            return false;
+        var cur = NormalizeCurrency(currencyIso3);
+        if (string.IsNullOrEmpty(cur)) return false;
+        var mid = merchandiseLineId.Trim();
+        if (mid.Length == 0) return false;
+        return paidMerchandiseLineIdsByCurrencyLower.TryGetValue(cur, out var set) && set.Contains(mid);
     }
 
     private static void AccumulateMerchandise(
         TradeAgreementRow ag,
         ICollection<string> errs,
-        IDictionary<string, CurrencyBucket> buckets)
+        IDictionary<string, CurrencyBucket> buckets,
+        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower)
     {
         foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
         {
@@ -164,7 +184,18 @@ public static class PaymentCheckoutComputation
             }
 
             if (q <= 0 || vu <= 0) continue;
-            PushLine(buckets, "merchandise", $"{m.Tipo} (× {m.Cantidad})", mon, q * vu);
+            var mid = (m.Id ?? "").Trim();
+            if (MerchandiseLineAlreadyPaidInCurrency(paidMerchandiseLineIdsByCurrencyLower, mon, mid))
+                continue;
+            PushLine(
+                buckets,
+                "merchandise",
+                $"{m.Tipo} (× {m.Cantidad})",
+                mon,
+                q * vu,
+                null,
+                null,
+                mid.Length > 0 ? mid : null);
         }
     }
 
@@ -172,7 +203,8 @@ public static class PaymentCheckoutComputation
         TradeAgreementRow ag,
         IReadOnlyList<string> selectedIds,
         ICollection<string> errs,
-        IDictionary<string, CurrencyBucket> buckets)
+        IDictionary<string, CurrencyBucket> buckets,
+        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower)
     {
         var pick = new HashSet<string>(
             selectedIds
@@ -205,7 +237,9 @@ public static class PaymentCheckoutComputation
             }
 
             if (q <= 0 || vu <= 0) continue;
-            PushLine(buckets, "merchandise", $"{m.Tipo} (× {m.Cantidad})", mon, q * vu);
+            if (MerchandiseLineAlreadyPaidInCurrency(paidMerchandiseLineIdsByCurrencyLower, mon, mid))
+                continue;
+            PushLine(buckets, "merchandise", $"{m.Tipo} (× {m.Cantidad})", mon, q * vu, null, null, mid);
         }
     }
 

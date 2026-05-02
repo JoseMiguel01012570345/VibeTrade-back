@@ -19,4 +19,12 @@ public interface ICarrierDeliveryEvidenceService
         string routeStopId,
         DecideCarrierDeliveryEvidenceRequest body,
         CancellationToken cancellationToken);
+
+    Task<(int StatusCode, string? Error, CarrierDeliveryEvidenceDto? Data)> GetAsync(
+        string userId,
+        string threadId,
+        string agreementId,
+        string routeSheetId,
+        string routeStopId,
+        CancellationToken cancellationToken);
 }

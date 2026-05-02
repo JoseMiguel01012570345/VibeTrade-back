@@ -123,6 +123,38 @@ public sealed class RouteLogisticsController(
 
     public sealed record UpsertEvidenceBody(string Text, List<VibeTrade.Backend.Data.Entities.ServiceEvidenceAttachmentBody>? Attachments, bool Submit);
 
+    [HttpGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/evidence")]
+    [ProducesResponseType(typeof(CarrierDeliveryEvidenceDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetEvidence(
+        string threadId,
+        string agreementId,
+        [FromQuery] string routeSheetId,
+        [FromQuery] string routeStopId,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+
+        var (status, err, data) = await carrierEvidence.GetAsync(
+                userId.Trim(),
+                threadId.Trim(),
+                agreementId.Trim(),
+                routeSheetId.Trim(),
+                routeStopId.Trim(),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (status == StatusCodes.Status404NotFound)
+            return NotFound();
+        if (status != StatusCodes.Status200OK || data is null)
+            return BadRequest(new { message = err });
+
+        return Ok(data);
+    }
+
     [HttpPut("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/evidence")]
     [Consumes("application/json")]
     [ProducesResponseType(typeof(CarrierDeliveryEvidenceDto), StatusCodes.Status200OK)]
@@ -166,6 +198,7 @@ public sealed class RouteLogisticsController(
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DecideEvidence(
         string threadId,
@@ -191,6 +224,8 @@ public sealed class RouteLogisticsController(
 
         if (status == StatusCodes.Status404NotFound)
             return NotFound();
+        if (status == StatusCodes.Status403Forbidden)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = err });
         if (status != StatusCodes.Status200OK)
             return BadRequest(new { message = err });
 

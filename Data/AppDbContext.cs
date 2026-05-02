@@ -40,6 +40,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     /// <inheritdoc />
     public DbSet<AgreementRouteLegPaidRow> AgreementRouteLegPaids => Set<AgreementRouteLegPaidRow>();
 
+    public DbSet<AgreementMerchandiseLinePaidRow> AgreementMerchandiseLinePaids =>
+        Set<AgreementMerchandiseLinePaidRow>();
+
     public DbSet<AgreementServicePaymentRow> AgreementServicePayments => Set<AgreementServicePaymentRow>();
 
     public DbSet<ServiceEvidenceRow> ServiceEvidences => Set<ServiceEvidenceRow>();
@@ -758,6 +761,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .WithOne(x => x.AgreementCurrencyPayment)
                 .HasForeignKey(x => x.AgreementCurrencyPaymentId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            e.HasMany(x => x.MerchandiseLinePaids)
+                .WithOne(x => x.AgreementCurrencyPayment)
+                .HasForeignKey(x => x.AgreementCurrencyPaymentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AgreementMerchandiseLinePaidRow>(e =>
+        {
+            e.ToTable("agreement_merchandise_line_paids");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.AgreementCurrencyPaymentId).HasMaxLength(64);
+            e.Property(x => x.MerchandiseLineId).HasMaxLength(64);
+            e.Property(x => x.Currency).HasMaxLength(16);
+            e.HasIndex(x => new { x.MerchandiseLineId, x.Currency });
         });
 
         modelBuilder.Entity<AgreementRouteLegPaidRow>(e =>

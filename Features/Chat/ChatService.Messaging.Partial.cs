@@ -657,16 +657,16 @@ public sealed partial class ChatService
         var uid = (request.UserId ?? "").Trim();
         var reasonTrim = (request.Reason ?? "").Trim();
         if (tid.Length < 4 || uid.Length < 2 || reasonTrim.Length < 1)
-            return new PartySoftLeaveResult(false, null, false);
+            return new PartySoftLeaveResult(false, "party_leave_invalid_request", false);
 
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == tid && x.DeletedAtUtc == null, cancellationToken);
         if (t is null)
-            return new PartySoftLeaveResult(false, null, false);
+            return new PartySoftLeaveResult(false, "party_leave_thread_not_found", false);
 
         var isBuyer = string.Equals(uid, t.BuyerUserId, StringComparison.Ordinal);
         var isSeller = string.Equals(uid, t.SellerUserId, StringComparison.Ordinal);
         if (!isBuyer && !isSeller)
-            return new PartySoftLeaveResult(false, null, false);
+            return new PartySoftLeaveResult(false, "not_eligible_party", false);
 
         if (isBuyer && t.BuyerExpelledAtUtc is not null)
             return new PartySoftLeaveResult(true, null, false);
@@ -674,7 +674,7 @@ public sealed partial class ChatService
             return new PartySoftLeaveResult(true, null, false);
 
         if (!await HasAcceptedNonDeletedTradeAgreementOnThreadAsync(tid, cancellationToken))
-            return new PartySoftLeaveResult(false, null, false);
+            return new PartySoftLeaveResult(false, "party_leave_no_accepted_agreement", false);
 
         var paymentPrep = await partySoftLeave.ProcessPaymentRulesAsync(t, isBuyer, isSeller, cancellationToken)
             .ConfigureAwait(false);
@@ -682,7 +682,7 @@ public sealed partial class ChatService
             return new PartySoftLeaveResult(false, paymentPrep.ErrorCode, false);
 
         if (!await TryPostSystemNoticeForSoftLeaveAsync(uid, tid, isSeller, reasonTrim, cancellationToken))
-            return new PartySoftLeaveResult(false, null, false);
+            return new PartySoftLeaveResult(false, "party_leave_notice_failed", false);
 
         var now = DateTimeOffset.UtcNow;
         ApplyPartyExpulsionToThread(t, uid, isBuyer, reasonTrim, now);
