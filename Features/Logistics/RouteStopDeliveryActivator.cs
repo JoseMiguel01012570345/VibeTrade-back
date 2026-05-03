@@ -23,6 +23,13 @@ public static class RouteStopDeliveryActivator
             .Distinct(StringComparer.Ordinal)
             .ToHashSet(StringComparer.Ordinal);
 
+        var sheetRow = await db.ChatRouteSheets.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
+                cancellationToken)
+            .ConfigureAwait(false);
+        var ordered = RouteLegOwnershipChain.OrderedStopIds(sheetRow?.Payload);
+
         var carrierByStop = await db.RouteTramoSubscriptions.AsNoTracking()
             .Where(x =>
                 x.ThreadId == tid
@@ -42,6 +49,27 @@ public static class RouteStopDeliveryActivator
                 .ConfigureAwait(false)
             ;
 
+        var agreementIds = rows
+            .Select(r => (r.TradeAgreementId ?? "").Trim())
+            .Where(x => x.Length >= 8)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var siblingRows = agreementIds.Count == 0
+            ? []
+            : await db.RouteStopDeliveries
+                .Where(x =>
+                    x.ThreadId == tid
+                    && x.RouteSheetId == rsid
+                    && agreementIds.Contains(x.TradeAgreementId))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+        var byAgreement = siblingRows
+            .GroupBy(r => (r.TradeAgreementId ?? "").Trim(), StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => g.ToDictionary(x => x.RouteStopId.Trim(), StringComparer.Ordinal),
+                StringComparer.Ordinal);
+
         var now = DateTimeOffset.UtcNow;
         foreach (var row in rows)
         {
@@ -55,6 +83,12 @@ public static class RouteStopDeliveryActivator
                 || row.State == RouteStopDeliveryStates.EvidenceSubmitted
                 || row.State == RouteStopDeliveryStates.EvidenceAccepted
                 || row.State == RouteStopDeliveryStates.EvidenceRejected;
+
+            var aid = (row.TradeAgreementId ?? "").Trim();
+            var byStop = byAgreement.TryGetValue(aid, out var dict) ? dict : new Dictionary<string, RouteStopDeliveryRow>(StringComparer.Ordinal);
+            if (ordered.Count > 0
+                && !RouteLegOwnershipChain.MayAssignOperationalOwner(ordered, byStop, row.RouteStopId.Trim()))
+                continue;
 
             if (row.State == RouteStopDeliveryStates.AwaitingCarrierForHandoff ||
                 (paidEnough && string.IsNullOrWhiteSpace(row.CurrentOwnerUserId)))

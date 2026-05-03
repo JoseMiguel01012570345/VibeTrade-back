@@ -121,6 +121,33 @@ public sealed class RouteLogisticsController(
         return Ok(rows);
     }
 
+    [HttpGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/telemetry/latest")]
+    [ProducesResponseType(typeof(IReadOnlyList<CarrierTelemetryLatestPointDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ListLatestTelemetry(
+        string threadId,
+        string agreementId,
+        [FromQuery] string routeSheetId,
+        CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized();
+
+        var rows = await telemetry.ListLatestTelemetryForRouteSheetAsync(
+                userId.Trim(),
+                threadId.Trim(),
+                agreementId.Trim(),
+                (routeSheetId ?? "").Trim(),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (rows is null)
+            return NotFound();
+
+        return Ok(rows);
+    }
+
     public sealed record UpsertEvidenceBody(string Text, List<VibeTrade.Backend.Data.Entities.ServiceEvidenceAttachmentBody>? Attachments, bool Submit);
 
     [HttpGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/evidence")]

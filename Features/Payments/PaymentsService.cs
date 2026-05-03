@@ -680,6 +680,7 @@ public sealed class PaymentsService(
         var byStop = existing.ToDictionary(x => x.RouteStopId.Trim(), StringComparer.Ordinal);
 
         var now = DateTimeOffset.UtcNow;
+        var firstPaidStopId = RouteLegOwnershipChain.FirstPaidStopId(orderedStopIds, paidInThisCharge);
 
         foreach (var stopId in orderedStopIds.Where(paidInThisCharge.Contains))
         {
@@ -709,21 +710,32 @@ public sealed class PaymentsService(
                 var carrier = carrierByStop.TryGetValue(stopId, out var c) ? c : "";
                 if (carrier.Length >= 2)
                 {
-                    if (!string.Equals(row.CurrentOwnerUserId, carrier, StringComparison.Ordinal))
+                    var grantOwnerHere = firstPaidStopId is not null
+                        && string.Equals(stopId, firstPaidStopId, StringComparison.Ordinal);
+                    if (grantOwnerHere)
                     {
-                        row.CurrentOwnerUserId = carrier;
-                        row.OwnershipGrantedAtUtc = now;
-                        db.CarrierOwnershipEvents.Add(new CarrierOwnershipEventRow
+                        if (!string.Equals(row.CurrentOwnerUserId, carrier, StringComparison.Ordinal))
                         {
-                            Id = "coe_" + Guid.NewGuid().ToString("N"),
-                            ThreadId = threadId.Trim(),
-                            RouteSheetId = rsid,
-                            RouteStopId = stopId,
-                            CarrierUserId = carrier,
-                            Action = CarrierOwnershipActions.Granted,
-                            AtUtc = now,
-                            Reason = "payment_success",
-                        });
+                            row.CurrentOwnerUserId = carrier;
+                            row.OwnershipGrantedAtUtc = now;
+                            db.CarrierOwnershipEvents.Add(new CarrierOwnershipEventRow
+                            {
+                                Id = "coe_" + Guid.NewGuid().ToString("N"),
+                                ThreadId = threadId.Trim(),
+                                RouteSheetId = rsid,
+                                RouteStopId = stopId,
+                                CarrierUserId = carrier,
+                                Action = CarrierOwnershipActions.Granted,
+                                AtUtc = now,
+                                Reason = "payment_success",
+                            });
+                        }
+                    }
+                    else
+                    {
+                        /* Tramos siguientes: pagados pero sin titular hasta cadena (evidencia / ceder). */
+                        row.CurrentOwnerUserId = null;
+                        row.OwnershipGrantedAtUtc = null;
                     }
                 }
                 else

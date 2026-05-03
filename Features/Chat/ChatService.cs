@@ -771,6 +771,60 @@ public sealed partial class ChatService(
             cancellationToken);
     }
 
+    public async Task NotifyRouteOwnershipGrantedAsync(
+        RouteOwnershipGrantedNotificationArgs request,
+        CancellationToken cancellationToken = default)
+    {
+        var rid = (request.RecipientCarrierUserId ?? "").Trim();
+        var tid = (request.ThreadId ?? "").Trim();
+        var rsid = (request.RouteSheetId ?? "").Trim();
+        var aid = (request.AgreementId ?? "").Trim();
+        var sid = (request.RouteStopId ?? "").Trim();
+        if (rid.Length < 2 || tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1)
+            return;
+
+        var preview = request.MessagePreview.Length > 500
+            ? request.MessagePreview[..500] + "…"
+            : request.MessagePreview;
+        var meta = JsonSerializer.Serialize(new
+        {
+            routeSheetId = rsid,
+            agreementId = aid,
+            routeStopId = sid,
+            threadId = tid,
+        });
+        var now = DateTimeOffset.UtcNow;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = rid,
+            ThreadId = tid,
+            MessageId = null,
+            OfferId = null,
+            MessagePreview = preview,
+            AuthorStoreName = "Entrega",
+            AuthorTrustScore = 0,
+            SenderUserId = rid,
+            CreatedAtUtc = now,
+            ReadAtUtc = null,
+            Kind = "rl_ownership_granted",
+            MetaJson = meta,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
+            "notificationCreated",
+            new
+            {
+                kind = "rl_ownership_granted",
+                threadId = tid,
+                routeSheetId = rsid,
+                agreementId = aid,
+                routeStopId = sid,
+            },
+            cancellationToken);
+    }
+
     public async Task NotifyRouteLegProximityAsync(
         RouteLegProximityNotificationArgs request,
         CancellationToken cancellationToken = default)
@@ -836,6 +890,7 @@ public sealed partial class ChatService(
         double? progressFraction,
         bool offRoute,
         DateTimeOffset reportedAtUtc,
+        double? speedKmh,
         CancellationToken cancellationToken = default)
     {
         var tid = (threadId ?? "").Trim();
@@ -860,6 +915,7 @@ public sealed partial class ChatService(
                 progressFraction,
                 offRoute,
                 reportedAtUtc,
+                speedKmh,
             },
             cancellationToken);
     }

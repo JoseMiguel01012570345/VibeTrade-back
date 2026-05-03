@@ -170,6 +170,7 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
                 projection.Progress01,
                 projection.OffRoute,
                 reportedAtUtc,
+                speedKmh,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -208,6 +209,72 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
                 x.ProximityNotifiedAtUtc))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+
+        return rows;
+    }
+
+    public async Task<IReadOnlyList<CarrierTelemetryLatestPointDto>?> ListLatestTelemetryForRouteSheetAsync(
+        string viewerUserId,
+        string threadId,
+        string agreementId,
+        string routeSheetId,
+        CancellationToken cancellationToken = default)
+    {
+        var uid = (viewerUserId ?? "").Trim();
+        var tid = (threadId ?? "").Trim();
+        var aid = (agreementId ?? "").Trim();
+        var rsid = (routeSheetId ?? "").Trim();
+        if (uid.Length < 2 || tid.Length < 4 || aid.Length < 8 || rsid.Length < 1)
+            return null;
+
+        var thread = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken)
+            .ConfigureAwait(false);
+        if (thread is null)
+            return null;
+        if (!await chat.UserCanAccessThreadRowAsync(uid, thread, cancellationToken).ConfigureAwait(false))
+            return null;
+
+        var deliveries = await db.RouteStopDeliveries.AsNoTracking()
+            .Where(x => x.ThreadId == tid && x.TradeAgreementId == aid && x.RouteSheetId == rsid)
+            .Select(x => new { x.RouteStopId, x.CurrentOwnerUserId })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var samples = await db.CarrierTelemetrySamples.AsNoTracking()
+            .Where(x => x.ThreadId == tid && x.RouteSheetId == rsid)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var latestByStopAndCarrier = samples
+            .GroupBy(s => (
+                Stop: (s.RouteStopId ?? "").Trim(),
+                Carrier: (s.CarrierUserId ?? "").Trim()))
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(x => x.ReportedAtUtc).First());
+
+        var rows = new List<CarrierTelemetryLatestPointDto>();
+        foreach (var d in deliveries)
+        {
+            var owner = (d.CurrentOwnerUserId ?? "").Trim();
+            var sid = (d.RouteStopId ?? "").Trim();
+            if (owner.Length < 2 || sid.Length < 1)
+                continue;
+            if (!latestByStopAndCarrier.TryGetValue((sid, owner), out var sample))
+                continue;
+
+            rows.Add(new CarrierTelemetryLatestPointDto(
+                rsid,
+                sid,
+                owner,
+                sample.Lat,
+                sample.Lng,
+                sample.ProgressFraction,
+                sample.OffRoute,
+                sample.ReportedAtUtc,
+                sample.SpeedKmh));
+        }
 
         return rows;
     }

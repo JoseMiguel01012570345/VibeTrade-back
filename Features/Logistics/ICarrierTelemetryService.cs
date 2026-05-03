@@ -20,4 +20,11 @@ public interface ICarrierTelemetryService
         string threadId,
         string agreementId,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<CarrierTelemetryLatestPointDto>?> ListLatestTelemetryForRouteSheetAsync(
+        string viewerUserId,
+        string threadId,
+        string agreementId,
+        string routeSheetId,
+        CancellationToken cancellationToken = default);
 }

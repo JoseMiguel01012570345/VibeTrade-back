@@ -83,6 +83,15 @@ public sealed record RouteLegHandoffReadyNotificationArgs(
     string RouteStopId,
     string MessagePreview);
 
+/// <summary>Transportista receptor: otro transportista le cedió la titularidad del paquete en el tramo actual.</summary>
+public sealed record RouteOwnershipGrantedNotificationArgs(
+    string RecipientCarrierUserId,
+    string ThreadId,
+    string RouteSheetId,
+    string AgreementId,
+    string RouteStopId,
+    string MessagePreview);
+
 /// <summary>Participante del hilo: el transportista está cerca del fin del tramo (handoff próximo).</summary>
 public sealed record RouteLegProximityNotificationArgs(
     string RecipientUserId,

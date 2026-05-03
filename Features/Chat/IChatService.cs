@@ -128,6 +128,11 @@ public interface IChatService
         RouteLegHandoffReadyNotificationArgs request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Transportista: recibió la titularidad del paquete por cesión explícita (handoff).</summary>
+    Task NotifyRouteOwnershipGrantedAsync(
+        RouteOwnershipGrantedNotificationArgs request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Comprador/vendedor: proximidad al fin de tramo (para coordinar handoff).</summary>
     Task NotifyRouteLegProximityAsync(
         RouteLegProximityNotificationArgs request,
@@ -147,6 +152,7 @@ public interface IChatService
         double? progressFraction,
         bool offRoute,
         DateTimeOffset reportedAtUtc,
+        double? speedKmh,
         CancellationToken cancellationToken = default);
 
     /// <summary>Vendedor: notificación in-app cuando la confianza de su tienda se reduce por hoja de ruta / expulsión (demo).</summary>
