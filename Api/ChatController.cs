@@ -215,27 +215,27 @@ public sealed class ChatController(
                 {
                     error = result.ErrorCode,
                     message =
-                        "No podés salir del chat mientras haya pagos de servicios retenidos (en espera). Esperá la liberación o el reembolso.",
+                        "No podés salir del chat mientras haya pagos retenidos (servicios y/o mercadería en espera). Esperá la liberación o el reembolso.",
                 });
             }
 
-            if (string.Equals(result.ErrorCode, "held_payments_seller_merchandise", StringComparison.Ordinal))
+            if (string.Equals(result.ErrorCode, "held_payments_seller_mixed", StringComparison.Ordinal))
             {
                 return Conflict(new
                 {
                     error = result.ErrorCode,
                     message =
-                        "No podés salir del chat con pagos retenidos si el acuerdo incluye mercancía u otros rubros distintos de solo servicios.",
+                        "No podés salir del chat con pagos retenidos cuando el acuerdo mezcla servicios y mercadería. Coordiná la liberación o el reembolso con la contraparte.",
                 });
             }
 
-            if (string.Equals(result.ErrorCode, "service_evidence_pending", StringComparison.Ordinal))
+            if (string.Equals(result.ErrorCode, "evidence_pending", StringComparison.Ordinal))
             {
                 return Conflict(new
                 {
                     error = result.ErrorCode,
                     message =
-                        "No podés salir del chat mientras haya evidencia de servicio enviada al comprador sin respuesta (pendiente de aceptación o rechazo).",
+                        "No podés salir del chat mientras haya evidencia enviada al comprador sin resolver o rechazada con pago aún retenido (servicio o mercadería).",
                 });
             }
 
@@ -280,7 +280,13 @@ public sealed class ChatController(
                 });
         }
 
-        return Ok(new { skipClientTrustPenalty = result.SkipClientTrustPenalty });
+        return Ok(new
+        {
+            skipClientTrustPenalty = result.SkipClientTrustPenalty,
+            otherMemberCount = result.OtherMemberCount,
+            otherMemberPenaltyApplied = result.OtherMemberPenaltyApplied,
+            trustScoreAfterMemberPenalty = result.TrustScoreAfterMemberPenalty,
+        });
     }
 
     /// <summary>
@@ -651,6 +657,7 @@ public sealed class ChatController(
     [ProducesResponseType(typeof(CarrierWithdrawFromThreadResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> PostCarrierWithdrawFromRouteSubscriptions(
         string threadId,
         CancellationToken cancellationToken)
@@ -664,6 +671,14 @@ public sealed class ChatController(
             cancellationToken);
         if (result is null)
             return NotFound(new { error = "not_found", message = "No hay suscripciones activas que retirar." });
+        if (string.Equals(result.ErrorCode, "carrier_holds_ownership", StringComparison.Ordinal))
+        {
+            return Conflict(new
+            {
+                error = result.ErrorCode,
+                message = "No podés salir mientras tengas carga asignada como transportista activo.",
+            });
+        }
         return Ok(result);
     }
 

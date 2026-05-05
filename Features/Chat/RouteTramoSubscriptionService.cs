@@ -797,8 +797,24 @@ public sealed class RouteTramoSubscriptionService(
         if (subs.Count == 0)
             return null;
 
-        var hadConfirmed = subs.Exists(x =>
+        var confirmedStopCount = subs.Count(x =>
             string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase));
+
+        var hasBlockingOwnership = await db.RouteStopDeliveries.AsNoTracking()
+            .AnyAsync(
+                x =>
+                    x.ThreadId == tid
+                    && x.CurrentOwnerUserId == uid
+                    && x.RefundedAtUtc == null
+                    && x.State != RouteStopDeliveryStates.EvidenceAccepted
+                    && x.State != RouteStopDeliveryStates.RefundedExpired
+                    && x.State != RouteStopDeliveryStates.RefundedCarrierExit,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (hasBlockingOwnership)
+            return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_holds_ownership" };
+
+        var hadConfirmed = confirmedStopCount > 0;
 
         var distinctSheetIds = subs.Select(x => x.RouteSheetId).Distinct().ToList();
 
@@ -828,7 +844,7 @@ public sealed class RouteTramoSubscriptionService(
         await ClearCarrierPhoneOnSheetsForWithdrawAsync(tid, subs, now, cancellationToken);
         MarkSubscriptionsWithdrawn(subs, now);
         int? trustScoreAfterPenalty = await ApplyTrustPenaltyIfNeededAsync(
-            applyTrustPenalty, uid, cancellationToken);
+            applyTrustPenalty, uid, confirmedStopCount, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -1404,22 +1420,25 @@ public sealed class RouteTramoSubscriptionService(
     private async Task<int?> ApplyTrustPenaltyIfNeededAsync(
         bool apply,
         string uid,
+        int confirmedStopCount,
         CancellationToken cancellationToken)
     {
-        if (!apply)
+        if (!apply || confirmedStopCount <= 0)
             return null;
         var acc = await db.UserAccounts.FirstOrDefaultAsync(x => x.Id == uid, cancellationToken);
         if (acc is null)
             return null;
         var prev = acc.TrustScore;
-        acc.TrustScore = Math.Max(-10_000, prev - CarrierRouteExitTrustPenalty);
+        var deltaTotal = -CarrierRouteExitTrustPenalty * confirmedStopCount;
+        acc.TrustScore = Math.Max(-10_000, prev + deltaTotal);
         var after = acc.TrustScore;
+        var tramosTxt = confirmedStopCount == 1 ? "1 tramo" : $"{confirmedStopCount} tramos";
         trustLedger.StageEntry(
             TrustLedgerSubjects.User,
             uid,
             acc.TrustScore - prev,
             acc.TrustScore,
-            "Retiro como transportista con suscripción confirmada (demo)");
+            $"Retiro como transportista con {tramosTxt} confirmado(s) (demo, {deltaTotal}).");
         return after;
     }
 

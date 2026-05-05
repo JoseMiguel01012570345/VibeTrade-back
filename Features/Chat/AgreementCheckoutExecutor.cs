@@ -158,6 +158,7 @@ internal static class AgreementCheckoutExecutor
             var mid = ln.MerchandiseLineId?.Trim();
             if (string.IsNullOrEmpty(mid)) continue;
 
+            var now = DateTimeOffset.UtcNow;
             payment.MerchandiseLinePaids.Add(new AgreementMerchandiseLinePaidRow
             {
                 Id = $"agml_{Guid.NewGuid():n}",
@@ -165,6 +166,11 @@ internal static class AgreementCheckoutExecutor
                 MerchandiseLineId = mid,
                 Currency = ln.CurrencyLower.Trim().ToLowerInvariant(),
                 AmountMinor = ln.AmountMinor,
+                TradeAgreementId = payment.TradeAgreementId.Trim(),
+                ThreadId = payment.ThreadId.Trim(),
+                BuyerUserId = payment.BuyerUserId.Trim(),
+                Status = AgreementMerchandiseLinePaidStatuses.Held,
+                CreatedAtUtc = now,
             });
         }
     }

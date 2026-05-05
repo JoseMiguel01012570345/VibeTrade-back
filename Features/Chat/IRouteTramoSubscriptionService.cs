@@ -73,7 +73,11 @@ public interface IRouteTramoSubscriptionService
 public sealed record CarrierWithdrawFromThreadResult(
     int WithdrawnRowCount,
     bool ApplyTrustPenalty,
-    int? TrustScoreAfterPenalty = null);
+    int? TrustScoreAfterPenalty = null)
+{
+    /// <summary>P.ej. <c>carrier_holds_ownership</c> cuando el transportista tiene carga asignada.</summary>
+    public string? ErrorCode { get; init; }
+}
 
 /// <summary>Resultado de <see cref="IRouteTramoSubscriptionService.ExpelCarrierBySellerFromThreadAsync"/>.</summary>
 public sealed record CarrierExpelledBySellerResult(

@@ -238,6 +238,8 @@ public sealed class PaymentsService(
                     on ml.AgreementCurrencyPaymentId equals cp.Id
                 where cp.TradeAgreementId == agreementId.Trim()
                       && cp.Status == AgreementPaymentStatuses.Succeeded
+                      && ml.Status != AgreementMerchandiseLinePaidStatuses.Refunded
+                      && ml.Status != AgreementMerchandiseLinePaidStatuses.Failed
                 select new { ml.MerchandiseLineId, ml.Currency })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

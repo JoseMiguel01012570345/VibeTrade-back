@@ -160,4 +160,7 @@ public sealed record PartySoftLeaveArgs(
 public sealed record PartySoftLeaveResult(
     bool Success,
     string? ErrorCode,
-    bool SkipClientTrustPenalty);
+    bool SkipClientTrustPenalty,
+    int? OtherMemberCount = null,
+    bool OtherMemberPenaltyApplied = false,
+    int? TrustScoreAfterMemberPenalty = null);

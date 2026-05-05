@@ -47,6 +47,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<ServiceEvidenceRow> ServiceEvidences => Set<ServiceEvidenceRow>();
 
+    public DbSet<MerchandiseEvidenceRow> MerchandiseEvidences => Set<MerchandiseEvidenceRow>();
+
     public DbSet<RouteStopDeliveryRow> RouteStopDeliveries => Set<RouteStopDeliveryRow>();
 
     public DbSet<CarrierOwnershipEventRow> CarrierOwnershipEvents => Set<CarrierOwnershipEventRow>();
@@ -778,7 +780,39 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.AgreementCurrencyPaymentId).HasMaxLength(64);
             e.Property(x => x.MerchandiseLineId).HasMaxLength(64);
             e.Property(x => x.Currency).HasMaxLength(16);
+            e.Property(x => x.TradeAgreementId).HasMaxLength(64);
+            e.Property(x => x.ThreadId).HasMaxLength(64);
+            e.Property(x => x.BuyerUserId).HasMaxLength(64);
+            e.Property(x => x.Status).HasMaxLength(32);
             e.HasIndex(x => new { x.MerchandiseLineId, x.Currency });
+            e.HasIndex(x => new { x.ThreadId, x.Status });
+        });
+
+        modelBuilder.Entity<MerchandiseEvidenceRow>(e =>
+        {
+            e.ToTable("merchandise_evidences");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasMaxLength(64);
+            e.Property(x => x.AgreementMerchandiseLinePaidId).HasMaxLength(64);
+            e.Property(x => x.SellerUserId).HasMaxLength(64);
+            e.Property(x => x.Text).HasColumnType("text");
+            e.Property(x => x.LastSubmittedText).HasColumnType("text");
+            e.Property(x => x.Status).HasMaxLength(32);
+            e.Property(x => x.Attachments)
+                .HasColumnName("AttachmentsJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.ServiceEvidenceAttachments())
+                .Metadata.SetValueComparer(EntityValueConversions.ServiceEvidenceAttachmentsComparer());
+            e.Property(x => x.LastSubmittedAttachments)
+                .HasColumnName("LastSubmittedAttachmentsJson")
+                .HasColumnType("jsonb")
+                .HasConversion(EntityValueConversions.ServiceEvidenceAttachments())
+                .Metadata.SetValueComparer(EntityValueConversions.ServiceEvidenceAttachmentsComparer());
+            e.HasIndex(x => x.AgreementMerchandiseLinePaidId).IsUnique();
+            e.HasOne(x => x.AgreementMerchandiseLinePaid)
+                .WithMany()
+                .HasForeignKey(x => x.AgreementMerchandiseLinePaidId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<AgreementRouteLegPaidRow>(e =>

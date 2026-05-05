@@ -99,6 +99,7 @@ builder.Services.AddScoped<ICarrierDeliveryEvidenceService, CarrierDeliveryEvide
 builder.Services.AddScoped<ICarrierLegRefundService, CarrierLegRefundService>();
 builder.Services.AddHostedService<CarrierEvidenceDeadlineWatcher>();
 builder.Services.AddScoped<IAgreementServiceEvidenceService, AgreementServiceEvidenceService>();
+builder.Services.AddScoped<IAgreementMerchandiseEvidenceService, AgreementMerchandiseEvidenceService>();
 builder.Services.Configure<EmailSmtpOptions>(
     builder.Configuration.GetSection(EmailSmtpOptions.SectionName));
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
