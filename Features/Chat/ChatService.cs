@@ -1605,26 +1605,8 @@ public sealed partial class ChatService(
             return null;
         if (!await UserCanAccessThreadRowAsync(userId, t, cancellationToken).ConfigureAwait(false))
             return null;
-        if (!t.IsSocialGroup)
-            return null;
 
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        if (!string.IsNullOrWhiteSpace(t.BuyerUserId) && t.BuyerExpelledAtUtc is null)
-            ids.Add(t.BuyerUserId.Trim());
-        if (!string.IsNullOrWhiteSpace(t.SellerUserId) && t.SellerExpelledAtUtc is null)
-            ids.Add(t.SellerUserId.Trim());
-        var extra = await db.ChatSocialGroupMembers.AsNoTracking()
-            .Where(m => m.ThreadId == tid)
-            .Select(m => m.UserId)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-        foreach (var u in extra)
-        {
-            var x = (u ?? "").Trim();
-            if (x.Length >= 2)
-                ids.Add(x);
-        }
-
+        var ids = await GetThreadParticipantUserIdsAsync(t, cancellationToken).ConfigureAwait(false);
         var idList = ids.ToList();
         if (idList.Count == 0)
             return Array.Empty<ChatThreadMemberDto>();

@@ -206,7 +206,7 @@ public interface IChatService
 
     Task<IReadOnlyList<ChatThreadSummaryDto>> ListThreadsForUserAsync(string userId, CancellationToken cancellationToken = default);
 
-    /// <summary>Miembros del chat social (comprador, vendedor «ancla» y filas en <c>chat_social_group_members</c>).</summary>
+    /// <summary>Integrantes del hilo (comprador, vendedor, transportistas con tramo activo y miembros extra de grupo social).</summary>
     Task<IReadOnlyList<ChatThreadMemberDto>?> ListSocialThreadMembersAsync(
         string userId,
         string threadId,

@@ -603,12 +603,14 @@ public sealed class RouteSheetChatService(
         if (!string.Equals((thread.SellerUserId ?? "").Trim(), eid, StringComparison.Ordinal))
             return -1;
 
-        var sheetRow = await db.ChatRouteSheets.AsNoTracking()
+        var sheetRow = await db.ChatRouteSheets
             .FirstOrDefaultAsync(
                 x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
                 cancellationToken);
         if (sheetRow is null)
             return -1;
+
+        var restoredCarrierContactOnStop = false;
 
         var title = TruncateRouteSheetTitle(sheetRow.Payload.Titulo);
         var offerId = (thread.OfferId ?? "").Trim();
@@ -646,9 +648,6 @@ public sealed class RouteSheetChatService(
                 .FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), stopId, StringComparison.Ordinal));
             if (parada is null)
                 continue;
-            var onSheetDigits = DigitsOnly(parada.TelefonoTransportista);
-            if (!string.Equals(onSheetDigits, inviteDigits, StringComparison.Ordinal))
-                continue;
 
             var acc = await db.UserAccounts.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.PhoneDigits == inviteDigits, cancellationToken);
@@ -658,6 +657,34 @@ public sealed class RouteSheetChatService(
             if (uid.Length < 2 || string.Equals(uid, eid, StringComparison.Ordinal))
                 continue;
 
+            var onSheetDigits = DigitsOnly(parada.TelefonoTransportista);
+            var inviteMatchesSheetPhone =
+                string.Equals(onSheetDigits, inviteDigits, StringComparison.Ordinal);
+            if (!inviteMatchesSheetPhone)
+            {
+                // Tras <see cref="RouteTramoSubscriptionService.PreselExecuteRejectAsync"/> el teléfono se borra del tramo;
+                // el vendedor debe poder reenviar presel al mismo contacto (lista stopId + teléfono).
+                var canReinviteAfterDecline = subsForSheet.Exists(s =>
+                    string.Equals((s.StopId ?? "").Trim(), stopId, StringComparison.Ordinal)
+                    && ChatThreadAccess.UserIdsMatchLoose(uid, s.CarrierUserId)
+                    && PreselInviteEligibleAfterSheetPhoneCleared(s.Status));
+                var sheetPhoneCleared = onSheetDigits.Length < 6;
+                if (!canReinviteAfterDecline && !sheetPhoneCleared)
+                    continue;
+            }
+
+            // Sin teléfono en el tramo (p. ej. tras rechazo presel) el transportista no puede aceptar:
+            // restauramos el contacto indicado por el vendedor en el mismo POST de aviso.
+            if (onSheetDigits.Length < 6 && inviteDigits.Length >= 6)
+            {
+                var tel = (inv.Phone ?? "").Trim();
+                if (tel.Length > 0)
+                {
+                    parada.TelefonoTransportista = tel;
+                    restoredCarrierContactOnStop = true;
+                }
+            }
+
             if (!byRecipient.TryGetValue(uid, out var stopSet))
             {
                 stopSet = new HashSet<string>(StringComparer.Ordinal);
@@ -665,6 +692,12 @@ public sealed class RouteSheetChatService(
             }
 
             stopSet.Add(stopId);
+        }
+
+        if (restoredCarrierContactOnStop)
+        {
+            RouteSheetPayloadPersistence.ApplyPayloadAndTouch(sheetRow, sheetRow.Payload, DateTimeOffset.UtcNow);
+            await db.SaveChangesAsync(cancellationToken);
         }
 
         var n = 0;
@@ -707,6 +740,13 @@ public sealed class RouteSheetChatService(
             await db.SaveChangesAsync(cancellationToken);
 
         return n;
+    }
+
+    /// <summary>Rechazo/retiro: el vendedor puede volver a notificar aunque el tramo ya no tenga el teléfono en la hoja.</summary>
+    private static bool PreselInviteEligibleAfterSheetPhoneCleared(string? status)
+    {
+        var st = (status ?? "").Trim().ToLowerInvariant();
+        return st is "rejected" or "withdrawn";
     }
 
     /// <summary>

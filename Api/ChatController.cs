@@ -337,7 +337,7 @@ public sealed class ChatController(
         return Ok(dto);
     }
 
-    /// <summary>Integrantes del chat social (misma visibilidad que el hilo).</summary>
+    /// <summary>Integrantes del hilo: comprador, vendedor, transportistas con tramo activo y—si aplica—miembros extra de grupo social.</summary>
     [HttpGet("threads/{threadId}/members")]
     [ProducesResponseType(typeof(IReadOnlyList<ChatThreadMemberDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
