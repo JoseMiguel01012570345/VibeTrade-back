@@ -383,10 +383,11 @@ public sealed class PaymentsService(
     {
         var svcPicks = selectedServicePayments?
             .Where(p =>
-                !string.IsNullOrWhiteSpace(p.ServiceItemId)
+                p is not null
+                && !string.IsNullOrWhiteSpace(p.ServiceItemId)
                 && p.EntryMonth > 0
                 && p.EntryDay > 0)
-            .ToList();
+            .ToList() ?? [];
 
         var routePicks = selectedRouteStopIds?
             .Select(x => (x ?? "").Trim())
