@@ -1,9 +1,13 @@
 using Elastic.Clients.Elasticsearch;
+using Elastic.Transport;
 
 namespace VibeTrade.Backend.Features.Search;
 
 internal static class ElasticsearchStoreSearchClientFactory
 {
+    /// <summary>Integración: Testcontainers ES con TLS autofirmado (véase docs del módulo).</summary>
+    private const string SkipCertValidationEnv = "VIBETRADE_ELASTICSEARCH_SKIP_CERT_VALIDATION";
+
     public static ElasticsearchClient? TryCreate(ElasticsearchStoreSearchOptions opt)
     {
         if (!opt.Enabled || string.IsNullOrWhiteSpace(opt.Uri))
@@ -15,6 +19,10 @@ internal static class ElasticsearchStoreSearchClientFactory
             .RequestTimeout(TimeSpan.FromSeconds(30))
             .DisableDirectStreaming()
             .PrettyJson();
+
+        if (string.Equals(Environment.GetEnvironmentVariable(SkipCertValidationEnv), "1", StringComparison.Ordinal))
+            settings.ServerCertificateValidationCallback(CertificateValidations.AllowAll);
+
         return new ElasticsearchClient(settings);
     }
 }

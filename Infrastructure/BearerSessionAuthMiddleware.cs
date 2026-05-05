@@ -12,6 +12,8 @@ public sealed class BearerSessionAuthMiddleware(RequestDelegate next)
     private static readonly (string, string)[] AnonymousApi = new[] {
         ("GET", "/api/v1/market/stores/search"),
         ("GET", "/api/v1/market/stores/autocomplete"),
+        // Ficha pública / QA (MarketController [AllowAnonymous]).
+        ("GET", "/api/v1/market/offers"),
         ("GET", "/api/v1/market/catalog-categories"),
         ("GET", "/api/v1/bootstrap/guest"),
         ("GET", "/api/v1/recommendations/guest"),
