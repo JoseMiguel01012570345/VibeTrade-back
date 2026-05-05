@@ -10,7 +10,10 @@ internal static class MarketCatalogStoreDuplicateGuard
     public static void ThrowIfDuplicateNormalizedNames(AppDbContext db)
     {
         var tracked = db.ChangeTracker.Entries<StoreRow>()
-            .Where(e => e.State != EntityState.Deleted && e.Entity.NormalizedName is not null)
+            .Where(e =>
+                e.State != EntityState.Deleted
+                && e.Entity.NormalizedName is not null
+                && e.Entity.DeletedAtUtc is null)
             .Select(e => e.Entity)
             .ToList();
         var dup = tracked

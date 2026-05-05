@@ -6,6 +6,10 @@ public static class PostgresConfiguration
 {
     public static string BuildConnectionString()
     {
+        var integrationTest = Environment.GetEnvironmentVariable("VIBETRADE_INTEGRATION_TEST_CONNECTION_STRING");
+        if (!string.IsNullOrWhiteSpace(integrationTest))
+            return integrationTest.Trim();
+
         // Prefer a full URL if provided (Render-style).
         // Supported env vars: POSTGRES_URL, DATABASE_URL.
         var url =

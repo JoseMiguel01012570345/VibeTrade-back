@@ -12,7 +12,9 @@ namespace VibeTrade.Backend.Features.Market;
 public sealed partial class MarketCatalogSyncService(
     AppDbContext db,
     IStoreSearchIndexWriter storeSearchIndex,
-    IChatService chat) : IMarketCatalogSyncService
+    IChatService chat,
+    IMarketWorkspaceRepository workspaceRepository,
+    IMarketWorkspaceIntegrity workspaceIntegrity) : IMarketCatalogSyncService
 {
     public Task ApplyStoreProfilesFromWorkspaceAsync(
         MarketWorkspaceState workspaceRoot,

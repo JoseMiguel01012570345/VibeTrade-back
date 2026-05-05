@@ -35,7 +35,8 @@ public sealed partial class MarketCatalogSyncService
 
                 await EnsureUserExistsAsync(ownerUserId, now, cancellationToken);
 
-                var row = await db.Stores.FindAsync([storeId], cancellationToken);
+                var row = await db.Stores.IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(s => s.Id == storeId, cancellationToken);
                 if (row is null)
                 {
                     row = new StoreRow
@@ -47,9 +48,12 @@ public sealed partial class MarketCatalogSyncService
                     db.Stores.Add(row);
                     MarketStoreRowWorkspaceMapper.ApplyFields(el, row, now);
                 }
-                else if (storeProfiles)
+                else
                 {
-                    MarketStoreRowWorkspaceMapper.ApplyFields(el, row, now);
+                    if (row.DeletedAtUtc is not null)
+                        row.DeletedAtUtc = null;
+                    if (storeProfiles)
+                        MarketStoreRowWorkspaceMapper.ApplyFields(el, row, now);
                 }
 
                 if (catalogSync && workspaceRoot.StoreCatalogs.TryGetValue(storeId, out var catEl))

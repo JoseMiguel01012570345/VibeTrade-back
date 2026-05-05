@@ -107,9 +107,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.OwnerUserId).HasMaxLength(64);
             e.Property(x => x.Name).HasMaxLength(512);
             e.Property(x => x.NormalizedName).HasMaxLength(512);
-            e.HasIndex(x => x.NormalizedName)
-                .IsUnique()
-                .HasFilter("\"NormalizedName\" IS NOT NULL");
             // Can store `data:` URLs (base64), which frequently exceed 2048 chars.
             e.Property(x => x.AvatarUrl).HasColumnType("text");
             e.Property(x => x.Categories)
@@ -120,6 +117,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Pitch);
             e.Property(x => x.WebsiteUrl).HasMaxLength(2048);
             e.HasIndex(x => x.OwnerUserId);
+            e.Property(x => x.DeletedAtUtc);
+            e.HasQueryFilter(s => s.DeletedAtUtc == null);
+            e.HasIndex(x => x.NormalizedName)
+                .IsUnique()
+                .HasFilter("\"NormalizedName\" IS NOT NULL AND \"DeletedAtUtc\" IS NULL");
             e.HasMany(x => x.Products)
                 .WithOne(x => x.Store)
                 .HasForeignKey(x => x.StoreId)
