@@ -1417,13 +1417,52 @@ public sealed partial class ChatService(
         if (uid.Length < 2)
             return false;
 
-        var t = await db.ChatThreads.AsNoTracking()
+        var t = await db.ChatThreads
             .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null)
             return false;
 
         if (!await UserCanAccessThreadRowAsync(uid, t, cancellationToken))
             return false;
+
+        if (t.IsSocialGroup)
+        {
+            var buyerId = (t.BuyerUserId ?? "").Trim();
+            var sellerId = (t.SellerUserId ?? "").Trim();
+            var now = DateTimeOffset.UtcNow;
+            if (string.Equals(uid, buyerId, StringComparison.Ordinal))
+                t.BuyerExpelledAtUtc = now;
+            else if (string.Equals(uid, sellerId, StringComparison.Ordinal))
+                t.SellerExpelledAtUtc = now;
+            else
+            {
+                var extraRows = await db.ChatSocialGroupMembers
+                    .Where(m => m.ThreadId == tid && m.UserId == uid)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                if (extraRows.Count == 0)
+                    return false;
+                db.ChatSocialGroupMembers.RemoveRange(extraRows);
+            }
+
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            var buyerId = (t.BuyerUserId ?? "").Trim();
+            var sellerId = (t.SellerUserId ?? "").Trim();
+            var now = DateTimeOffset.UtcNow;
+            if (string.Equals(uid, buyerId, StringComparison.Ordinal))
+            {
+                t.BuyerExpelledAtUtc = now;
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else if (string.Equals(uid, sellerId, StringComparison.Ordinal))
+            {
+                t.SellerExpelledAtUtc = now;
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
 
         var displayName = await ResolveDisplayNameForParticipantLeftAsync(uid, cancellationToken);
         var payload = new { threadId = tid, userId = uid, displayName };
@@ -1570,9 +1609,9 @@ public sealed partial class ChatService(
             return null;
 
         var ids = new HashSet<string>(StringComparer.Ordinal);
-        if (!string.IsNullOrWhiteSpace(t.BuyerUserId))
+        if (!string.IsNullOrWhiteSpace(t.BuyerUserId) && t.BuyerExpelledAtUtc is null)
             ids.Add(t.BuyerUserId.Trim());
-        if (!string.IsNullOrWhiteSpace(t.SellerUserId))
+        if (!string.IsNullOrWhiteSpace(t.SellerUserId) && t.SellerExpelledAtUtc is null)
             ids.Add(t.SellerUserId.Trim());
         var extra = await db.ChatSocialGroupMembers.AsNoTracking()
             .Where(m => m.ThreadId == tid)
