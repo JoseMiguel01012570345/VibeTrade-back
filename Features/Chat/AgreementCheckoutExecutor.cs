@@ -149,6 +149,32 @@ internal static class AgreementCheckoutExecutor
         }
     }
 
+    internal static void AttachMerchandiseLineSplits(AgreementCurrencyPaymentRow payment,
+        PaymentCheckoutComputation.CurrencyTotalsDto qb)
+    {
+        foreach (var ln in qb.Lines)
+        {
+            if (!string.Equals(ln.Category, "merchandise", StringComparison.Ordinal)) continue;
+            var mid = ln.MerchandiseLineId?.Trim();
+            if (string.IsNullOrEmpty(mid)) continue;
+
+            var now = DateTimeOffset.UtcNow;
+            payment.MerchandiseLinePaids.Add(new AgreementMerchandiseLinePaidRow
+            {
+                Id = $"agml_{Guid.NewGuid():n}",
+                AgreementCurrencyPaymentId = payment.Id,
+                MerchandiseLineId = mid,
+                Currency = ln.CurrencyLower.Trim().ToLowerInvariant(),
+                AmountMinor = ln.AmountMinor,
+                TradeAgreementId = payment.TradeAgreementId.Trim(),
+                ThreadId = payment.ThreadId.Trim(),
+                BuyerUserId = payment.BuyerUserId.Trim(),
+                Status = AgreementMerchandiseLinePaidStatuses.Held,
+                CreatedAtUtc = now,
+            });
+        }
+    }
+
     internal static AgreementExecutePaymentResultDto FromDup(AgreementCurrencyPaymentRow dup)
         => new(
             dup.StripePaymentIntentId ?? "",
@@ -205,6 +231,7 @@ internal static class AgreementCheckoutExecutor
             pay.Status = AgreementPaymentStatuses.Succeeded;
             pay.CompletedAtUtc = DateTimeOffset.UtcNow;
             AttachSplits(pay, qb);
+            AttachMerchandiseLineSplits(pay, qb);
             db.AgreementCurrencyPayments.Add(pay);
             var skipDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
             if (skipDup is not null)
@@ -278,6 +305,7 @@ internal static class AgreementCheckoutExecutor
             pay.Status = AgreementPaymentStatuses.Succeeded;
             pay.CompletedAtUtc = DateTimeOffset.UtcNow;
             AttachSplits(pay, qb);
+            AttachMerchandiseLineSplits(pay, qb);
             db.AgreementCurrencyPayments.Add(pay);
             var okDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
             if (okDup is not null)

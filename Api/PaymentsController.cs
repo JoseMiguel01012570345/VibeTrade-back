@@ -84,13 +84,21 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
     public async Task<IActionResult> GetAgreementCheckout(
         string threadId,
         string agreementId,
+        [FromQuery] string[]? routeStopId,
         CancellationToken cancellationToken)
     {
         var userId = BearerUserId.FromRequest(auth, Request);
         if (userId is null)
             return Unauthorized();
 
-        var bd = await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null, cancellationToken)
+        var routeStops = routeStopId?
+            .Select(x => (x ?? "").Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var bd = await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null,
+                routeStops is { Count: > 0 } ? routeStops : null, null, cancellationToken)
             .ConfigureAwait(false);
         if (bd is null)
             return NotFound();
@@ -110,7 +118,7 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
         if (userId is null)
             return Unauthorized();
 
-        if (await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null, cancellationToken)
+        if (await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null, null, null, cancellationToken)
                 .ConfigureAwait(false)
             is null)
             return NotFound();
@@ -127,9 +135,14 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
         string Currency,
         string PaymentMethodId,
         string? IdempotencyKey,
-        IReadOnlyList<ServicePaymentPickBody>? SelectedServicePayments);
+        IReadOnlyList<ServicePaymentPickBody>? SelectedServicePayments,
+        IReadOnlyList<string>? SelectedRouteStopIds,
+        IReadOnlyList<string>? SelectedMerchandiseLineIds);
 
-    public sealed record CheckoutBreakdownBody(IReadOnlyList<ServicePaymentPickBody>? SelectedServicePayments);
+    public sealed record CheckoutBreakdownBody(
+        IReadOnlyList<ServicePaymentPickBody>? SelectedServicePayments,
+        IReadOnlyList<string>? SelectedRouteStopIds,
+        IReadOnlyList<string>? SelectedMerchandiseLineIds);
 
     [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/checkout-breakdown")]
     [Consumes("application/json")]
@@ -154,7 +167,20 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
                 x.EntryDay))
             .ToList();
 
-        var bd = await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, picks, cancellationToken)
+        var routeStops = body.SelectedRouteStopIds is null ? null : body.SelectedRouteStopIds
+            .Select(x => (x ?? "").Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var merchLines = body.SelectedMerchandiseLineIds is null ? null : body.SelectedMerchandiseLineIds
+            .Select(x => (x ?? "").Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var bd = await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, picks,
+                routeStops, merchLines, cancellationToken)
             .ConfigureAwait(false);
         if (bd is null)
             return NotFound();
@@ -180,6 +206,18 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
         var headerKey = (Request.Headers["Idempotency-Key"].FirstOrDefault() ?? "").Trim();
         var idem = string.IsNullOrWhiteSpace(body.IdempotencyKey) ? headerKey : body.IdempotencyKey!.Trim();
 
+        var routeStopsExec = body.SelectedRouteStopIds is null ? null : body.SelectedRouteStopIds
+            .Select(x => (x ?? "").Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var merchExec = body.SelectedMerchandiseLineIds is null ? null : body.SelectedMerchandiseLineIds
+            .Select(x => (x ?? "").Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
         var r = await payments.ExecuteCurrencyPaymentAsync(
             userId,
             threadId,
@@ -194,6 +232,8 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
                     x.EntryMonth,
                     x.EntryDay))
                 .ToList(),
+            routeStopsExec,
+            merchExec,
             cancellationToken).ConfigureAwait(false);
 
         if (r is null)

@@ -65,6 +65,12 @@ public interface IMarketCatalogSyncService
         string userId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Elimina la tienda y su catálogo relacional; solo el dueño (<paramref name="userId"/>).</summary>
+    Task<StoreCatalogUpsertResult> DeleteStoreAsync(
+        string storeId,
+        string userId,
+        CancellationToken cancellationToken = default);
+
     Task<(Dictionary<string, HomeOfferViewDto> Offers, List<string> OfferIds)> BuildPublishedOffersFeedAsync(
         CancellationToken cancellationToken = default);
 }

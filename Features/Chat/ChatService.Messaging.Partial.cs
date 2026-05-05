@@ -657,16 +657,16 @@ public sealed partial class ChatService
         var uid = (request.UserId ?? "").Trim();
         var reasonTrim = (request.Reason ?? "").Trim();
         if (tid.Length < 4 || uid.Length < 2 || reasonTrim.Length < 1)
-            return new PartySoftLeaveResult(false, null, false);
+            return new PartySoftLeaveResult(false, "party_leave_invalid_request", false);
 
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == tid && x.DeletedAtUtc == null, cancellationToken);
         if (t is null)
-            return new PartySoftLeaveResult(false, null, false);
+            return new PartySoftLeaveResult(false, "party_leave_thread_not_found", false);
 
         var isBuyer = string.Equals(uid, t.BuyerUserId, StringComparison.Ordinal);
         var isSeller = string.Equals(uid, t.SellerUserId, StringComparison.Ordinal);
         if (!isBuyer && !isSeller)
-            return new PartySoftLeaveResult(false, null, false);
+            return new PartySoftLeaveResult(false, "not_eligible_party", false);
 
         if (isBuyer && t.BuyerExpelledAtUtc is not null)
             return new PartySoftLeaveResult(true, null, false);
@@ -674,7 +674,7 @@ public sealed partial class ChatService
             return new PartySoftLeaveResult(true, null, false);
 
         if (!await HasAcceptedNonDeletedTradeAgreementOnThreadAsync(tid, cancellationToken))
-            return new PartySoftLeaveResult(false, null, false);
+            return new PartySoftLeaveResult(false, "party_leave_no_accepted_agreement", false);
 
         var paymentPrep = await partySoftLeave.ProcessPaymentRulesAsync(t, isBuyer, isSeller, cancellationToken)
             .ConfigureAwait(false);
@@ -682,7 +682,7 @@ public sealed partial class ChatService
             return new PartySoftLeaveResult(false, paymentPrep.ErrorCode, false);
 
         if (!await TryPostSystemNoticeForSoftLeaveAsync(uid, tid, isSeller, reasonTrim, cancellationToken))
-            return new PartySoftLeaveResult(false, null, false);
+            return new PartySoftLeaveResult(false, "party_leave_notice_failed", false);
 
         var now = DateTimeOffset.UtcNow;
         ApplyPartyExpulsionToThread(t, uid, isBuyer, reasonTrim, now);
@@ -690,7 +690,7 @@ public sealed partial class ChatService
         if (paymentPrep.RefundedBuyerHeldPayments)
         {
             const string defaultRefundNotice =
-                "Los pagos retenidos por servicios en este chat fueron reembolsados al comprador por la salida del vendedor (acuerdos solo servicios).";
+                "Los pagos retenidos en este chat fueron reembolsados al comprador por la salida del vendedor (acuerdos solo servicios o solo mercadería).";
             var refundBody = string.IsNullOrWhiteSpace(paymentPrep.RefundNoticeText)
                 ? defaultRefundNotice
                 : paymentPrep.RefundNoticeText.Trim();
@@ -699,7 +699,13 @@ public sealed partial class ChatService
 
         await NotifyCounterpartyOfPartySoftLeaveAsync(t, uid, isSeller, reasonTrim, cancellationToken);
         await BroadcastPeerPartyExitedForSoftLeaveAsync(tid, t, uid, isSeller, cancellationToken);
-        return new PartySoftLeaveResult(true, null, paymentPrep.SkipClientTrustPenalty);
+        return new PartySoftLeaveResult(
+            true,
+            null,
+            paymentPrep.SkipClientTrustPenalty,
+            paymentPrep.OtherMemberCount,
+            paymentPrep.OtherMemberPenaltyApplied,
+            paymentPrep.TrustScoreAfterMemberPenalty);
     }
 
     private async Task<bool> HasAcceptedNonDeletedTradeAgreementOnThreadAsync(
@@ -756,7 +762,7 @@ public sealed partial class ChatService
             atUtc = t.PartyExitedAtUtc,
             leaverRole = isSeller ? "seller" : "buyer",
         };
-        await hub.Clients.Group(ChatHubGroupNames.ForThread(tid)).SendAsync("peerPartyExitedChat", payload, cancellationToken);
+        // Solo participantes activos; evitar ForThread porque quien ya salió puede seguir en el grupo SignalR un momento.
         await HubSendToThreadParticipantsAsync(t, "peerPartyExitedChat", payload, cancellationToken);
     }
 

@@ -603,12 +603,14 @@ public sealed class RouteSheetChatService(
         if (!string.Equals((thread.SellerUserId ?? "").Trim(), eid, StringComparison.Ordinal))
             return -1;
 
-        var sheetRow = await db.ChatRouteSheets.AsNoTracking()
+        var sheetRow = await db.ChatRouteSheets
             .FirstOrDefaultAsync(
                 x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
                 cancellationToken);
         if (sheetRow is null)
             return -1;
+
+        var restoredCarrierContactOnStop = false;
 
         var title = TruncateRouteSheetTitle(sheetRow.Payload.Titulo);
         var offerId = (thread.OfferId ?? "").Trim();
@@ -646,9 +648,6 @@ public sealed class RouteSheetChatService(
                 .FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), stopId, StringComparison.Ordinal));
             if (parada is null)
                 continue;
-            var onSheetDigits = DigitsOnly(parada.TelefonoTransportista);
-            if (!string.Equals(onSheetDigits, inviteDigits, StringComparison.Ordinal))
-                continue;
 
             var acc = await db.UserAccounts.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.PhoneDigits == inviteDigits, cancellationToken);
@@ -657,6 +656,34 @@ public sealed class RouteSheetChatService(
             var uid = (acc.Id ?? "").Trim();
             if (uid.Length < 2 || string.Equals(uid, eid, StringComparison.Ordinal))
                 continue;
+
+            var onSheetDigits = DigitsOnly(parada.TelefonoTransportista);
+            var inviteMatchesSheetPhone =
+                string.Equals(onSheetDigits, inviteDigits, StringComparison.Ordinal);
+            if (!inviteMatchesSheetPhone)
+            {
+                // Tras <see cref="RouteTramoSubscriptionService.PreselExecuteRejectAsync"/> el teléfono se borra del tramo;
+                // el vendedor debe poder reenviar presel al mismo contacto (lista stopId + teléfono).
+                var canReinviteAfterDecline = subsForSheet.Exists(s =>
+                    string.Equals((s.StopId ?? "").Trim(), stopId, StringComparison.Ordinal)
+                    && ChatThreadAccess.UserIdsMatchLoose(uid, s.CarrierUserId)
+                    && PreselInviteEligibleAfterSheetPhoneCleared(s.Status));
+                var sheetPhoneCleared = onSheetDigits.Length < 6;
+                if (!canReinviteAfterDecline && !sheetPhoneCleared)
+                    continue;
+            }
+
+            // Sin teléfono en el tramo (p. ej. tras rechazo presel) el transportista no puede aceptar:
+            // restauramos el contacto indicado por el vendedor en el mismo POST de aviso.
+            if (onSheetDigits.Length < 6 && inviteDigits.Length >= 6)
+            {
+                var tel = (inv.Phone ?? "").Trim();
+                if (tel.Length > 0)
+                {
+                    parada.TelefonoTransportista = tel;
+                    restoredCarrierContactOnStop = true;
+                }
+            }
 
             if (!byRecipient.TryGetValue(uid, out var stopSet))
             {
@@ -667,6 +694,12 @@ public sealed class RouteSheetChatService(
             stopSet.Add(stopId);
         }
 
+        if (restoredCarrierContactOnStop)
+        {
+            RouteSheetPayloadPersistence.ApplyPayloadAndTouch(sheetRow, sheetRow.Payload, DateTimeOffset.UtcNow);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
         var n = 0;
         foreach (var kv in byRecipient)
         {
@@ -674,11 +707,14 @@ public sealed class RouteSheetChatService(
             var stopIdsForRecipient = kv.Value.ToList();
             if (stopIdsForRecipient.Count == 0)
                 continue;
-            if (ShouldSkipPreselectedNotifyForRecipient(
+            var stopsToNotify = stopIdsForRecipient
+                .Where(sid => !ShouldSkipPreselectedNotifyForSingleStop(
                     sheetRow.Payload,
                     uid,
-                    stopIdsForRecipient,
+                    sid,
                     subsForSheet))
+                .ToList();
+            if (stopsToNotify.Count == 0)
                 continue;
             await chat.NotifyRouteSheetPreselectedTransportistaAsync(
                 new RouteSheetPreselectedTransportistaNotificationArgs(
@@ -690,13 +726,13 @@ public sealed class RouteSheetChatService(
                     authorLabel,
                     authorTrust,
                     eid,
-                    stopIdsForRecipient),
+                    stopsToNotify),
                 cancellationToken);
             ApplyStopContentFingerprintsAfterPreselectedNotify(
                 sheetRow.Payload,
                 subsForSheet,
                 uid,
-                stopIdsForRecipient);
+                stopsToNotify);
             n++;
         }
 
@@ -706,41 +742,45 @@ public sealed class RouteSheetChatService(
         return n;
     }
 
-    /// <summary>No re-notificar presel si para cada tramo con ese teléfono ya hay suscripción pending/confirmed y el fingerprint del tramo coincide.</summary>
-    private static bool ShouldSkipPreselectedNotifyForRecipient(
+    /// <summary>Rechazo/retiro: el vendedor puede volver a notificar aunque el tramo ya no tenga el teléfono en la hoja.</summary>
+    private static bool PreselInviteEligibleAfterSheetPhoneCleared(string? status)
+    {
+        var st = (status ?? "").Trim().ToLowerInvariant();
+        return st is "rejected" or "withdrawn";
+    }
+
+    /// <summary>
+    /// <c>true</c> si este tramo ya está cubierto (suscripción pending/confirmed + mismo fingerprint) y no hace falta otro aviso presel.
+    /// </summary>
+    private static bool ShouldSkipPreselectedNotifyForSingleStop(
         RouteSheetPayload payload,
         string recipientUserId,
-        IReadOnlyList<string> stopIdsForRecipient,
+        string stopId,
         IReadOnlyList<RouteTramoSubscriptionRow> subsForSheet)
     {
-        foreach (var stopId in stopIdsForRecipient)
-        {
-            var sid = (stopId ?? "").Trim();
-            if (sid.Length == 0)
-                return false;
-            var parada = payload.Paradas?
-                .FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
-            if (parada is null)
-                return false;
-            var fp = RouteSheetEditAckComputation.RouteStopFingerprint(parada);
-            var sub = subsForSheet.FirstOrDefault(s =>
-                string.Equals((s.StopId ?? "").Trim(), sid, StringComparison.Ordinal)
-                && ChatThreadAccess.UserIdsMatchLoose(recipientUserId, s.CarrierUserId));
-            if (sub is null)
-                return false;
-            var st = (sub.Status ?? "").Trim().ToLowerInvariant();
-            if (st is "rejected" or "withdrawn")
-                return false;
-            if (st is "pending" or "confirmed")
-            {
-                if (!string.Equals(fp, sub.StopContentFingerprint ?? "", StringComparison.Ordinal))
-                    return false;
-            }
-            else
-                return false;
-        }
+        var sid = (stopId ?? "").Trim();
+        if (sid.Length == 0)
+            return false;
 
-        return true;
+        var parada = payload.Paradas?
+            .FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
+        if (parada is null)
+            return false;
+
+        var fp = RouteSheetEditAckComputation.RouteStopFingerprint(parada);
+        var sub = subsForSheet.FirstOrDefault(s =>
+            string.Equals((s.StopId ?? "").Trim(), sid, StringComparison.Ordinal)
+            && ChatThreadAccess.UserIdsMatchLoose(recipientUserId, s.CarrierUserId));
+        if (sub is null)
+            return false;
+
+        var st = (sub.Status ?? "").Trim().ToLowerInvariant();
+        if (st is "rejected" or "withdrawn")
+            return false;
+        if (st is "pending" or "confirmed")
+            return string.Equals(fp, sub.StopContentFingerprint ?? "", StringComparison.Ordinal);
+
+        return false;
     }
 
     private static void ApplyStopContentFingerprintsAfterPreselectedNotify(

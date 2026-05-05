@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
@@ -22,7 +23,8 @@ public static class PaymentCheckoutComputation
         string CurrencyLower,
         long AmountMinor,
         string? RouteSheetId,
-        string? RouteStopId);
+        string? RouteStopId,
+        string? MerchandiseLineId = null);
 
     public sealed record CurrencyTotalsDto(
         string CurrencyLower,
@@ -52,20 +54,51 @@ public static class PaymentCheckoutComputation
     public static BreakdownDto ComputeForAgreement(
         TradeAgreementRow ag,
         RouteSheetPayload? routeSheetPayload,
-        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments = null)
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments = null,
+        IReadOnlyList<string>? selectedRouteStopIds = null,
+        IReadOnlyList<string>? selectedMerchandiseLineIds = null,
+        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower = null)
     {
         var errs = ValidateAgreementForCheckout(ag);
         var buckets = new Dictionary<string, CurrencyBucket>(StringComparer.OrdinalIgnoreCase);
         var hasServiceSelection = selectedServicePayments is { Count: > 0 };
+        var routesSpecified = selectedRouteStopIds is not null;
+        var routesFiltered = routesSpecified && selectedRouteStopIds!.Count > 0;
 
-        if (!hasServiceSelection && ag.IncludeMerchandise)
-            AccumulateMerchandise(ag, errs, buckets);
+        var merchSpecified = selectedMerchandiseLineIds is not null;
+        var merchFiltered = merchSpecified && selectedMerchandiseLineIds!.Count > 0;
+
+        // Mercadería: selección explícita (POST) o comportamiento legacy (GET sin picks / sin tramos filtrados).
+        if (ag.IncludeMerchandise && !hasServiceSelection)
+        {
+            if (merchSpecified)
+            {
+                if (merchFiltered)
+                    AccumulateMerchandiseFiltered(
+                        ag, selectedMerchandiseLineIds!, errs, buckets, paidMerchandiseLineIdsByCurrencyLower);
+                // explícito vacío → no suma líneas de mercadería
+            }
+            else if (!routesFiltered)
+            {
+                AccumulateMerchandise(ag, errs, buckets, paidMerchandiseLineIdsByCurrencyLower);
+            }
+        }
 
         if (ag.IncludeService)
-            AccumulateServices(ag, selectedServicePayments, errs, buckets);
+        {
+            // Acuerdo mixto: si el cliente envía selección explícita de mercadería o tramos y no eligió cuotas,
+            // no aplicar la "primera cuota" automática de servicios (evita cobrar servicio al pagar solo mercadería/tramos).
+            var partialMerchOrRouteContext = merchSpecified || routesSpecified;
+            if (partialMerchOrRouteContext && !hasServiceSelection)
+            {
+                /* omitir servicios en este desglose */
+            }
+            else
+                AccumulateServices(ag, selectedServicePayments, errs, buckets);
+        }
 
         if (!hasServiceSelection)
-            AccumulateRouteLegsIfAny(ag, routeSheetPayload, buckets);
+            AccumulateRouteLegsIfAny(ag, routeSheetPayload, selectedRouteStopIds, buckets);
 
         var byCurrency = BuildTotalsByCurrency(buckets);
         if (byCurrency.Count == 0 && errs.Count == 0)
@@ -93,7 +126,8 @@ public static class PaymentCheckoutComputation
         string currencyIso3,
         decimal amountMajor,
         string? routeSheetId = null,
-        string? routeStopId = null)
+        string? routeStopId = null,
+        string? merchandiseLineId = null)
     {
         if (amountMajor <= 0) return;
         var curLower = NormalizeCurrency(currencyIso3);
@@ -104,14 +138,29 @@ public static class PaymentCheckoutComputation
         if (!buckets.TryGetValue(curLower, out var b))
             b = new CurrencyBucket(new List<BasisLineDto>(), 0);
 
-        b.Lines.Add(new BasisLineDto(cat, label, curLower, minor, routeSheetId, routeStopId));
+        b.Lines.Add(new BasisLineDto(cat, label, curLower, minor, routeSheetId, routeStopId, merchandiseLineId));
         buckets[curLower] = b with { SubtotalMinor = b.SubtotalMinor + minor };
+    }
+
+    private static bool MerchandiseLineAlreadyPaidInCurrency(
+        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower,
+        string currencyIso3,
+        string merchandiseLineId)
+    {
+        if (paidMerchandiseLineIdsByCurrencyLower is null || paidMerchandiseLineIdsByCurrencyLower.Count == 0)
+            return false;
+        var cur = NormalizeCurrency(currencyIso3);
+        if (string.IsNullOrEmpty(cur)) return false;
+        var mid = merchandiseLineId.Trim();
+        if (mid.Length == 0) return false;
+        return paidMerchandiseLineIdsByCurrencyLower.TryGetValue(cur, out var set) && set.Contains(mid);
     }
 
     private static void AccumulateMerchandise(
         TradeAgreementRow ag,
         ICollection<string> errs,
-        IDictionary<string, CurrencyBucket> buckets)
+        IDictionary<string, CurrencyBucket> buckets,
+        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower)
     {
         foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
         {
@@ -135,7 +184,62 @@ public static class PaymentCheckoutComputation
             }
 
             if (q <= 0 || vu <= 0) continue;
-            PushLine(buckets, "merchandise", $"{m.Tipo} (× {m.Cantidad})", mon, q * vu);
+            var mid = (m.Id ?? "").Trim();
+            if (MerchandiseLineAlreadyPaidInCurrency(paidMerchandiseLineIdsByCurrencyLower, mon, mid))
+                continue;
+            PushLine(
+                buckets,
+                "merchandise",
+                $"{m.Tipo} (× {m.Cantidad})",
+                mon,
+                q * vu,
+                null,
+                null,
+                mid.Length > 0 ? mid : null);
+        }
+    }
+
+    private static void AccumulateMerchandiseFiltered(
+        TradeAgreementRow ag,
+        IReadOnlyList<string> selectedIds,
+        ICollection<string> errs,
+        IDictionary<string, CurrencyBucket> buckets,
+        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower)
+    {
+        var pick = new HashSet<string>(
+            selectedIds
+                .Select(x => (x ?? "").Trim())
+                .Where(x => x.Length > 0),
+            StringComparer.Ordinal);
+        foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
+        {
+            var mid = (m.Id ?? "").Trim();
+            if (mid.Length == 0 || !pick.Contains(mid))
+                continue;
+
+            decimal q;
+            decimal vu;
+            try
+            {
+                q = ParseDecimal(m.Cantidad);
+                vu = ParseDecimal(m.ValorUnitario);
+            }
+            catch
+            {
+                continue;
+            }
+
+            var mon = NormalizeCurrencyFirst(m.Moneda ?? ag.MerchandiseMeta?.Moneda);
+            if (string.IsNullOrEmpty(mon))
+            {
+                errs.Add("Mercancía: falta moneda.");
+                continue;
+            }
+
+            if (q <= 0 || vu <= 0) continue;
+            if (MerchandiseLineAlreadyPaidInCurrency(paidMerchandiseLineIdsByCurrencyLower, mon, mid))
+                continue;
+            PushLine(buckets, "merchandise", $"{m.Tipo} (× {m.Cantidad})", mon, q * vu, null, null, mid);
         }
     }
 
@@ -265,15 +369,30 @@ public static class PaymentCheckoutComputation
     private static void AccumulateRouteLegsIfAny(
         TradeAgreementRow ag,
         RouteSheetPayload? routeSheetPayload,
+        IReadOnlyList<string>? selectedRouteStopIds,
         IDictionary<string, CurrencyBucket> buckets)
     {
         var rsIdLink = string.IsNullOrWhiteSpace(ag.RouteSheetId) ? null : ag.RouteSheetId!.Trim();
         if (string.IsNullOrEmpty(rsIdLink)) return;
         if (routeSheetPayload?.Paradas is not { Count: > 0 } stops) return;
 
+        // null = sin filtro (todos los tramos con importe); lista vacía = ningún tramo; lista con ids = filtro.
+        HashSet<string>? stopPick = null;
+        if (selectedRouteStopIds is not null)
+        {
+            stopPick = new HashSet<string>(
+                selectedRouteStopIds
+                    .Select(x => (x ?? "").Trim())
+                    .Where(x => x.Length > 0),
+                StringComparer.Ordinal);
+        }
+
         foreach (var p in stops.OrderBy(x => x.Orden))
         {
             if (string.IsNullOrWhiteSpace(p.Id)) continue;
+            var pid = p.Id.Trim();
+            if (stopPick is not null && !stopPick.Contains(pid))
+                continue;
             if (!TryParseRouteStopAmount(p, routeSheetPayload, out var amt, out var mon))
                 continue;
 

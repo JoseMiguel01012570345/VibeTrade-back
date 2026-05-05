@@ -69,6 +69,7 @@ public static class TradeAgreementEntityToApiMapper
         {
             resp.Merchandise.Add(new MerchandiseLineApi
             {
+                Id = line.Id.Trim(),
                 LinkedStoreProductId = line.LinkedStoreProductId,
                 Tipo = line.Tipo,
                 Cantidad = line.Cantidad,

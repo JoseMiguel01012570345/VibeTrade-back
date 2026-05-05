@@ -46,6 +46,10 @@ public sealed class AgreementCurrencyPaymentRow
     /// <summary>Cuotas aplicadas por tramo en este cobro.</summary>
     public ICollection<AgreementRouteLegPaidRow> RouteLegPaids { get; set; } =
         new List<AgreementRouteLegPaidRow>();
+
+    /// <summary>Líneas de mercadería incluidas en este cobro.</summary>
+    public ICollection<AgreementMerchandiseLinePaidRow> MerchandiseLinePaids { get; set; } =
+        new List<AgreementMerchandiseLinePaidRow>();
 }
 
 public static class AgreementPaymentStatuses

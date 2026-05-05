@@ -20,7 +20,7 @@ internal static class RouteTramoWithdrawSystemText
         if (applyTrustPenalty)
             sys += " Se aplicó un ajuste de confianza por retirarse como transportista con tramos confirmados (demo).";
         else if (noPenaltyBecauseSheetsDelivered)
-            sys += " No aplica ajuste de confianza: las hojas con tramos confirmados figuraban como entregadas.";
+            sys += " No aplica ajuste de confianza: los tramos confirmados estaban cerrados (hoja entregada o logística liquidada/vencida).";
         return sys;
     }
 }

@@ -5,6 +5,7 @@ using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Chat.Utils;
+using VibeTrade.Backend.Features.Logistics;
 using VibeTrade.Backend.Features.Trust;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -373,6 +374,20 @@ public sealed class RouteTramoSubscriptionService(
         RouteSheetPayloadPersistence.ApplyPayloadAndTouch(sheetRow, payload, now);
         await db.SaveChangesAsync(cancellationToken);
 
+        await RouteStopDeliveryActivator.ApplyConfirmedCarriersAsync(db, k.ThreadId, k.RouteSheetId, metaStops.Select(x => x.StopId).ToList(),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        await RouteLegHandoffNotifications.NotifyAfterCarrierConfirmedAsync(
+                db,
+                chat,
+                k.ThreadId,
+                k.RouteSheetId,
+                payload,
+                metaStops.Select(x => x.StopId).ToList(),
+                cancellationToken)
+            .ConfigureAwait(false);
+
         var emergentPubId = await EmergentIdForThreadSheetAsync(
             k.ThreadId, k.RouteSheetId, cancellationToken);
 
@@ -552,6 +567,15 @@ public sealed class RouteTramoSubscriptionService(
             return null;
 
         var now = DateTimeOffset.UtcNow;
+        await ApplyRouteDeliveryRefundEligibilityForCarrierRemovalAsync(
+                ctx.ThreadId,
+                ctx.CarrierUserId,
+                ctx.Subs,
+                RouteStopRefundEligibleReasons.CarrierExpelled,
+                now,
+                cancellationToken)
+            .ConfigureAwait(false);
+
         await ClearCarrierPhoneOnSheetsForWithdrawAsync(ctx.ThreadId, ctx.Subs, now, cancellationToken);
         MarkSubscriptionsWithdrawn(ctx.Subs, now);
         int? storeTrustAfter = await ApplyStoreTrustPenaltyForSellerExpelIfNeededAsync(
@@ -773,24 +797,54 @@ public sealed class RouteTramoSubscriptionService(
         if (subs.Count == 0)
             return null;
 
-        var hadConfirmed = subs.Exists(x =>
+        var confirmedStopCount = subs.Count(x =>
             string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase));
+
+        var hasBlockingOwnership = await db.RouteStopDeliveries.AsNoTracking()
+            .AnyAsync(
+                x =>
+                    x.ThreadId == tid
+                    && x.CurrentOwnerUserId == uid
+                    && x.RefundedAtUtc == null
+                    && x.State != RouteStopDeliveryStates.EvidenceAccepted
+                    && x.State != RouteStopDeliveryStates.RefundedExpired
+                    && x.State != RouteStopDeliveryStates.RefundedCarrierExit,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (hasBlockingOwnership)
+            return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_holds_ownership" };
+
+        var hadConfirmed = confirmedStopCount > 0;
 
         var distinctSheetIds = subs.Select(x => x.RouteSheetId).Distinct().ToList();
 
         var expelledParty =
             thread.BuyerExpelledAtUtc is not null || thread.SellerExpelledAtUtc is not null;
-        var routeSheetsAllDelivered = hadConfirmed
-            && await AllConfirmedRouteSheetsMarkedDeliveredAsync(tid, subs, cancellationToken);
+        var carrierLeaveWithoutTrustPenalty = false;
+        if (hadConfirmed)
+        {
+            carrierLeaveWithoutTrustPenalty =
+                await AllConfirmedRouteSheetsMarkedDeliveredAsync(tid, subs, cancellationToken)
+                || await AllCarrierConfirmedStopsLogisticallyResolvedAsync(tid, uid, subs, cancellationToken);
+        }
 
-        // Penalización si tenía tramos confirmados y las hojas implicadas no están todas «entregadas» (demo).
-        var applyTrustPenalty = hadConfirmed && !expelledParty && !routeSheetsAllDelivered;
+        // Penalización si tenía tramos confirmados y aún había obligaciones abiertas (hoja no entregada y tramos sin cierre logístico).
+        var applyTrustPenalty = hadConfirmed && !expelledParty && !carrierLeaveWithoutTrustPenalty;
 
         var now = DateTimeOffset.UtcNow;
+        await ApplyRouteDeliveryRefundEligibilityForCarrierRemovalAsync(
+                tid,
+                uid,
+                subs,
+                RouteStopRefundEligibleReasons.CarrierExit,
+                now,
+                cancellationToken)
+            .ConfigureAwait(false);
+
         await ClearCarrierPhoneOnSheetsForWithdrawAsync(tid, subs, now, cancellationToken);
         MarkSubscriptionsWithdrawn(subs, now);
         int? trustScoreAfterPenalty = await ApplyTrustPenaltyIfNeededAsync(
-            applyTrustPenalty, uid, cancellationToken);
+            applyTrustPenalty, uid, confirmedStopCount, cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
 
@@ -803,7 +857,7 @@ public sealed class RouteTramoSubscriptionService(
             subs.Count,
             distinctSheetIds.Count,
             applyTrustPenalty,
-            noPenaltyBecauseSheetsDelivered: hadConfirmed && !applyTrustPenalty && !expelledParty && routeSheetsAllDelivered);
+            noPenaltyBecauseSheetsDelivered: hadConfirmed && !applyTrustPenalty && !expelledParty && carrierLeaveWithoutTrustPenalty);
         await chat.PostAutomatedSystemThreadNoticeAsync(tid, sys, cancellationToken);
 
         foreach (var rsid in distinctSheetIds)
@@ -815,6 +869,65 @@ public sealed class RouteTramoSubscriptionService(
         }
 
         return new CarrierWithdrawFromThreadResult(subs.Count, applyTrustPenalty, trustScoreAfterPenalty);
+    }
+
+    private async Task ApplyRouteDeliveryRefundEligibilityForCarrierRemovalAsync(
+        string threadId,
+        string carrierUserId,
+        List<RouteTramoSubscriptionRow> subs,
+        string refundReason,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var cid = (carrierUserId ?? "").Trim();
+        if (tid.Length < 4 || cid.Length < 2 || subs.Count == 0)
+            return;
+
+        var keys = subs
+            .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+            .Select(x => ((x.RouteSheetId ?? "").Trim(), (x.StopId ?? "").Trim()))
+            .Where(t => t.Item1.Length > 0 && t.Item2.Length > 0)
+            .Distinct()
+            .ToList();
+        if (keys.Count == 0)
+            return;
+
+        var deliveries = await db.RouteStopDeliveries
+                .Where(x => x.ThreadId == tid && x.CurrentOwnerUserId == cid && x.RefundedAtUtc == null)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false)
+            ;
+
+        foreach (var d in deliveries)
+        {
+            var match = keys.Any(k =>
+                string.Equals(k.Item1, d.RouteSheetId.Trim(), StringComparison.Ordinal)
+                && string.Equals(k.Item2, d.RouteStopId.Trim(), StringComparison.Ordinal));
+            if (!match)
+                continue;
+
+            if (d.State == RouteStopDeliveryStates.EvidenceAccepted)
+                continue;
+
+            d.RefundEligibleReason = refundReason;
+            d.RefundEligibleSinceUtc = now;
+            d.CurrentOwnerUserId = null;
+            d.State = RouteStopDeliveryStates.AwaitingCarrierForHandoff;
+            d.UpdatedAtUtc = now;
+
+            db.CarrierOwnershipEvents.Add(new CarrierOwnershipEventRow
+            {
+                Id = "coe_" + Guid.NewGuid().ToString("N"),
+                ThreadId = tid,
+                RouteSheetId = d.RouteSheetId,
+                RouteStopId = d.RouteStopId,
+                CarrierUserId = cid,
+                Action = CarrierOwnershipActions.Released,
+                AtUtc = now,
+                Reason = refundReason,
+            });
+        }
     }
 
     private sealed record PreselCore(
@@ -1251,25 +1364,81 @@ public sealed class RouteTramoSubscriptionService(
         return true;
     }
 
+    /// <summary>
+    /// Cada tramo <b>confirmado</b> del transportista tiene filas de entrega y todas están en estado terminal
+    /// (evidencia aceptada o reembolso por vencimiento/salida): ya no queda logística activa en esos tramos.
+    /// </summary>
+    private async Task<bool> AllCarrierConfirmedStopsLogisticallyResolvedAsync(
+        string threadId,
+        string carrierUserId,
+        List<RouteTramoSubscriptionRow> subs,
+        CancellationToken cancellationToken)
+    {
+        var cid = (carrierUserId ?? "").Trim();
+        if (cid.Length < 2)
+            return false;
+
+        var keys = subs
+            .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+            .Select(x => ((x.RouteSheetId ?? "").Trim(), (x.StopId ?? "").Trim()))
+            .Where(t => t.Item1.Length > 0 && t.Item2.Length > 0)
+            .Distinct()
+            .ToList();
+        if (keys.Count == 0)
+            return true;
+
+        foreach (var (rsid, stopId) in keys)
+        {
+            var states = await db.RouteStopDeliveries.AsNoTracking()
+                .Where(x =>
+                    x.ThreadId == threadId
+                    && x.RouteSheetId == rsid
+                    && x.RouteStopId == stopId)
+                .Select(x => x.State)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (states.Count == 0)
+                return false;
+
+            var allTerminal = states.TrueForAll(IsCarrierLegTrustTerminalState);
+            if (!allTerminal)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsCarrierLegTrustTerminalState(string? stateRaw)
+    {
+        var s = (stateRaw ?? "").Trim().ToLowerInvariant();
+        return s is RouteStopDeliveryStates.EvidenceAccepted
+            or RouteStopDeliveryStates.RefundedExpired
+            or RouteStopDeliveryStates.RefundedCarrierExit;
+    }
+
     private async Task<int?> ApplyTrustPenaltyIfNeededAsync(
         bool apply,
         string uid,
+        int confirmedStopCount,
         CancellationToken cancellationToken)
     {
-        if (!apply)
+        if (!apply || confirmedStopCount <= 0)
             return null;
         var acc = await db.UserAccounts.FirstOrDefaultAsync(x => x.Id == uid, cancellationToken);
         if (acc is null)
             return null;
         var prev = acc.TrustScore;
-        acc.TrustScore = Math.Max(-10_000, prev - CarrierRouteExitTrustPenalty);
+        var deltaTotal = -CarrierRouteExitTrustPenalty * confirmedStopCount;
+        acc.TrustScore = Math.Max(-10_000, prev + deltaTotal);
         var after = acc.TrustScore;
+        var tramosTxt = confirmedStopCount == 1 ? "1 tramo" : $"{confirmedStopCount} tramos";
         trustLedger.StageEntry(
             TrustLedgerSubjects.User,
             uid,
             acc.TrustScore - prev,
             acc.TrustScore,
-            "Retiro como transportista con suscripción confirmada (demo)");
+            $"Retiro como transportista con {tramosTxt} confirmado(s) (demo, {deltaTotal}).");
         return after;
     }
 

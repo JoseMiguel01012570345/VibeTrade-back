@@ -25,6 +25,8 @@ public interface IPaymentsService
         string threadId,
         string agreementId,
         IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        IReadOnlyList<string>? selectedRouteStopIds,
+        IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<AgreementPaymentStatusDto>> ListPaymentStatusesAsync(
@@ -41,5 +43,7 @@ public interface IPaymentsService
         string paymentMethodStripeId,
         string? idempotencyKey,
         IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        IReadOnlyList<string>? selectedRouteStopIds,
+        IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default);
 }

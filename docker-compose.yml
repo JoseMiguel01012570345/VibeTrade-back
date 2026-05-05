@@ -44,6 +44,8 @@ services:
       - .env
     environment:
       POSTGRES_HOST: postgres
+      # Host puede usar otro puerto (p. ej. 5432 bloqueado por exclusiones de Windows); en la red interna sigue siendo 5432.
+      POSTGRES_PORT: "5432"
       ASPNETCORE_URLS: http://+:8080
       Elasticsearch__Enabled: "true"
       Elasticsearch__Uri: "http://elasticsearch:9200"

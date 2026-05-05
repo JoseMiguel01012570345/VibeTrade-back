@@ -291,6 +291,30 @@ public sealed class MarketController(
         return Ok();
     }
 
+    /// <summary>Borrado lógico de la tienda y de sus fichas de catálogo (<c>DeletedAtUtc</c>); solo el dueño.</summary>
+    [HttpDelete("stores/{storeId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteStore(string storeId, CancellationToken cancellationToken)
+    {
+        var userId = BearerUserId.FromRequest(auth, Request);
+        if (userId is null)
+            return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
+        var r = await catalog.DeleteStoreAsync(storeId, userId, cancellationToken);
+        return r switch
+        {
+            StoreCatalogUpsertResult.Ok => NoContent(),
+            StoreCatalogUpsertResult.Unauthorized => Unauthorized(new { error = "unauthorized", message = "Sesión requerida." }),
+            StoreCatalogUpsertResult.StoreNotFound => NotFound(),
+            StoreCatalogUpsertResult.Forbidden => StatusCode(StatusCodes.Status403Forbidden),
+            StoreCatalogUpsertResult.IdMismatch => BadRequest(new { error = "id_mismatch", message = "El id del cuerpo no coincide con la ruta." }),
+            StoreCatalogUpsertResult.EntityNotFound => NotFound(),
+            _ => StatusCode(StatusCodes.Status500InternalServerError),
+        };
+    }
+
     /// <summary>Alta/edición de una ficha de producto (dueño de la tienda); cuerpo = JSON de producto.</summary>
     /// <param name="storeId">Id de la tienda.</param>
     /// <param name="productId">Id estable del producto.</param>

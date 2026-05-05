@@ -101,6 +101,67 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("agreement_currency_payments", (string)null);
                 });
 
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementMerchandiseLinePaidRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AgreementCurrencyPaymentId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("AmountMinor")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("BuyerUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("MerchandiseLineId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("ReleasedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ThreadId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TradeAgreementId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgreementCurrencyPaymentId");
+
+                    b.HasIndex("MerchandiseLineId", "Currency");
+
+                    b.HasIndex("ThreadId", "Status");
+
+                    b.ToTable("agreement_merchandise_line_paids", (string)null);
+                });
+
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementRouteLegPaidRow", b =>
                 {
                     b.Property<string>("Id")
@@ -270,6 +331,196 @@ namespace VibeTrade.Backend.Migrations
                     b.HasIndex("ExpiresAt");
 
                     b.ToTable("auth_sessions", (string)null);
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.CarrierDeliveryEvidenceRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Attachments")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("AttachmentsJson");
+
+                    b.Property<string>("CarrierUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DeadlineAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DecidedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DecidedByUserId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("LastSubmittedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastSubmittedAttachments")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("LastSubmittedAttachmentsJson");
+
+                    b.Property<string>("LastSubmittedText")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RouteSheetId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("RouteStopId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ThreadId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TradeAgreementId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ThreadId", "TradeAgreementId", "RouteSheetId", "RouteStopId")
+                        .IsUnique();
+
+                    b.ToTable("carrier_delivery_evidences", (string)null);
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.CarrierOwnershipEventRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CarrierUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("RouteSheetId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("RouteStopId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
+
+                    b.Property<string>("ThreadId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ThreadId", "AtUtc");
+
+                    b.HasIndex("RouteSheetId", "RouteStopId", "AtUtc");
+
+                    b.ToTable("carrier_ownership_events", (string)null);
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.CarrierTelemetrySampleRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("CarrierUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<double>("Lat")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("Lng")
+                        .HasColumnType("double precision");
+
+                    b.Property<bool>("OffRoute")
+                        .HasColumnType("boolean");
+
+                    b.Property<double?>("ProgressFraction")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTimeOffset>("ReportedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RouteSheetId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("RouteStopId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
+
+                    b.Property<DateTimeOffset>("ServerReceivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SourceClientId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<double?>("SpeedKmh")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("ThreadId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ThreadId");
+
+                    b.HasIndex("RouteStopId", "ReportedAtUtc");
+
+                    b.ToTable("carrier_telemetry_samples", (string)null);
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatMessageRow", b =>
@@ -608,6 +859,65 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("market_workspaces", (string)null);
                 });
 
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.MerchandiseEvidenceRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AgreementMerchandiseLinePaidId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Attachments")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("AttachmentsJson");
+
+                    b.Property<DateTimeOffset?>("BuyerDecisionAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastSubmittedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastSubmittedAttachments")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("LastSubmittedAttachmentsJson");
+
+                    b.Property<string>("LastSubmittedText")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SellerUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgreementMerchandiseLinePaidId")
+                        .IsUnique();
+
+                    b.ToTable("merchandise_evidences", (string)null);
+                });
+
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.OfferLikeRow", b =>
                 {
                     b.Property<string>("Id")
@@ -673,6 +983,81 @@ namespace VibeTrade.Backend.Migrations
                         .IsUnique();
 
                     b.ToTable("offer_qa_comment_likes", (string)null);
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.RouteStopDeliveryRow", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CurrentOwnerUserId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("EvidenceDeadlineAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double?>("LastTelemetryProgressFraction")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTimeOffset?>("OwnershipGrantedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ProximityNotifiedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RefundEligibleReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("RefundEligibleSinceUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("RefundedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RouteSheetId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("RouteStopId")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ThreadId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TradeAgreementId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CurrentOwnerUserId");
+
+                    b.HasIndex("ThreadId", "State");
+
+                    b.HasIndex("ThreadId", "TradeAgreementId", "RouteSheetId", "RouteStopId")
+                        .IsUnique();
+
+                    b.ToTable("route_stop_deliveries", (string)null);
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.RouteTramoSubscriptionRow", b =>
@@ -926,6 +1311,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<long>("JoinedAtMs")
                         .HasColumnType("bigint");
 
@@ -973,7 +1361,7 @@ namespace VibeTrade.Backend.Migrations
 
                     b.HasIndex("NormalizedName")
                         .IsUnique()
-                        .HasFilter("\"NormalizedName\" IS NOT NULL");
+                        .HasFilter("\"NormalizedName\" IS NOT NULL AND \"DeletedAtUtc\" IS NULL");
 
                     b.HasIndex("OwnerUserId");
 
@@ -1882,6 +2270,17 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("TradeAgreement");
                 });
 
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementMerchandiseLinePaidRow", b =>
+                {
+                    b.HasOne("VibeTrade.Backend.Data.Entities.AgreementCurrencyPaymentRow", "AgreementCurrencyPayment")
+                        .WithMany("MerchandiseLinePaids")
+                        .HasForeignKey("AgreementCurrencyPaymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AgreementCurrencyPayment");
+                });
+
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementRouteLegPaidRow", b =>
                 {
                     b.HasOne("VibeTrade.Backend.Data.Entities.AgreementCurrencyPaymentRow", "AgreementCurrencyPayment")
@@ -1911,6 +2310,33 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("TradeAgreement");
                 });
 
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.CarrierDeliveryEvidenceRow", b =>
+                {
+                    b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", null)
+                        .WithMany()
+                        .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.CarrierOwnershipEventRow", b =>
+                {
+                    b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", null)
+                        .WithMany()
+                        .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.CarrierTelemetrySampleRow", b =>
+                {
+                    b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", null)
+                        .WithMany()
+                        .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatMessageRow", b =>
                 {
                     b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", "Thread")
@@ -1932,6 +2358,26 @@ namespace VibeTrade.Backend.Migrations
                 });
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatSocialGroupMemberRow", b =>
+                {
+                    b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", null)
+                        .WithMany()
+                        .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.MerchandiseEvidenceRow", b =>
+                {
+                    b.HasOne("VibeTrade.Backend.Data.Entities.AgreementMerchandiseLinePaidRow", "AgreementMerchandiseLinePaid")
+                        .WithMany()
+                        .HasForeignKey("AgreementMerchandiseLinePaidId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AgreementMerchandiseLinePaid");
+                });
+
+            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.RouteStopDeliveryRow", b =>
                 {
                     b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", null)
                         .WithMany()
@@ -2164,6 +2610,8 @@ namespace VibeTrade.Backend.Migrations
 
             modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AgreementCurrencyPaymentRow", b =>
                 {
+                    b.Navigation("MerchandiseLinePaids");
+
                     b.Navigation("RouteLegPaids");
                 });
 

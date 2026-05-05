@@ -74,6 +74,33 @@ public sealed record RouteTramoSubscriptionsBroadcastArgs(
     string ActorUserId,
     string? EmergentPublicationOfferId = null);
 
+/// <summary>Transportista del tramo siguiente: el tramo anterior está listo para entrega / handoff.</summary>
+public sealed record RouteLegHandoffReadyNotificationArgs(
+    string RecipientCarrierUserId,
+    string ThreadId,
+    string RouteSheetId,
+    string AgreementId,
+    string RouteStopId,
+    string MessagePreview);
+
+/// <summary>Transportista receptor: otro transportista le cedió la titularidad del paquete en el tramo actual.</summary>
+public sealed record RouteOwnershipGrantedNotificationArgs(
+    string RecipientCarrierUserId,
+    string ThreadId,
+    string RouteSheetId,
+    string AgreementId,
+    string RouteStopId,
+    string MessagePreview);
+
+/// <summary>Participante del hilo: el transportista está cerca del fin del tramo (handoff próximo).</summary>
+public sealed record RouteLegProximityNotificationArgs(
+    string RecipientUserId,
+    string ThreadId,
+    string RouteSheetId,
+    string AgreementId,
+    string RouteStopId,
+    string MessagePreview);
+
 /// <summary>Quien editó la hoja indica un teléfono de transportista registrado: aviso in-app (no requiere estar en el hilo aún).</summary>
 public sealed record RouteSheetPreselectedTransportistaNotificationArgs(
     string RecipientUserId,
@@ -133,4 +160,7 @@ public sealed record PartySoftLeaveArgs(
 public sealed record PartySoftLeaveResult(
     bool Success,
     string? ErrorCode,
-    bool SkipClientTrustPenalty);
+    bool SkipClientTrustPenalty,
+    int? OtherMemberCount = null,
+    bool OtherMemberPenaltyApplied = false,
+    int? TrustScoreAfterMemberPenalty = null);

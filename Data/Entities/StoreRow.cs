@@ -44,6 +44,9 @@ public sealed class StoreRow
 
     public DateTimeOffset UpdatedAt { get; set; }
 
+    /// <summary>Borrado lógico; null = tienda activa.</summary>
+    public DateTimeOffset? DeletedAtUtc { get; set; }
+
     public ICollection<StoreProductRow> Products { get; set; } = new List<StoreProductRow>();
 
     public ICollection<StoreServiceRow> Services { get; set; } = new List<StoreServiceRow>();
