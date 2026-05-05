@@ -5,7 +5,9 @@ public sealed record CarrierTelemetryIngestResultDto(
     string? ErrorCode,
     string? Message,
     double? ProgressFraction,
-    bool OffRoute);
+    bool OffRoute,
+    double? SpeedKmh = null,
+    string? AvatarUrl = null);
 
 public sealed record RouteStopDeliveryStatusDto(
     string RouteSheetId,
@@ -25,4 +27,5 @@ public sealed record CarrierTelemetryLatestPointDto(
     double? ProgressFraction,
     bool OffRoute,
     DateTimeOffset ReportedAtUtc,
-    double? SpeedKmh);
+    double? SpeedKmh,
+    string? AvatarUrl);

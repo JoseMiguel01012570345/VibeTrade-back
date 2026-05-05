@@ -40,6 +40,12 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
         if (!await chat.UserCanAccessThreadRowAsync(uid, thread, cancellationToken).ConfigureAwait(false))
             return null;
 
+        var avatarUrl = await db.UserAccounts.AsNoTracking()
+            .Where(u => u.Id == uid)
+            .Select(u => u.AvatarUrl)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         var subOk = await db.RouteTramoSubscriptions.AsNoTracking().AnyAsync(
                 x =>
                     x.ThreadId == tid
@@ -51,7 +57,7 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
             .ConfigureAwait(false);
         if (!subOk)
             return new CarrierTelemetryIngestResultDto(false, "not_confirmed_carrier", "No sos el transportista confirmado en este tramo.", null,
-                true);
+                true, null, avatarUrl);
 
         var sheet = await db.ChatRouteSheets.AsNoTracking()
             .FirstOrDefaultAsync(x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
@@ -59,11 +65,11 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
             .ConfigureAwait(false);
         if (sheet?.Payload.Paradas is not { Count: > 0 } stops)
             return new CarrierTelemetryIngestResultDto(false, "route_sheet_not_found", "No se encontró la hoja de ruta.", null,
-                true);
+                true, null, avatarUrl);
 
         var stop = stops.FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
         if (stop is null)
-            return new CarrierTelemetryIngestResultDto(false, "stop_not_found", "Tramo inválido.", null, true);
+            return new CarrierTelemetryIngestResultDto(false, "stop_not_found", "Tramo inválido.", null, true, null, avatarUrl);
 
         List<List<double>> poly = stop.OsrmRouteLatLngs ?? [];
         if (poly.Count < 2)
@@ -82,7 +88,7 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
 
         if (poly.Count < 2)
             return new CarrierTelemetryIngestResultDto(false, "no_geometry", "Este tramo no tiene geometría para proyectar GPS.",
-                null, true);
+                null, true, null, avatarUrl);
 
         var routeLen = PolylineLengthMeters(poly);
         var tol = PolylineProjection.AdaptiveToleranceMeters(routeLen);
@@ -98,7 +104,10 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
         if (last is not null && last.ReportedAtUtc > reportedAtUtc)
-            return new CarrierTelemetryIngestResultDto(true, null, null, last.ProgressFraction, last.OffRoute);
+            return new CarrierTelemetryIngestResultDto(true, null, null, last.ProgressFraction, last.OffRoute, last.SpeedKmh,
+                avatarUrl);
+
+        var resolvedSpeedKmh = ResolveSpeedKmh(last, lat, lng, reportedAtUtc, speedKmh);
 
         var now = DateTimeOffset.UtcNow;
         var row = new CarrierTelemetrySampleRow
@@ -110,7 +119,7 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
             CarrierUserId = uid,
             Lat = lat,
             Lng = lng,
-            SpeedKmh = speedKmh,
+            SpeedKmh = resolvedSpeedKmh,
             ReportedAtUtc = reportedAtUtc,
             ServerReceivedAtUtc = now,
             SourceClientId = client,
@@ -131,14 +140,14 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
         {
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return new CarrierTelemetryIngestResultDto(false, "delivery_missing", "Este tramo no está activo en el acuerdo.", null,
-                projection.OffRoute);
+                projection.OffRoute, resolvedSpeedKmh, avatarUrl);
         }
 
         if (!string.Equals(delivery.CurrentOwnerUserId, uid, StringComparison.Ordinal))
         {
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return new CarrierTelemetryIngestResultDto(false, "not_owner", "No tenés el paquete en este tramo (ownership).", null,
-                projection.OffRoute);
+                projection.OffRoute, resolvedSpeedKmh, avatarUrl);
         }
 
         if (delivery.State is RouteStopDeliveryStates.Paid or RouteStopDeliveryStates.AwaitingCarrierForHandoff)
@@ -170,11 +179,13 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
                 projection.Progress01,
                 projection.OffRoute,
                 reportedAtUtc,
-                speedKmh,
+                resolvedSpeedKmh,
+                avatarUrl,
                 cancellationToken)
             .ConfigureAwait(false);
 
-        return new CarrierTelemetryIngestResultDto(true, null, null, projection.Progress01, projection.OffRoute);
+        return new CarrierTelemetryIngestResultDto(true, null, null, projection.Progress01, projection.OffRoute, resolvedSpeedKmh,
+            avatarUrl);
     }
 
     public async Task<IReadOnlyList<RouteStopDeliveryStatusDto>?> ListDeliveriesAsync(
@@ -254,6 +265,17 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
                 g => g.Key,
                 g => g.OrderByDescending(x => x.ReportedAtUtc).First());
 
+        var ownerIds = deliveries
+            .Select(x => (x.CurrentOwnerUserId ?? "").Trim())
+            .Where(x => x.Length >= 2)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var avatarByUser = await db.UserAccounts.AsNoTracking()
+            .Where(u => ownerIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.AvatarUrl })
+            .ToDictionaryAsync(x => x.Id, x => x.AvatarUrl, StringComparer.Ordinal, cancellationToken)
+            .ConfigureAwait(false);
+
         var rows = new List<CarrierTelemetryLatestPointDto>();
         foreach (var d in deliveries)
         {
@@ -264,6 +286,8 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
             if (!latestByStopAndCarrier.TryGetValue((sid, owner), out var sample))
                 continue;
 
+            avatarByUser.TryGetValue(owner, out var av);
+
             rows.Add(new CarrierTelemetryLatestPointDto(
                 rsid,
                 sid,
@@ -273,7 +297,8 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
                 sample.ProgressFraction,
                 sample.OffRoute,
                 sample.ReportedAtUtc,
-                sample.SpeedKmh));
+                sample.SpeedKmh,
+                av));
         }
 
         return rows;
@@ -320,32 +345,40 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
         if (string.Equals(nc, currentCarrierUserId, StringComparison.Ordinal))
             return;
 
-        var thread = await db.ChatThreads.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken)
-            .ConfigureAwait(false);
-        if (thread is null)
-            return;
-
-        var buyer = (thread.BuyerUserId ?? "").Trim();
-        var seller = (thread.SellerUserId ?? "").Trim();
         var preview =
-            "El transportista está cerca del punto de handoff del tramo. Coordiná la recepción con el siguiente transportista.";
+            "El transportista anterior está cerca del fin de tramo: podés coordinar el handoff cuando corresponda.";
 
-        foreach (var rid in new[] { buyer, seller }.Where(x => x.Length >= 2).Distinct(StringComparer.Ordinal))
-        {
-            await chat.NotifyRouteLegProximityAsync(
-                    new RouteLegProximityNotificationArgs(
-                        rid,
-                        threadId,
-                        routeSheetId,
-                        agreementId,
-                        currentStopId,
-                        preview),
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
+        await chat.NotifyRouteLegProximityAsync(
+                new RouteLegProximityNotificationArgs(
+                    nc,
+                    threadId,
+                    routeSheetId,
+                    agreementId,
+                    currentStopId,
+                    preview),
+                cancellationToken)
+            .ConfigureAwait(false);
 
         deliveryRow.ProximityNotifiedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    private static double? ResolveSpeedKmh(
+        CarrierTelemetrySampleRow? prev,
+        double lat,
+        double lng,
+        DateTimeOffset reportedAtUtc,
+        double? clientSpeedKmh)
+    {
+        if (prev is null)
+            return clientSpeedKmh;
+        var dt = reportedAtUtc - prev.ReportedAtUtc;
+        if (dt <= TimeSpan.Zero || dt.TotalSeconds < 0.5)
+            return clientSpeedKmh;
+        var distM = HaversineMeters(prev.Lat, prev.Lng, lat, lng);
+        var hours = dt.TotalHours;
+        if (hours <= 0)
+            return clientSpeedKmh;
+        return distM / 1000.0 / hours;
     }
 
     private static double PolylineLengthMeters(IReadOnlyList<List<double>> poly)

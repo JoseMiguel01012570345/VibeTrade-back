@@ -133,7 +133,7 @@ public interface IChatService
         RouteOwnershipGrantedNotificationArgs request,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Comprador/vendedor: proximidad al fin de tramo (para coordinar handoff).</summary>
+    /// <summary>Transportista del tramo siguiente: proximidad al fin del tramo actual (coordinación de handoff).</summary>
     Task NotifyRouteLegProximityAsync(
         RouteLegProximityNotificationArgs request,
         CancellationToken cancellationToken = default);
@@ -153,6 +153,7 @@ public interface IChatService
         bool offRoute,
         DateTimeOffset reportedAtUtc,
         double? speedKmh,
+        string? avatarUrl,
         CancellationToken cancellationToken = default);
 
     /// <summary>Vendedor: notificación in-app cuando la confianza de su tienda se reduce por hoja de ruta / expulsión (demo).</summary>

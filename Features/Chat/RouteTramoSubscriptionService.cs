@@ -800,6 +800,23 @@ public sealed class RouteTramoSubscriptionService(
         var confirmedStopCount = subs.Count(x =>
             string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase));
 
+        var hasRejectedRouteEvidence = await db.CarrierDeliveryEvidences.AsNoTracking()
+            .AnyAsync(
+                e =>
+                    e.ThreadId == tid
+                    && e.CarrierUserId == uid
+                    && e.Status == ServiceEvidenceStatuses.Rejected
+                    && db.RouteTramoSubscriptions.Any(s =>
+                        s.ThreadId == tid
+                        && s.RouteSheetId == e.RouteSheetId
+                        && s.StopId == e.RouteStopId
+                        && s.CarrierUserId == uid
+                        && s.Status == "confirmed"),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (hasRejectedRouteEvidence)
+            return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_route_evidence_rejected" };
+
         var hasBlockingOwnership = await db.RouteStopDeliveries.AsNoTracking()
             .AnyAsync(
                 x =>

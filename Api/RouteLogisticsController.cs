@@ -16,12 +16,12 @@ public sealed class RouteLogisticsController(
     ICarrierDeliveryEvidenceService carrierEvidence,
     ICarrierLegRefundService carrierLegRefund) : ControllerBase
 {
+    /// <summary>Cuerpo POST telemetría: coordenadas y metadatos; la velocidad la calcula el servidor entre muestras.</summary>
     public sealed record PostTelemetryBody(
         string RouteSheetId,
         string RouteStopId,
         double Lat,
         double Lng,
-        double? SpeedKmh,
         DateTimeOffset ReportedAtUtc,
         string SourceClientId);
 
@@ -50,7 +50,7 @@ public sealed class RouteLogisticsController(
                 body.RouteStopId.Trim(),
                 body.Lat,
                 body.Lng,
-                body.SpeedKmh,
+                speedKmh: null,
                 body.ReportedAtUtc,
                 body.SourceClientId.Trim(),
                 cancellationToken)
@@ -176,6 +176,8 @@ public sealed class RouteLogisticsController(
 
         if (status == StatusCodes.Status404NotFound)
             return NotFound();
+        if (status == StatusCodes.Status403Forbidden)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = err });
         if (status != StatusCodes.Status200OK || data is null)
             return BadRequest(new { message = err });
 
@@ -187,6 +189,7 @@ public sealed class RouteLogisticsController(
     [ProducesResponseType(typeof(CarrierDeliveryEvidenceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpsertEvidence(
         string threadId,
@@ -212,6 +215,8 @@ public sealed class RouteLogisticsController(
 
         if (status == StatusCodes.Status404NotFound)
             return NotFound();
+        if (status == StatusCodes.Status403Forbidden)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = err });
         if (status != StatusCodes.Status200OK)
             return BadRequest(new { message = err });
 

@@ -55,7 +55,7 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
         if (delivery is null)
             return (StatusCodes.Status404NotFound, null, null);
         if (!string.Equals(delivery.CurrentOwnerUserId, uid, StringComparison.Ordinal))
-            return (StatusCodes.Status400BadRequest, "No tenés el paquete en este tramo.", null);
+            return (StatusCodes.Status403Forbidden, "No tenés el paquete en este tramo.", null);
 
         var payloadUpsert = await LoadPayloadAsync(tid, rsid, cancellationToken).ConfigureAwait(false);
         var orderedUpsert = RouteLegOwnershipChain.OrderedStopIds(payloadUpsert);
@@ -235,6 +235,30 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            var orderedForNotify = RouteLegOwnershipChain.OrderedStopIds(payloadDecide);
+            var notifyPaidStops = new HashSet<string>(StringComparer.Ordinal) { sid.Trim() };
+            var nextAfterAccept = RouteLegOwnershipChain.NextStopId(orderedForNotify, sid);
+            var nextTrim = (nextAfterAccept ?? "").Trim();
+            if (nextTrim.Length > 0)
+            {
+                var nextPaid = await db.RouteStopDeliveries.AsNoTracking().AnyAsync(
+                        x =>
+                            x.ThreadId == tid
+                            && x.TradeAgreementId == aid
+                            && x.RouteSheetId == rsid
+                            && x.RouteStopId == nextTrim
+                            && (x.State == RouteStopDeliveryStates.Paid
+                                || x.State == RouteStopDeliveryStates.InTransit
+                                || x.State == RouteStopDeliveryStates.DeliveredPendingEvidence
+                                || x.State == RouteStopDeliveryStates.EvidenceSubmitted
+                                || x.State == RouteStopDeliveryStates.EvidenceAccepted
+                                || x.State == RouteStopDeliveryStates.EvidenceRejected),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (nextPaid)
+                    notifyPaidStops.Add(nextTrim);
+            }
+
             await RouteLegHandoffNotifications.NotifyPaidStopsAsync(
                     db,
                     chat,
@@ -242,7 +266,7 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
                     aid,
                     rsid,
                     payloadDecide,
-                    new HashSet<string>(StringComparer.Ordinal) { sid },
+                    notifyPaidStops,
                     cancellationToken)
                 .ConfigureAwait(false);
 

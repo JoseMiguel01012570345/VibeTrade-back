@@ -891,6 +891,7 @@ public sealed partial class ChatService(
         bool offRoute,
         DateTimeOffset reportedAtUtc,
         double? speedKmh,
+        string? avatarUrl,
         CancellationToken cancellationToken = default)
     {
         var tid = (threadId ?? "").Trim();
@@ -916,6 +917,7 @@ public sealed partial class ChatService(
                 offRoute,
                 reportedAtUtc,
                 speedKmh,
+                avatarUrl,
             },
             cancellationToken);
     }

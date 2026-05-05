@@ -679,6 +679,14 @@ public sealed class ChatController(
                 message = "No podés salir mientras tengas carga asignada como transportista activo.",
             });
         }
+        if (string.Equals(result.ErrorCode, "carrier_route_evidence_rejected", StringComparison.Ordinal))
+        {
+            return Conflict(new
+            {
+                error = result.ErrorCode,
+                message = "Tenés evidencia de tramo rechazada: reenviá o coordiná con la tienda antes de salir de la operación.",
+            });
+        }
         return Ok(result);
     }
 
