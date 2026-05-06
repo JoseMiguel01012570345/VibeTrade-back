@@ -13,7 +13,6 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
         string agreementId,
         string routeSheetId,
         string routeStopId,
-        string targetCarrierUserId,
         CancellationToken cancellationToken = default)
     {
         var uid = (actorUserId ?? "").Trim();
@@ -21,8 +20,7 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
         var aid = (agreementId ?? "").Trim();
         var rsid = (routeSheetId ?? "").Trim();
         var sid = (routeStopId ?? "").Trim();
-        var target = (targetCarrierUserId ?? "").Trim();
-        if (uid.Length < 2 || tid.Length < 4 || aid.Length < 8 || rsid.Length < 1 || sid.Length < 1 || target.Length < 2)
+        if (uid.Length < 2 || tid.Length < 4 || aid.Length < 8 || rsid.Length < 1 || sid.Length < 1)
             return null;
 
         var thread = await db.ChatThreads.AsNoTracking()
@@ -51,6 +49,16 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
                 cancellationToken)
             .ConfigureAwait(false);
         var ordered = RouteLegOwnershipChain.OrderedStopIds(sheetRow?.Payload);
+
+        var auto = await ResolveAutomaticCedeTargetAsync(tid, rsid, sid, uid, ordered, cancellationToken)
+            .ConfigureAwait(false);
+        if (auto is null || auto.Length < 2)
+            return new CarrierOwnershipCedeResultDto(
+                false,
+                "target_unresolved",
+                "No se pudo determinar automáticamente el destino. Indicá un transportista confirmado en este tramo o en el siguiente.");
+        var target = auto;
+
         var nextStopId = RouteLegOwnershipChain.NextStopId(ordered, sid);
         var ordenStop = (sheetRow?.Payload?.Paradas ?? [])
             .FirstOrDefault(pp =>
@@ -84,10 +92,11 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
             nextCarrierUid = (nc ?? "").Trim();
         }
 
+        var nextUidForSkip = (nextCarrierUid ?? "").Trim();
         if (nextStopId is not null
             && actorUidNorm.Length >= 2
-            && nextCarrierUid.Length >= 2
-            && string.Equals(actorUidNorm, nextCarrierUid, StringComparison.Ordinal))
+            && nextUidForSkip.Length >= 2
+            && string.Equals(actorUidNorm, nextUidForSkip, StringComparison.Ordinal))
             return new CarrierOwnershipCedeResultDto(false, "cede_not_applicable",
                 "No aplica ceder aquí: el siguiente tramo es del mismo transportista.");
 
@@ -202,6 +211,68 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
             .ConfigureAwait(false);
 
         return new CarrierOwnershipCedeResultDto(true, null, null);
+    }
+
+    /// <summary>
+    /// Destino por defecto: primer transportista confirmado en un tramo posterior cuyo usuario sea distinto del actor
+    /// (salta tramos consecutivos del mismo carrier). Si no hay, otro confirmado en el mismo tramo.
+    /// </summary>
+    private async Task<string?> ResolveAutomaticCedeTargetAsync(
+        string threadId,
+        string routeSheetId,
+        string routeStopId,
+        string actorUserId,
+        IReadOnlyList<string> ordered,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var rsid = (routeSheetId ?? "").Trim();
+        var sid = (routeStopId ?? "").Trim();
+        var actor = (actorUserId ?? "").Trim();
+        if (tid.Length < 4 || rsid.Length < 1 || sid.Length < 1 || actor.Length < 2)
+            return null;
+
+        var idx = RouteLegOwnershipChain.StopIndex(ordered, sid);
+        if (idx < 0)
+            return null;
+
+        for (var j = idx + 1; j < ordered.Count; j++)
+        {
+            var nextSid = (ordered[j] ?? "").Trim();
+            if (nextSid.Length == 0)
+                continue;
+            var nc = await db.RouteTramoSubscriptions.AsNoTracking()
+                .Where(x =>
+                    x.ThreadId == tid
+                    && x.RouteSheetId == rsid
+                    && x.StopId == nextSid
+                    && x.Status == "confirmed")
+                .Select(x => x.CarrierUserId)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var nextUid = (nc ?? "").Trim();
+            if (nextUid.Length >= 2 && !string.Equals(nextUid, actor, StringComparison.Ordinal))
+                return nextUid;
+        }
+
+        var sameStop = await db.RouteTramoSubscriptions.AsNoTracking()
+            .Where(x =>
+                x.ThreadId == tid
+                && x.RouteSheetId == rsid
+                && x.StopId == sid
+                && x.Status == "confirmed"
+                && x.CarrierUserId != null)
+            .Select(x => x.CarrierUserId!)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        foreach (var o in sameStop)
+        {
+            var o2 = (o ?? "").Trim();
+            if (o2.Length >= 2 && !string.Equals(o2, actor, StringComparison.Ordinal))
+                return o2;
+        }
+
+        return null;
     }
 
     /// <summary>

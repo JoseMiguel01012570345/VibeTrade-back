@@ -8,6 +8,5 @@ public interface ICarrierOwnershipService
         string agreementId,
         string routeSheetId,
         string routeStopId,
-        string targetCarrierUserId,
         CancellationToken cancellationToken = default);
 }

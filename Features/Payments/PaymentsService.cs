@@ -111,7 +111,7 @@ public sealed class PaymentsService(
         CancellationToken cancellationToken = default)
     {
         var serverKey = PaymentStripeEnv.StripeServerApiKey();
-        if (serverKey is null)
+        if (serverKey is null && !PaymentStripeEnv.SkipStripePaymentIntentCreate())
         {
             return (false,
                 new
@@ -122,12 +122,21 @@ public sealed class PaymentsService(
                 null);
         }
 
-        StripeConfiguration.ApiKey = serverKey;
+        if (serverKey is not null)
+            StripeConfiguration.ApiKey = serverKey;
+
         var (u, customerId) = await EnsureStripeCustomerAsync(userId.Trim(), cancellationToken)
             .ConfigureAwait(false);
         if (u is null || string.IsNullOrWhiteSpace(customerId))
         {
             return (false, new { error = "not_found", message = "Usuario no encontrado." }, null);
+        }
+
+        if (PaymentStripeEnv.SkipStripePaymentIntentCreate())
+        {
+            // Integration / demo mode: persist a StripeCustomerId for flows that require it,
+            // but do not call Stripe.
+            return (true, null!, new CreateSetupIntentResult("seti_skip_" + Guid.NewGuid().ToString("N")));
         }
 
         var setupSvc = new SetupIntentService();
@@ -666,12 +675,19 @@ public sealed class PaymentsService(
                 x.ThreadId == threadId.Trim()
                 && x.RouteSheetId == rsid
                 && x.Status == "confirmed")
-            .Select(x => new { x.StopId, x.CarrierUserId })
+            .Select(x => new { x.StopId, x.CarrierUserId, x.CreatedAtUtc })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
         var carrierByStop = subs
             .GroupBy(x => (x.StopId ?? "").Trim(), StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => (g.First().CarrierUserId ?? "").Trim(), StringComparer.Ordinal);
+            .ToDictionary(
+                g => g.Key,
+                g => g
+                    .OrderBy(x => x.CreatedAtUtc)
+                    .ThenBy(x => (x.CarrierUserId ?? "").Trim(), StringComparer.Ordinal)
+                    .Select(x => (x.CarrierUserId ?? "").Trim())
+                    .First(),
+                StringComparer.Ordinal);
 
         var existing = await db.RouteStopDeliveries
             .Where(x =>
@@ -1022,6 +1038,13 @@ public sealed class PaymentsService(
         var existing = (u.StripeCustomerId ?? "").Trim();
         if (existing.Length > 0)
             return (u, existing);
+
+        if (PaymentStripeEnv.SkipStripePaymentIntentCreate())
+        {
+            u.StripeCustomerId = "cus_test_skip_" + Guid.NewGuid().ToString("N")[..16];
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            return (u, u.StripeCustomerId);
+        }
 
         var createSvc = new CustomerService();
         var c = await createSvc.CreateAsync(

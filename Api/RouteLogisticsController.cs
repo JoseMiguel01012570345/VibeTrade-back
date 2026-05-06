@@ -64,7 +64,7 @@ public sealed class RouteLogisticsController(
         return Ok(r);
     }
 
-    public sealed record CedeOwnershipBody(string RouteSheetId, string RouteStopId, string TargetCarrierUserId);
+    public sealed record CedeOwnershipBody(string RouteSheetId, string RouteStopId);
 
     [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/ownership/cede")]
     [Consumes("application/json")]
@@ -88,7 +88,6 @@ public sealed class RouteLogisticsController(
                 agreementId.Trim(),
                 body.RouteSheetId.Trim(),
                 body.RouteStopId.Trim(),
-                body.TargetCarrierUserId.Trim(),
                 cancellationToken)
             .ConfigureAwait(false);
         if (r is null)

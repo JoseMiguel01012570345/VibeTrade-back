@@ -583,4 +583,5 @@ public sealed class TradeAgreementService(
         value = d;
         return d > 0;
     }
+
 }

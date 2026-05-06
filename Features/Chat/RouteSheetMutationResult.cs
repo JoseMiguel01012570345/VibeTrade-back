@@ -7,4 +7,6 @@ public enum RouteSheetMutationResult
     NotFoundOrForbidden,
     /// <summary>Hoja vinculada a un acuerdo con cobros Stripe exitosos.</summary>
     LockedByPaidAgreement,
+    /// <summary>No se puede publicar hasta que un acuerdo del hilo tenga <c>RouteSheetId</c> apuntando a esta hoja.</summary>
+    PublishRequiresAgreementLink,
 }

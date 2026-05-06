@@ -717,6 +717,12 @@ public sealed class ChatController(
                 error = "locked_paid_agreement",
                 message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
             }),
+            RouteSheetMutationResult.PublishRequiresAgreementLink => BadRequest(new
+            {
+                error = "publish_requires_agreement_link",
+                message =
+                    "Publicá la hoja solo después de vincularla al acuerdo (RouteSheetId). Guardá en borrador, vinculá, y recién entonces marcá publicadaPlataforma.",
+            }),
             _ => NotFound(new { error = "not_found", message = "Hilo no encontrado o datos inválidos." }),
         };
     }

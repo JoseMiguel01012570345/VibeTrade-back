@@ -213,6 +213,11 @@ public sealed class RouteSheetChatService(
         if (RouteSheetPayloadValidator.Validate(persisted) is not null)
             return RouteSheetMutationResult.NotFoundOrForbidden;
 
+        var wasPublished = row?.PublishedToPlatform == true;
+        if (published && !wasPublished
+            && !await AgreementLinksRouteSheetAsync(threadId, rsId, cancellationToken).ConfigureAwait(false))
+            return RouteSheetMutationResult.PublishRequiresAgreementLink;
+
         if (row is null)
         {
             db.ChatRouteSheets.Add(new ChatRouteSheetRow
@@ -239,9 +244,7 @@ public sealed class RouteSheetChatService(
         if (subsForSheet is { Count: > 0 })
             ApplyParadaInvitedServicesToSubscriptions(persisted, subsForSheet, now);
 
-        await SyncEmergentOfferAsync(t, rsId, userId, published, persisted, cancellationToken);
-        if (published)
-            await EnsureTradeAgreementLinkForPublishedRouteAsync(threadId, rsId, cancellationToken);
+        await SyncEmergentOfferAsync(t, rsId, (userId ?? "").Trim(), published, persisted, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
 
         if (wasExistingSheet)
@@ -306,25 +309,23 @@ public sealed class RouteSheetChatService(
             : "Se actualizó la hoja de ruta.";
     }
 
-    /// <summary>
-    /// Al publicar, el vínculo acuerdo↔hoja vive en <c>TradeAgreementRow.RouteSheetId</c>.
-    /// El flujo de cliente exige hoja vinculada en estado local, pero el PUT de hoja no actualizaba el acuerdo en BD
-    /// si faltó el PATCH; con un solo acuerdo en el hilo, lo persistimos aquí.
-    /// </summary>
-    private async Task EnsureTradeAgreementLinkForPublishedRouteAsync(
+    private Task<bool> AgreementLinksRouteSheetAsync(
         string threadId,
         string routeSheetId,
         CancellationToken cancellationToken)
     {
-        var agreements = await db.TradeAgreements
-            .Where(a => a.ThreadId == threadId && a.DeletedAtUtc == null)
-            .ToListAsync(cancellationToken);
-        if (agreements.Count != 1)
-            return;
-        var ag = agreements[0];
-        if (string.Equals(ag.RouteSheetId?.Trim(), routeSheetId, StringComparison.Ordinal))
-            return;
-        ag.RouteSheetId = routeSheetId;
+        var tid = (threadId ?? "").Trim();
+        var rs = (routeSheetId ?? "").Trim();
+        if (tid.Length < 4 || rs.Length < 1)
+            return Task.FromResult(false);
+
+        // Avoid string.Equals(..., StringComparison): not translatable to SQL on all EF providers.
+        return db.TradeAgreements.AsNoTracking().AnyAsync(
+            a =>
+                a.ThreadId == tid
+                && a.DeletedAtUtc == null
+                && (a.RouteSheetId ?? "") == rs,
+            cancellationToken);
     }
 
     public async Task<RouteSheetMutationResult> DeleteAsync(

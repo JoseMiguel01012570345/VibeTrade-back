@@ -54,8 +54,28 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
             .ConfigureAwait(false);
         if (delivery is null)
             return (StatusCodes.Status404NotFound, null, null);
-        if (!string.Equals(delivery.CurrentOwnerUserId, uid, StringComparison.Ordinal))
-            return (StatusCodes.Status403Forbidden, "No tenés el paquete en este tramo.", null);
+
+        var isCurrentOperationalOwner = string.Equals(delivery.CurrentOwnerUserId, uid, StringComparison.Ordinal);
+        if (!isCurrentOperationalOwner)
+        {
+            // Titular actual: puede enviar evidencia del tramo en curso. Si ya no es titular, solo si cedió
+            // explícitamente la titularidad en este tramo (handoff a otro transportista).
+            var cededOwnershipOnThisLeg = await db.CarrierOwnershipEvents.AsNoTracking()
+                .AnyAsync(
+                    x =>
+                        x.ThreadId == tid
+                        && x.RouteSheetId == rsid
+                        && x.RouteStopId == sid
+                        && x.CarrierUserId == uid
+                        && x.Action == CarrierOwnershipActions.Released
+                        && x.Reason == "carrier_cede",
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!cededOwnershipOnThisLeg)
+                return (StatusCodes.Status403Forbidden,
+                    "Solo el titular del tramo o quien ya cedió la titularidad aquí puede enviar evidencia.",
+                    null);
+        }
 
         var payloadUpsert = await LoadPayloadAsync(tid, rsid, cancellationToken).ConfigureAwait(false);
         var orderedUpsert = RouteLegOwnershipChain.OrderedStopIds(payloadUpsert);
