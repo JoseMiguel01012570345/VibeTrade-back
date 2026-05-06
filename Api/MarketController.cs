@@ -11,8 +11,11 @@ using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
-using VibeTrade.Backend.Features.Market.Utils;
-using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Recommendations.Core;
+using VibeTrade.Backend.Features.Recommendations.Feed;
+using VibeTrade.Backend.Features.Recommendations.Guest;
+using VibeTrade.Backend.Features.Recommendations.Popularity;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Infrastructure;
 

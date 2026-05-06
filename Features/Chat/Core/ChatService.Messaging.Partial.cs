@@ -7,9 +7,12 @@ using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Interfaces;
-using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Recommendations.Core;
+using VibeTrade.Backend.Features.Recommendations.Feed;
+using VibeTrade.Backend.Features.Recommendations.Guest;
+using VibeTrade.Backend.Features.Recommendations.Popularity;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
-using VibeTrade.Backend.Features.Chat.Utils;
+using VibeTrade.Backend.Features.Chat;
 
 namespace VibeTrade.Backend.Features.Chat.Core;
 
@@ -129,7 +132,7 @@ public sealed partial class ChatService
                 : store!.Name.Trim();
         }
 
-        if (await IsUserActiveCarrierOnThreadAsync(senderUserId, thread.Id, cancellationToken))
+        if (await ChatQueryHelpers.IsUserActiveCarrierOnThreadAsync(db, senderUserId, thread.Id, cancellationToken))
         {
             var cAcc = await db.UserAccounts.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == senderUserId, cancellationToken);
@@ -287,7 +290,7 @@ public sealed partial class ChatService
                 .AnyAsync(m => m.ThreadId == t.Id && m.UserId == sid, cancellationToken);
         if (!isBuyerOrSeller
             && !isSocialExtraMember
-            && !await IsUserActiveCarrierOnThreadAsync(sid, t.Id, cancellationToken))
+            && !await ChatQueryHelpers.IsUserActiveCarrierOnThreadAsync(db, sid, t.Id, cancellationToken))
             return null;
 
         return type switch

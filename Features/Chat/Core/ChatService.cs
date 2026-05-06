@@ -7,10 +7,13 @@ using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
-using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Recommendations.Core;
+using VibeTrade.Backend.Features.Recommendations.Feed;
+using VibeTrade.Backend.Features.Recommendations.Guest;
+using VibeTrade.Backend.Features.Recommendations.Popularity;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Utils;
-using VibeTrade.Backend.Features.Chat.Utils;
+using VibeTrade.Backend.Features.Chat;
 
 namespace VibeTrade.Backend.Features.Chat.Core;
 

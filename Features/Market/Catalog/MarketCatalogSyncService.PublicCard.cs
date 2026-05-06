@@ -1,7 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Features.Market.Dtos;
-using VibeTrade.Backend.Features.Market.Utils;
-using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Recommendations.Core;
+using VibeTrade.Backend.Features.Recommendations.Feed;
+using VibeTrade.Backend.Features.Recommendations.Guest;
+using VibeTrade.Backend.Features.Recommendations.Popularity;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
 namespace VibeTrade.Backend.Features.Market.Catalog;

@@ -6,8 +6,8 @@ public sealed class MarketWorkspacePatch
     public Dictionary<string, StoreProfileWorkspaceData>? Stores { get; set; }
     public Dictionary<string, HomeOfferViewDto>? Offers { get; set; }
     public List<string>? OfferIds { get; set; }
-    public Dictionary<string, StoreCatalogBlockView>? StoreCatalogs { get; set; }
-    public Dictionary<string, VibeTrade.Backend.Features.Chat.ChatThreadWorkspaceDto>? Threads { get; set; }
+    public Dictionary<string, StoreCatalogBlockView>? StoreCatalogs { get; set; }   
+    public Dictionary<string, ChatThreadWorkspaceDto>? Threads { get; set; }
     public Dictionary<string, RouteOfferPublicEntryView>? RouteOfferPublic { get; set; }
 
     public static MarketWorkspaceState Merge(MarketWorkspaceState existing, MarketWorkspacePatch patch)

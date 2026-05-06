@@ -1,4 +1,4 @@
-ï»¿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -17,7 +17,7 @@ namespace VibeTrade.Backend.Migrations
                 maxLength: 512,
                 nullable: true);
 
-            // Alineado con normStoreName del cliente: trim, colapsar espacios, lower; vacÃ­o -> NULL (no entra en Ã­ndice Ãºnico).
+            // Alineado con normStoreName del cliente: trim, colapsar espacios, lower; vacío -> NULL (no entra en índice único).
             migrationBuilder.Sql(
                 """
                 UPDATE stores

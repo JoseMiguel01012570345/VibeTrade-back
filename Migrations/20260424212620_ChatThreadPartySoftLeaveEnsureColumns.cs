@@ -1,4 +1,4 @@
-ï»¿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -10,7 +10,7 @@ namespace VibeTrade.Backend.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // Repara bases donde `ChatThreadPartySoftLeave` quedÃ³ aplicada con Up() vacÃ­o:
+            // Repara bases donde `ChatThreadPartySoftLeave` quedó aplicada con Up() vacío:
             // `MigrateAsync` no re-ejecuta migraciones ya registradas en __EFMigrationsHistory.
             migrationBuilder.Sql(
                 """

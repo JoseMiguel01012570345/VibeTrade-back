@@ -9,7 +9,7 @@ using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Market.Interfaces;
-using VibeTrade.Backend.Features.Market.Utils;
+using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Infrastructure.DemoData;
 

@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Chat.Utils;
+using VibeTrade.Backend.Features.Chat;
 
 namespace VibeTrade.Backend.Features.Chat.Core;
 

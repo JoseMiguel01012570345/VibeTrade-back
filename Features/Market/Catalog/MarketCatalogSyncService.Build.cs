@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using VibeTrade.Backend.Features.Market.Utils;
+using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Features.Market.Catalog;
 

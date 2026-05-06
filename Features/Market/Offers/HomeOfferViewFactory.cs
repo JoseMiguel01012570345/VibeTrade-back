@@ -1,6 +1,6 @@
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market.Dtos;
-using VibeTrade.Backend.Features.Market.Utils;
+using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Features.Market.Offers;
 
