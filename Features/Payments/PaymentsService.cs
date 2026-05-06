@@ -15,7 +15,7 @@ public sealed class PaymentsService(
     AppDbContext db,
     IChatService chat,
     IPaymentFeeReceiptEmailDispatcher paymentFeeReceiptEmail)
-    : IPaymentsService
+    : IPaymentsService, IStripeUserPaymentService, IStripePaymentIntentService, IAgreementPaymentService
 {
     private sealed record AgreementCheckoutTarget(
         string ThreadId,

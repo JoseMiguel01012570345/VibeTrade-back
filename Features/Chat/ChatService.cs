@@ -14,7 +14,15 @@ namespace VibeTrade.Backend.Features.Chat;
 public sealed partial class ChatService(
     AppDbContext db,
     IHubContext<ChatHub> hub,
-    IPartySoftLeaveCoordinator partySoftLeave) : IChatService
+    IPartySoftLeaveCoordinator partySoftLeave)
+    : IChatService,
+        IThreadManagementService,
+        IMessageHandlingService,
+        IParticipantManagementService,
+        INotificationService,
+        ISignalRBroadcastService,
+        IOfferRelationService,
+        IThreadAccessControlService
 {
     /// <summary>Oferta ficticia para hilos solo mensajería (lista/chat sin catálogo).</summary>
     private const string SocialThreadOfferId = "__vt_social__";
