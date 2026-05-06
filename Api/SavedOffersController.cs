@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.SavedOffers;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -9,12 +9,8 @@ namespace VibeTrade.Backend.Api;
 [Route("api/v1/me/saved-offers")]
 [Produces("application/json")]
 [Tags("Saved offers")]
-public sealed class SavedOffersController(IAuthService auth, ISavedOffersService savedOffers) : ControllerBase
+public sealed class SavedOffersController(ICurrentUserAccessor currentUser, ISavedOffersService savedOffers) : ControllerBase
 {
-    public sealed record SaveBody(string ProductId);
-
-    public sealed record SavedOfferIdsResponse(IReadOnlyList<string> SavedOfferIds);
-
     /// <summary>Guarda el id de producto/servicio. Rechaza si la oferta es de una tienda propia.</summary>
     [HttpPost]
     [Consumes("application/json")]
@@ -22,13 +18,13 @@ public sealed class SavedOffersController(IAuthService auth, ISavedOffersService
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> Post([FromBody] SaveBody body, CancellationToken cancellationToken)
+    public async Task<IActionResult> Post([FromBody] SaveOfferBody body, CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
             return Unauthorized();
         if (body is null || string.IsNullOrWhiteSpace(body.ProductId))
             return BadRequest(new { error = "invalid_body", message = "Indica productId." });
-        var userId = user.Id!;
 
         var (err, ids) = await savedOffers.TryAddAsync(userId, body.ProductId, cancellationToken);
         if (err == SavedOfferMutationError.UserNotFound)
@@ -51,9 +47,9 @@ public sealed class SavedOffersController(IAuthService auth, ISavedOffersService
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Delete(string productId, CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
             return Unauthorized();
-        var userId = user.Id!;
 
         var ids = await savedOffers.TryRemoveAsync(userId, productId, cancellationToken);
         if (ids is null)

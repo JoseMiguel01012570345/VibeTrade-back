@@ -9,7 +9,7 @@ using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Utils;
 using VibeTrade.Backend.Features.Recommendations;
-using VibeTrade.Backend.Utils;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -22,7 +22,7 @@ public sealed class MarketController(
     AppDbContext appDb,
     IMarketWorkspaceService marketWorkspace,
     IMarketCatalogSyncService catalog,
-    IAuthService auth,
+    ICurrentUserAccessor currentUser,
     IUserAccountSyncService userAccountSync,
     IRecommendationService recommendations,
     IMarketCatalogStoreSearchService catalogStoreSearch,
@@ -81,7 +81,7 @@ public sealed class MarketController(
         string userId,
         CancellationToken cancellationToken)
     {
-        var bearer = BearerUserId.FromRequest(auth, Request);
+        var bearer = currentUser.GetUserId(Request);
         if (bearer is null)
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         var uid = (userId ?? "").Trim();
@@ -299,7 +299,7 @@ public sealed class MarketController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteStore(string storeId, CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         var r = await catalog.DeleteStoreAsync(storeId, userId, cancellationToken);
@@ -334,7 +334,7 @@ public sealed class MarketController(
         [FromBody] StoreProductPutRequest body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         try
@@ -359,7 +359,7 @@ public sealed class MarketController(
         string productId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         var r = await catalog.DeleteStoreProductAsync(storeId, productId, userId, cancellationToken);
@@ -385,7 +385,7 @@ public sealed class MarketController(
         [FromBody] StoreServicePutRequest body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         try
@@ -414,7 +414,7 @@ public sealed class MarketController(
         string serviceId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized(new { error = "unauthorized", message = "Sesión requerida." });
         var r = await catalog.DeleteStoreServiceAsync(storeId, serviceId, userId, cancellationToken);
@@ -430,7 +430,7 @@ public sealed class MarketController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> PostInquiry([FromBody] PostInquiryBody body, CancellationToken cancellationToken)
     {
-        var bearerUserId = BearerUserId.FromRequest(auth, Request);
+        var bearerUserId = currentUser.GetUserId(Request);
         if (bearerUserId is null)
             return Unauthorized(new { error = "auth_required", message = "Inicia sesión para comentar." });
 
@@ -650,7 +650,7 @@ public sealed class MarketController(
     /// <summary>Clave de engagement <c>u:…</c> solo con Bearer; sin invitado anónimo.</summary>
     private string? ResolveEngagementLikerKeyForAuthenticatedViewer()
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         return string.IsNullOrWhiteSpace(userId) ? null : "u:" + userId.Trim();
     }
 

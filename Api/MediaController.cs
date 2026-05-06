@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Net.Http.Headers;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -12,7 +12,7 @@ namespace VibeTrade.Backend.Api;
 [ApiController]
 [Route("api/v1/[controller]")]
 [Tags("Media")]
-public sealed class MediaController(AppDbContext db, IAuthService auth) : ControllerBase
+public sealed class MediaController(AppDbContext db, ICurrentUserAccessor currentUser) : ControllerBase
 {
     public sealed record MediaUploadResponse(string Id, string MimeType, string FileName, long SizeBytes);
     private const long MaxBytes = 5L * 1024 * 1024;
@@ -30,7 +30,7 @@ public sealed class MediaController(AppDbContext db, IAuthService auth) : Contro
     [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
     public async Task<ActionResult<MediaUploadResponse>> Upload(IFormFile file, CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out _))
+        if (!currentUser.TryGetUser(Request, out _))
             return Unauthorized();
 
         if (file.Length <= 0)

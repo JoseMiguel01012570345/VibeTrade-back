@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Recommendations;
-using VibeTrade.Backend.Utils;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -12,7 +11,7 @@ namespace VibeTrade.Backend.Api;
 [Tags("Recommendations")]
 public sealed class RecommendationsController(
     IRecommendationService recommendations,
-    IAuthService auth,
+    ICurrentUserAccessor currentUser,
     IGuestRecommendationService guestRecommendations,
     IGuestInteractionStore guestInteractions) : ControllerBase
 {
@@ -26,7 +25,7 @@ public sealed class RecommendationsController(
         [FromQuery] int? take,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -47,7 +46,7 @@ public sealed class RecommendationsController(
         [FromBody] TrackInteractionBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         if (string.IsNullOrWhiteSpace(body.OfferId))

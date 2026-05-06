@@ -1,9 +1,8 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Payments;
-using VibeTrade.Backend.Utils;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -11,14 +10,14 @@ namespace VibeTrade.Backend.Api;
 [ApiController]
 [Produces("application/json")]
 [Tags("Payments")]
-public sealed class PaymentsController(IAuthService auth, IPaymentsService payments) : ControllerBase
+public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymentsService payments) : ControllerBase
 {
     [HttpGet("/api/v1/payments/stripe/config")]
     [ProducesResponseType(typeof(StripeConfigDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public IActionResult GetStripeConfig()
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         return Ok(payments.GetStripeConfig());
@@ -29,7 +28,7 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetStripePaymentMethods(CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -44,7 +43,7 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> PostStripeSetupIntent(CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -65,7 +64,7 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
         [FromBody] CreatePaymentIntentBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -87,7 +86,7 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
         [FromQuery] string[]? routeStopId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -114,7 +113,7 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
         string agreementId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -155,7 +154,7 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
         [FromBody] CheckoutBreakdownBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -199,7 +198,7 @@ public sealed class PaymentsController(IAuthService auth, IPaymentsService payme
         [FromBody] ExecutePaymentBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 

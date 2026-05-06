@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;
-using VibeTrade.Backend.Utils;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -11,10 +11,10 @@ namespace VibeTrade.Backend.Api;
 [Produces("application/json")]
 [Tags("Chat")]
 public sealed class ChatAgreementMerchandiseEvidenceController(
-    IAuthService auth,
+    ICurrentUserAccessor currentUser,
     IAgreementMerchandiseEvidenceService svc) : ControllerBase
 {
-    private string? BearerId() => BearerUserId.FromRequest(auth, Request);
+    private string? BearerId() => currentUser.GetUserId(Request);
 
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<AgreementMerchandiseLinePaymentWithEvidenceDto>), StatusCodes.Status200OK)]

@@ -1,9 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Trust;
-using VibeTrade.Backend.Utils;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -13,7 +12,7 @@ namespace VibeTrade.Backend.Api;
 [Produces("application/json")]
 [Tags("Trust")]
 public sealed class TrustLedgerController(
-    IAuthService auth,
+    ICurrentUserAccessor currentUser,
     AppDbContext db,
     ITrustScoreLedgerService ledger) : ControllerBase
 {
@@ -31,7 +30,7 @@ public sealed class TrustLedgerController(
         [FromQuery] int limit = 100,
         CancellationToken cancellationToken = default)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var list = await ledger.ListForSubjectAsync(
@@ -52,7 +51,7 @@ public sealed class TrustLedgerController(
         [FromBody] TrustAdjustRequest body,
         CancellationToken cancellationToken = default)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         if (body.Delta == 0)
@@ -120,7 +119,7 @@ public sealed class TrustLedgerController(
         [FromBody] TrustAdjustRequest body,
         CancellationToken cancellationToken = default)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         if (body.Delta == 0)

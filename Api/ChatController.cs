@@ -3,7 +3,7 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Data.RouteSheets;
-using VibeTrade.Backend.Utils;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -13,7 +13,7 @@ namespace VibeTrade.Backend.Api;
 [Produces("application/json")]
 [Tags("Chat")]
 public sealed class ChatController(
-    IAuthService auth,
+    ICurrentUserAccessor currentUser,
     IChatService chat,
     ITradeAgreementService tradeAgreements,
     IRouteSheetChatService routeSheets,
@@ -33,7 +33,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> PostThread([FromBody] CreateThreadBody body, CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -68,7 +68,7 @@ public sealed class ChatController(
         [FromBody] CreateSocialGroupBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -93,7 +93,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IReadOnlyList<ChatThreadSummaryDto>>> GetThreads(CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var list = await chat.ListThreadsForUserAsync(userId, cancellationToken);
@@ -110,7 +110,7 @@ public sealed class ChatController(
     public async Task<ActionResult<AckPendingDeliveryOnLoginResult>> PostAckPendingDeliveryOnLogin(
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var n = await chat.AckAllPendingIncomingDeliveredAsync(userId, cancellationToken);
@@ -126,7 +126,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetThreadByOffer(string offerId, CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var dto = await chat.GetThreadByOfferIfVisibleAsync(userId, offerId, cancellationToken);
@@ -156,7 +156,7 @@ public sealed class ChatController(
         [FromBody] PartySoftLeaveBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var r = (body?.Reason ?? "").Trim();
@@ -302,7 +302,7 @@ public sealed class ChatController(
         string threadId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var ok = await chat.BroadcastParticipantLeftToOthersAsync(userId, threadId, cancellationToken);
@@ -318,7 +318,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteThread(string threadId, CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var ok = await chat.DeleteThreadAsync(userId, threadId, cancellationToken);
@@ -334,7 +334,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetThread(string threadId, CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var dto = await chat.GetThreadIfVisibleAsync(userId, threadId, cancellationToken);
@@ -350,7 +350,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetSocialThreadMembers(string threadId, CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var list = await chat.ListSocialThreadMembersAsync(userId, threadId, cancellationToken);
@@ -372,7 +372,7 @@ public sealed class ChatController(
         [FromBody] PatchSocialGroupTitleBody? body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var dto = await chat.PatchSocialGroupTitleAsync(userId, threadId, body?.Title, cancellationToken);
@@ -395,7 +395,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetMessages(string threadId, CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var list = await chat.ListMessagesAsync(userId, threadId, cancellationToken);
@@ -423,7 +423,7 @@ public sealed class ChatController(
         [FromBody] PostChatMessageBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var msg = await chat.PostMessageAsync(new PostChatMessageArgs(userId, threadId, body), cancellationToken);
@@ -447,7 +447,7 @@ public sealed class ChatController(
         [FromBody] UpdateMessageStatusBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         if (!Enum.TryParse<ChatMessageStatus>(body.Status, ignoreCase: true, out var st))
@@ -467,7 +467,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetRouteSheets(string threadId, CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var list = await routeSheets.ListForThreadAsync(userId, threadId, cancellationToken);
@@ -488,7 +488,7 @@ public sealed class ChatController(
         string routeSheetId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var payload = await routeSheets.GetPreselPreviewForCarrierAsync(
@@ -510,7 +510,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetRouteTramoSubscriptions(string threadId, CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var list = await routeTramoSubscriptions.ListPublishedForThreadAsync(userId, threadId, cancellationToken);
@@ -535,7 +535,7 @@ public sealed class ChatController(
         [FromBody] AcceptRouteTramoSubscriptionBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         if (body is null
@@ -578,7 +578,7 @@ public sealed class ChatController(
         [FromBody] RejectRouteTramoSubscriptionBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         if (body is null
@@ -620,7 +620,7 @@ public sealed class ChatController(
         [FromBody] SellerExpelCarrierBody? body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         if (body is null
@@ -662,7 +662,7 @@ public sealed class ChatController(
         string threadId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var result = await routeTramoSubscriptions.WithdrawCarrierFromThreadAsync(
@@ -703,7 +703,7 @@ public sealed class ChatController(
         [FromBody] RouteSheetPayload payload,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         if (RouteSheetPayloadValidator.Validate(payload) is { } validationMessage)
@@ -744,7 +744,7 @@ public sealed class ChatController(
         [FromBody] NotifyPreselectedBody? body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         if (body?.Invites is null || body.Invites.Length == 0)
@@ -785,7 +785,7 @@ public sealed class ChatController(
         [FromBody] CarrierPreselInviteBody? body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         if (body is null || string.IsNullOrWhiteSpace(body.RouteSheetId))
@@ -813,7 +813,7 @@ public sealed class ChatController(
         string routeSheetId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var result = await routeSheets.DeleteAsync(userId, threadId, routeSheetId, cancellationToken);
@@ -845,7 +845,7 @@ public sealed class ChatController(
         [FromBody] RouteSheetEditCarrierResponseBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         if (body is null)
@@ -867,7 +867,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetTradeAgreements(string threadId, CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var list = await tradeAgreements.ListForThreadAsync(userId, threadId, cancellationToken);
@@ -887,7 +887,7 @@ public sealed class ChatController(
         [FromBody] TradeAgreementDraftRequest body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var (created, writeErr) = await tradeAgreements.CreateAsync(userId, threadId, body, cancellationToken);
@@ -915,7 +915,7 @@ public sealed class ChatController(
         [FromBody] TradeAgreementDraftRequest body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var (updated, writeErr) = await tradeAgreements.UpdateAsync(userId, threadId, agreementId, body, cancellationToken);
@@ -944,7 +944,7 @@ public sealed class ChatController(
         [FromBody] TradeAgreementRouteLinkBody? body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var outcome = await tradeAgreements.SetRouteSheetLinkAsync(
@@ -976,7 +976,7 @@ public sealed class ChatController(
         [FromBody] TradeAgreementRespondBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var updated = await tradeAgreements.RespondAsync(userId, threadId, agreementId, body.Accept, cancellationToken);
@@ -995,7 +995,7 @@ public sealed class ChatController(
         string agreementId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var ok = await tradeAgreements.DeleteAsync(userId, threadId, agreementId, cancellationToken);

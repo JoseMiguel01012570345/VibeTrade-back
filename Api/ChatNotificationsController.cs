@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;
-using VibeTrade.Backend.Utils;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -10,7 +9,7 @@ namespace VibeTrade.Backend.Api;
 [Route("api/v1/me")]
 [Produces("application/json")]
 [Tags("Notifications")]
-public sealed class ChatNotificationsController(IAuthService auth, IChatService chat) : ControllerBase
+public sealed class ChatNotificationsController(ICurrentUserAccessor currentUser, IChatService chat) : ControllerBase
 {
     public sealed record MarkReadBody(string[]? Ids);
 
@@ -24,7 +23,7 @@ public sealed class ChatNotificationsController(IAuthService auth, IChatService 
         [FromQuery] string? to,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         DateTimeOffset? fromUtc = null;
@@ -54,7 +53,7 @@ public sealed class ChatNotificationsController(IAuthService auth, IChatService 
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> MarkRead([FromBody] MarkReadBody? body, CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         await chat.MarkNotificationsReadAsync(userId, body?.Ids, cancellationToken);

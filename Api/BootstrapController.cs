@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Bootstrap;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -9,7 +9,7 @@ namespace VibeTrade.Backend.Api;
 [Route("api/v1/[controller]")]
 [Produces("application/json")]
 [Tags("Bootstrap")]
-public sealed class BootstrapController(IBootstrapService bootstrap, IAuthService auth) : ControllerBase
+public sealed class BootstrapController(IBootstrapService bootstrap, ICurrentUserAccessor currentUser) : ControllerBase
 {
     /// <summary>Bootstrap autenticado: mercado + reels + recomendaciones + hilos del vendedor fusionados con PostgreSQL.</summary>
     /// <remarks>Requiere <c>Authorization: Bearer</c>.</remarks>
@@ -21,7 +21,7 @@ public sealed class BootstrapController(IBootstrapService bootstrap, IAuthServic
     public async Task<IActionResult> Get(CancellationToken cancellationToken)
     {
         string? viewerPhoneDigits = null;
-        if (auth.TryGetUserByToken(Request.Headers.Authorization, out var user) && !string.IsNullOrEmpty(user?.Phone))
+        if (currentUser.TryGetUser(Request, out var user) && !string.IsNullOrEmpty(user?.Phone))
         {
             viewerPhoneDigits = new string(user.Phone.Where(char.IsDigit).ToArray());
         }

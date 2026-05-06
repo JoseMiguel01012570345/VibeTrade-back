@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -14,6 +15,7 @@ namespace VibeTrade.Backend.Api;
 [Tags("Auth")]
 public sealed class AuthController(
     IAuthService auth,
+    ICurrentUserAccessor currentUser,
     IUserAccountSyncService userAccountSync,
     IUserContactsService contacts) : ControllerBase
 {
@@ -58,9 +60,10 @@ public sealed class AuthController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IReadOnlyList<UserContactDto>>> GetContacts(CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
             return Unauthorized();
-        var list = await contacts.ListAsync(user.Id!, cancellationToken);
+        var list = await contacts.ListAsync(userId, cancellationToken);
         return Ok(list);
     }
 
@@ -77,9 +80,9 @@ public sealed class AuthController(
         [FromBody] AddContactBody body,
         CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
             return Unauthorized();
-        var userId = user.Id!;
         try
         {
             var dto = await contacts.AddByPhoneAsync(userId, body.Phone ?? "", cancellationToken);
@@ -106,9 +109,9 @@ public sealed class AuthController(
         [FromQuery] string? phone,
         CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
             return Unauthorized();
-        var userId = user.Id!;
         try
         {
             var dto = await contacts.ResolveByPhoneAsync(userId, phone ?? "", cancellationToken);
@@ -131,9 +134,9 @@ public sealed class AuthController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteContact(string contactUserId, CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
             return Unauthorized();
-        var userId = user.Id!;
         if (string.IsNullOrWhiteSpace(contactUserId))
             return NotFound();
         var ok = await contacts.RemoveAsync(userId, contactUserId.Trim(), cancellationToken);
@@ -182,7 +185,7 @@ public sealed class AuthController(
         [FromBody] PatchProfileBody body,
         CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || string.IsNullOrWhiteSpace(user?.Id))
+        if (!currentUser.TryGetUser(Request, out var user) || string.IsNullOrWhiteSpace(user?.Id))
             return Unauthorized();
         if (body is null)
             return BadRequest();
@@ -327,7 +330,7 @@ public sealed class AuthController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<SessionResponse>> GetSession(CancellationToken cancellationToken)
     {
-        if (!auth.TryGetUserByToken(Request.Headers.Authorization, out var user) || user is null)
+        if (!currentUser.TryGetUser(Request, out var user) || user is null)
             return Unauthorized();
 
         if (!string.IsNullOrWhiteSpace(user.Id))

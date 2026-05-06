@@ -1,8 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Logistics;
-using VibeTrade.Backend.Utils;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -10,7 +9,7 @@ namespace VibeTrade.Backend.Api;
 [Produces("application/json")]
 [Tags("Chat logistics")]
 public sealed class RouteLogisticsController(
-    IAuthService auth,
+    ICurrentUserAccessor currentUser,
     ICarrierTelemetryService telemetry,
     ICarrierOwnershipService ownership,
     ICarrierDeliveryEvidenceService carrierEvidence,
@@ -38,7 +37,7 @@ public sealed class RouteLogisticsController(
         [FromBody] PostTelemetryBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -78,7 +77,7 @@ public sealed class RouteLogisticsController(
         [FromBody] CedeOwnershipBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -108,7 +107,7 @@ public sealed class RouteLogisticsController(
         string agreementId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -130,7 +129,7 @@ public sealed class RouteLogisticsController(
         [FromQuery] string routeSheetId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -160,7 +159,7 @@ public sealed class RouteLogisticsController(
         [FromQuery] string routeStopId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -198,7 +197,7 @@ public sealed class RouteLogisticsController(
         [FromBody] UpsertEvidenceBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -239,7 +238,7 @@ public sealed class RouteLogisticsController(
         [FromBody] DecideEvidenceBody body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
@@ -274,7 +273,7 @@ public sealed class RouteLogisticsController(
         [FromQuery] string routeStopId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 

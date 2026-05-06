@@ -1,8 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
-using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.EmergentOffers;
-using VibeTrade.Backend.Utils;
+using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
 
@@ -12,7 +11,7 @@ namespace VibeTrade.Backend.Api;
 [Produces("application/json")]
 [Tags("Emergent offers")]
 public sealed class EmergentOffersController(
-    IAuthService auth,
+    ICurrentUserAccessor currentUser,
     IEmergentOfferCarrierSubscriptionService carrierSubscription,
     IEmergentRouteTramoSubscriptionRequestService tramoSubscriptionRequest,
     IRouteTramoSubscriptionService routeTramoSubscriptions) : ControllerBase
@@ -32,7 +31,7 @@ public sealed class EmergentOffersController(
         string emergentOfferId,
         CancellationToken cancellationToken)
     {
-        var viewerUserId = BearerUserId.FromRequest(auth, Request);
+        var viewerUserId = currentUser.GetUserId(Request);
         var status = await carrierSubscription.GetStatusAsync(viewerUserId, emergentOfferId, cancellationToken);
         return Ok(new CarrierSubscriptionResponse(
             status.CanSubscribe,
@@ -51,7 +50,7 @@ public sealed class EmergentOffersController(
         string emergentOfferId,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
         var list = await routeTramoSubscriptions.ListForCarrierByEmergentPublicationAsync(
@@ -77,7 +76,7 @@ public sealed class EmergentOffersController(
         [FromBody] TramoSubscriptionRequestBody? body,
         CancellationToken cancellationToken)
     {
-        var userId = BearerUserId.FromRequest(auth, Request);
+        var userId = currentUser.GetUserId(Request);
         if (string.IsNullOrWhiteSpace(userId))
             return Unauthorized();
 
