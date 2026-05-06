@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
+using VibeTrade.Backend.Features.Market.Dtos;
+using VibeTrade.Backend.Features.Market.Interfaces;
 
 namespace VibeTrade.Backend.Data.Configurations;
 

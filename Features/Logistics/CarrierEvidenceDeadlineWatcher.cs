@@ -5,6 +5,8 @@ using Microsoft.Extensions.Logging;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Logistics.Dtos;
 
 namespace VibeTrade.Backend.Features.Logistics;
 

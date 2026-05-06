@@ -1,10 +1,14 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Features.Chat.Dtos;
+using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Market.Interfaces;
+using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
 namespace VibeTrade.Backend.Features.EmergentOffers;
 

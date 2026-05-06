@@ -1,12 +1,7 @@
 using Microsoft.Extensions.Caching.Memory;
+using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
 namespace VibeTrade.Backend.Features.Recommendations;
-
-public interface IGuestInteractionStore
-{
-    void Record(string guestId, string offerId, RecommendationInteractionType eventType);
-    IReadOnlyList<(string OfferId, string EventType, DateTimeOffset At)> GetRecent(string guestId, int max = 250);
-}
 
 /// <summary>
 /// Almacenamiento efímero para interacciones de invitados (sin cuenta).
@@ -79,4 +74,3 @@ public sealed class GuestInteractionStore(IMemoryCache cache) : IGuestInteractio
 
     private static string BuildKey(string guestId) => $"guest-interactions:{guestId}";
 }
-

@@ -1,13 +1,16 @@
+using Microsoft.EntityFrameworkCore;
+using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Bootstrap.Dtos;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Recommendations.Dtos;
+using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
 namespace VibeTrade.Backend.Features.Bootstrap;
-
-public interface IGuestBootstrapService
-{
-    Task<BootstrapResponseDto> GetGuestBootstrapAsync(string guestId, CancellationToken cancellationToken = default);
-}
 
 public sealed class GuestBootstrapService(
     IMarketWorkspaceService marketWorkspace,

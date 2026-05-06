@@ -1,34 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Payments;
 
 namespace VibeTrade.Backend.Features.Chat;
-
-public interface IAgreementMerchandiseEvidenceService
-{
-    Task<(int StatusCode, IReadOnlyList<AgreementMerchandiseLinePaymentWithEvidenceDto>? Data)> ListAsync(
-        string userId,
-        string threadId,
-        string agreementId,
-        CancellationToken cancellationToken);
-
-    Task<(int StatusCode, string? Error, MerchandiseEvidenceDto? Data)> UpsertAsync(
-        string userId,
-        string threadId,
-        string agreementId,
-        string paymentId,
-        UpsertMerchandiseEvidenceRequest body,
-        CancellationToken cancellationToken);
-
-    Task<(int StatusCode, string? Error)> DecideAsync(
-        string userId,
-        string threadId,
-        string agreementId,
-        string paymentId,
-        DecideMerchandiseEvidenceRequest body,
-        CancellationToken cancellationToken);
-}
 
 public sealed class AgreementMerchandiseEvidenceService(
     IChatService chat,

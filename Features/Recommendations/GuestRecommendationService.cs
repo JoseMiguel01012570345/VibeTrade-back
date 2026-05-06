@@ -2,16 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Market.Interfaces;
+using VibeTrade.Backend.Features.Recommendations.Dtos;
+using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
 namespace VibeTrade.Backend.Features.Recommendations;
-
-public interface IGuestRecommendationService
-{
-    Task<RecommendationBatchResponse> GetBatchAsync(
-        string guestId,
-        int take,
-        CancellationToken cancellationToken = default);
-}
 
 /// <summary>
 /// Recomendaciones para invitado: mismo pipeline <see cref="RecommendationFeedV2"/> que usuarios autenticados

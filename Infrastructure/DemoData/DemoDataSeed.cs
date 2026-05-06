@@ -2,11 +2,13 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Market.Dtos;
+using VibeTrade.Backend.Features.Market.Interfaces;
+using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Market.Utils;
 
 namespace VibeTrade.Backend.Infrastructure.DemoData;

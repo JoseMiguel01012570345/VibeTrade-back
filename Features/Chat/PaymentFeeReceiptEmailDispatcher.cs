@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Infrastructure.Email;
+using VibeTrade.Backend.Infrastructure.Email.Interfaces;
 using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Features.Chat;

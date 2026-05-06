@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Auth.Interfaces;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Features.Chat.Dtos;
+using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Infrastructure;
 

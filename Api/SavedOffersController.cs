@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.SavedOffers;
+using VibeTrade.Backend.Features.SavedOffers.Interfaces;
 using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;

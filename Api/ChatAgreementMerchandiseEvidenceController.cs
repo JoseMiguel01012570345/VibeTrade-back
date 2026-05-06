@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Auth.Interfaces;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Features.Chat.Dtos;
+using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;

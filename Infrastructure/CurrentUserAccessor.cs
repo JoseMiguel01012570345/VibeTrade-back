@@ -1,13 +1,7 @@
 using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Infrastructure.Interfaces;
 
 namespace VibeTrade.Backend.Infrastructure;
-
-public interface ICurrentUserAccessor
-{
-    bool TryGetUser(HttpRequest request, out SessionUser? user);
-
-    string? GetUserId(HttpRequest request);
-}
 
 public sealed class CurrentUserAccessor(IAuthService auth) : ICurrentUserAccessor
 {

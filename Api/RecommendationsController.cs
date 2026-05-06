@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Recommendations.Dtos;
+using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;

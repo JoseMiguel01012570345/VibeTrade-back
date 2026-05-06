@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Bootstrap;
+using VibeTrade.Backend.Features.Bootstrap.Dtos;
+using VibeTrade.Backend.Features.Bootstrap.Interfaces;
 using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;

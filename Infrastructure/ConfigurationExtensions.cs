@@ -1,5 +1,6 @@
 using DotNetEnv;
 using VibeTrade.Backend.Features.Routing;
+using VibeTrade.Backend.Features.Routing.Interfaces;
 
 namespace VibeTrade.Backend.Infrastructure;
 

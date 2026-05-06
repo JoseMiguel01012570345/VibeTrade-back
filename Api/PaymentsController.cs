@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Payments;
+using VibeTrade.Backend.Features.Payments.Interfaces;
 using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;

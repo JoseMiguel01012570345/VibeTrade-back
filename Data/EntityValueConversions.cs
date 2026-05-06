@@ -4,7 +4,10 @@ using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Auth.Interfaces;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Market.Dtos;
+using VibeTrade.Backend.Features.Market.Interfaces;
 
 namespace VibeTrade.Backend.Data;
 

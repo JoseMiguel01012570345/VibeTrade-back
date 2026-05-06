@@ -1,7 +1,8 @@
 using System.Text.Json.Serialization;
-using VibeTrade.Backend.Features.Chat;
-
-namespace VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Market.Dtos;
+using VibeTrade.Backend.Features.Market.Interfaces;
 
 /// <summary>Raíz de <c>market_workspaces.payload</c> (y <c>market</c> en bootstrap). Sin <c>JsonObject</c>.</summary>
 public sealed class MarketWorkspaceState

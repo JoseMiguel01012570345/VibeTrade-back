@@ -3,7 +3,10 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Market.Interfaces;
+using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Search;
+using VibeTrade.Backend.Features.Search.Interfaces;
 
 namespace VibeTrade.Backend.Features.Recommendations;
 

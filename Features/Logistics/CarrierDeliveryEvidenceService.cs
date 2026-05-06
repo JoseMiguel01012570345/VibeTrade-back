@@ -2,7 +2,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Logistics.Dtos;
+using VibeTrade.Backend.Features.Chat.Interfaces;
 
 namespace VibeTrade.Backend.Features.Logistics;
 

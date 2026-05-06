@@ -1,10 +1,18 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.RouteSheets;
+using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Auth.Interfaces;
+using VibeTrade.Backend.Features.Bootstrap.Dtos;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Recommendations.Dtos;
+using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Features.SavedOffers;
+using VibeTrade.Backend.Features.SavedOffers.Interfaces;
 
 namespace VibeTrade.Backend.Features.Bootstrap;
 

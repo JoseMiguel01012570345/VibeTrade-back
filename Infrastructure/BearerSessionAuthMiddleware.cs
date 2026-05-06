@@ -1,4 +1,5 @@
 using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Auth.Interfaces;
 
 namespace VibeTrade.Backend.Infrastructure;
 

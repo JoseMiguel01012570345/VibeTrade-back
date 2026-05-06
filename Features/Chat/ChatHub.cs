@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Auth.Interfaces;
 using VibeTrade.Backend.Features.Chat.Utils;
 using VibeTrade.Backend.Utils;
 

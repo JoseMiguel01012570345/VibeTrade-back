@@ -4,6 +4,8 @@ using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Market.Interfaces;
+using VibeTrade.Backend.Features.Recommendations.Dtos;
 
 namespace VibeTrade.Backend.Features.Recommendations;
 
