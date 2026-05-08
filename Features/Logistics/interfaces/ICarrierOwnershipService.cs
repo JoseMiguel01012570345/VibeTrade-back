@@ -9,4 +9,12 @@ public interface ICarrierOwnershipService
         string routeSheetId,
         string routeStopId,
         CancellationToken cancellationToken = default);
+
+    Task<CarrierOwnershipCedeResultDto?> GetCedeOwnershipAsync(
+        string actorUserId,
+        string threadId,
+        string agreementId,
+        string routeSheetId,
+        string routeStopId,
+        CancellationToken cancellationToken = default);
 }

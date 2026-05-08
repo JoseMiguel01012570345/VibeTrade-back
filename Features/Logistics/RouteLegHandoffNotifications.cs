@@ -77,9 +77,7 @@ public static class RouteLegHandoffNotifications
             var paid = await db.RouteStopDeliveries.AsNoTracking()
                 .Where(x => x.ThreadId == tid && x.RouteSheetId == rsid && x.TradeAgreementId == agr)
                 .Where(x =>
-                    x.State != RouteStopDeliveryStates.Unpaid
-                    && x.State != RouteStopDeliveryStates.RefundedCarrierExit
-                    && x.State != RouteStopDeliveryStates.RefundedExpired)
+                    x.State != RouteStopDeliveryStates.Unpaid)
                 .Select(x => x.RouteStopId.Trim())
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -155,13 +153,8 @@ public static class RouteLegHandoffNotifications
             if (!carrierByStop.TryGetValue(stopId, out var nextCarrier) || nextCarrier.Length < 2)
                 continue;
 
-            if (idx == 0)
-                continue;
-
             var prevId = orderedStopIds[idx - 1];
             stateByStop.TryGetValue(prevId, out var prevRow);
-            if (!PrevLegDone(prevRow))
-                continue;
 
             var prevCarrier = (prevRow?.CurrentOwnerUserId ?? "").Trim();
             if (prevCarrier.Length >= 2 &&
@@ -169,7 +162,7 @@ public static class RouteLegHandoffNotifications
                 continue;
 
             var preview =
-                "El tramo anterior está listo para entrega: podés iniciar tu tramo cuando corresponda.";
+                "Hay pagos en tu hoja de ruta: podrás iniciar tu tramo cuando corresponda.";
             await chat.NotifyRouteLegHandoffReadyAsync(
                     new RouteLegHandoffReadyNotificationArgs(
                         nextCarrier,
