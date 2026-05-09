@@ -13,7 +13,6 @@ public interface ICarrierOwnershipService
     Task<CarrierOwnershipCedeResultDto?> GetCedeOwnershipAsync(
         string actorUserId,
         string threadId,
-        string agreementId,
         string routeSheetId,
         string routeStopId,
         CancellationToken cancellationToken = default);

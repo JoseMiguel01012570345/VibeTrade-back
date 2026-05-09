@@ -1,10 +1,6 @@
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Chat.Interfaces;
-using VibeTrade.Backend.Features.Logistics.Dtos;
-using VibeTrade.Backend.Features.Chat.Interfaces;
 
 namespace VibeTrade.Backend.Features.Logistics;
 
@@ -56,7 +52,6 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
             .ConfigureAwait(false);
         if (delivery is null)
             return (StatusCodes.Status404NotFound, null, null);
-
         
         var cededOwnershipOnThisLeg = await db.CarrierOwnershipEvents.AsNoTracking()
             .AnyAsync(
@@ -66,32 +61,13 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
                     && x.RouteStopId == sid
                     && x.CarrierUserId == uid
                     && x.Action == CarrierOwnershipActions.Released
-                    && x.Reason == "carrier_cede",
+                    && (x.Reason == "carrier_cede" || x.Reason == "end_of_route"),
                 cancellationToken)
             .ConfigureAwait(false);
         if (!cededOwnershipOnThisLeg)
             return (StatusCodes.Status403Forbidden,
                 "Solo el titular del tramo o quien ya cedió la titularidad aquí puede enviar evidencia.",
                     null);
-
-
-        var payloadUpsert = await LoadPayloadAsync(tid, rsid, cancellationToken).ConfigureAwait(false);
-        var orderedUpsert = RouteLegOwnershipChain.OrderedStopIds(payloadUpsert);
-        if (orderedUpsert.Count > 0)
-        {
-            var siblingDeliveries = await db.RouteStopDeliveries.AsNoTracking()
-                .Where(x =>
-                    x.ThreadId == tid
-                    && x.TradeAgreementId == aid
-                    && x.RouteSheetId == rsid)
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false);
-            var byStopUpsert = siblingDeliveries.ToDictionary(x => x.RouteStopId.Trim(), StringComparer.Ordinal);
-            if (!RouteLegOwnershipChain.PreviousLegEvidenceAccepted(orderedUpsert, byStopUpsert, sid))
-                return (StatusCodes.Status400BadRequest,
-                    "Este tramo no está habilitado todavía: el anterior debe tener evidencia aceptada y la titularidad correspondiente.",
-                    null);
-        }
 
         if (delivery.State is RouteStopDeliveryStates.RefundedExpired
             or RouteStopDeliveryStates.RefundedCarrierExit
@@ -208,13 +184,11 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
             return (StatusCodes.Status403Forbidden, "Solo la tienda puede aceptar o rechazar esta evidencia.");
 
         var ev = await db.CarrierDeliveryEvidences.FirstOrDefaultAsync(
-                x => x.ThreadId == tid && x.TradeAgreementId == aid && x.RouteSheetId == rsid && x.RouteStopId == sid,
+                x => x.ThreadId == tid && x.TradeAgreementId == aid && x.RouteSheetId == rsid && x.RouteStopId == sid
+                && (x.Status == ServiceEvidenceStatuses.Submitted || x.Status == ServiceEvidenceStatuses.Rejected),
                 cancellationToken)
             .ConfigureAwait(false);
-        if (ev is null) return (StatusCodes.Status400BadRequest, "No hay evidencia para decidir.");
-        if (!string.Equals(ev.Status, ServiceEvidenceStatuses.Submitted, StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(ev.Status, ServiceEvidenceStatuses.Rejected, StringComparison.OrdinalIgnoreCase))
-            return (StatusCodes.Status400BadRequest, "La evidencia no está en estado decidible.");
+        if (ev is null) return (StatusCodes.Status400BadRequest, "No hay evidencia para decidir o la evidencia ya ha sido aceptada");
 
         var delivery = await db.RouteStopDeliveries.FirstOrDefaultAsync(
                 x =>
@@ -229,93 +203,37 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
         var d = (body.Decision ?? "").Trim().ToLowerInvariant();
         var now = DateTimeOffset.UtcNow;
 
-        if (d is "accept" or "accepted")
+        var status = "";
+        var deliveryState = "";
+        var message = "";
+
+        if (d is "accepted")
         {
-            ev.Status = ServiceEvidenceStatuses.Accepted;
-            ev.DecidedAtUtc = now;
-            ev.DecidedByUserId = uid;
-            ev.UpdatedAtUtc = now;
-
-            delivery.State = RouteStopDeliveryStates.EvidenceAccepted;
-            delivery.UpdatedAtUtc = now;
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-            var payloadDecide = await LoadPayloadAsync(tid, rsid, cancellationToken).ConfigureAwait(false);
-            await RouteLegOwnershipChain
-                .GrantNextLegOwnerAfterEvidenceAcceptedAsync(
-                    db,
-                    tid,
-                    aid,
-                    rsid,
-                    sid,
-                    payloadDecide,
-                    cancellationToken)
-                .ConfigureAwait(false);
-
-            var orderedForNotify = RouteLegOwnershipChain.OrderedStopIds(payloadDecide);
-            var notifyPaidStops = new HashSet<string>(StringComparer.Ordinal) { sid.Trim() };
-            var nextAfterAccept = RouteLegOwnershipChain.NextStopId(orderedForNotify, sid);
-            var nextTrim = (nextAfterAccept ?? "").Trim();
-            if (nextTrim.Length > 0)
-            {
-                var nextPaid = await db.RouteStopDeliveries.AsNoTracking().AnyAsync(
-                        x =>
-                            x.ThreadId == tid
-                            && x.TradeAgreementId == aid
-                            && x.RouteSheetId == rsid
-                            && x.RouteStopId == nextTrim
-                            && (x.State == RouteStopDeliveryStates.Paid
-                                || x.State == RouteStopDeliveryStates.InTransit
-                                || x.State == RouteStopDeliveryStates.DeliveredPendingEvidence
-                                || x.State == RouteStopDeliveryStates.EvidenceSubmitted
-                                || x.State == RouteStopDeliveryStates.EvidenceAccepted
-                                || x.State == RouteStopDeliveryStates.EvidenceRejected),
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                if (nextPaid)
-                    notifyPaidStops.Add(nextTrim);
-            }
-
-            await RouteLegHandoffNotifications.NotifyPaidStopsAsync(
-                    db,
-                    chat,
-                    tid,
-                    aid,
-                    rsid,
-                    payloadDecide,
-                    notifyPaidStops,
-                    cancellationToken)
-                .ConfigureAwait(false);
-
-            await chat.PostAutomatedSystemThreadNoticeAsync(
-                    tid,
-                    "Evidencia de entrega aceptada para un tramo de la hoja de ruta.",
-                    cancellationToken)
-                .ConfigureAwait(false);
-            return (StatusCodes.Status200OK, null);
+            status = ServiceEvidenceStatuses.Accepted;
+            deliveryState = RouteStopDeliveryStates.EvidenceAccepted;
+            message = "Evidencia de entrega aceptada para un tramo de la hoja de ruta.";
         }
-
-        if (d is "reject" or "rejected")
-        {
-            ev.Status = ServiceEvidenceStatuses.Rejected;
-            ev.DecidedAtUtc = now;
-            ev.DecidedByUserId = uid;
-            ev.UpdatedAtUtc = now;
-
-            delivery.State = RouteStopDeliveryStates.EvidenceRejected;
-            delivery.UpdatedAtUtc = now;
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            await chat.PostAutomatedSystemThreadNoticeAsync(
-                    tid,
-                    "Evidencia de entrega rechazada: el transportista puede reenviar adjuntos.",
-                    cancellationToken)
-                .ConfigureAwait(false);
-            return (StatusCodes.Status200OK, null);
+        else {
+            status = ServiceEvidenceStatuses.Rejected;
+            deliveryState = RouteStopDeliveryStates.EvidenceRejected;
+            message = "Evidencia de entrega rechazada para un tramo de la hoja de ruta.";
         }
+        ev.Status = status;
+        ev.DecidedAtUtc = now;
+        ev.DecidedByUserId = uid;
+        ev.UpdatedAtUtc = now;
 
-        return (StatusCodes.Status400BadRequest, "Decisión inválida.");
+        delivery.State = deliveryState;
+        delivery.UpdatedAtUtc = now;
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        await chat.PostAutomatedSystemThreadNoticeAsync(
+                tid,
+                message,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return (StatusCodes.Status200OK, null);
     }
 
     public async Task<(int StatusCode, string? Error, CarrierDeliveryEvidenceDto? Data)> GetAsync(

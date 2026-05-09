@@ -45,7 +45,7 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
         if (!actorConfirmed)
             return new CarrierOwnershipCedeResultDto(false, "not_carrier", "No sos transportista confirmado en este tramo.");
 
-        var cedeOwnership = await GetCedeOwnershipAsync(uid, tid, aid, rsid, sid, cancellationToken);
+        var cedeOwnership = await GetCedeOwnershipAsync(uid, tid, rsid, sid, cancellationToken);
         if (cedeOwnership is not null && cedeOwnership.Ok)
             return new CarrierOwnershipCedeResultDto(false, "already_cede", "Ya has cedido la titularidad del paquete en este tramo.");
 
@@ -55,6 +55,26 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
                 cancellationToken)
             .ConfigureAwait(false);
         var ordered = RouteLegOwnershipChain.OrderedStopIds(sheetRow?.Payload);
+        var idx = RouteLegOwnershipChain.StopIndex(ordered, sid);
+        var nextStopId = idx + 1 < ordered.Count ? ordered[idx + 1] : null;
+        var now = DateTimeOffset.UtcNow;
+
+        if (nextStopId is null)
+        {
+            db.CarrierOwnershipEvents.Add(new CarrierOwnershipEventRow
+            {
+                Id = "coe_" + Guid.NewGuid().ToString("N"),
+                ThreadId = tid,
+                RouteSheetId = rsid,
+                RouteStopId = sid,
+                CarrierUserId = uid,
+                Action = CarrierOwnershipActions.Released,
+                AtUtc = now,
+                Reason = "end_of_route",
+            });
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false); 
+            return new CarrierOwnershipCedeResultDto(true, "end_of_route", "");
+        }
 
         var target = await ResolveAutomaticCedeTargetAsync(tid, rsid, sid, uid, ordered, cancellationToken)
             .ConfigureAwait(false);
@@ -78,14 +98,6 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
         if (!string.Equals(delivery.CurrentOwnerUserId, uid, StringComparison.Ordinal))
             return new CarrierOwnershipCedeResultDto(false, "not_owner", "No tienes el paquete en este tramo.");
 
-        var now = DateTimeOffset.UtcNow;
-
-        var idx = RouteLegOwnershipChain.StopIndex(ordered, sid);
-        var nextStopId = ordered[idx + 1];
-
-        if (nextStopId is null)
-            return new CarrierOwnershipCedeResultDto(false, "end_of_route", "");
-        
         var nextDelivery = await db.RouteStopDeliveries.FirstOrDefaultAsync(
                 x =>
                     x.ThreadId == tid
@@ -152,17 +164,15 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
     public async Task<CarrierOwnershipCedeResultDto?> GetCedeOwnershipAsync(
         string actorUserId,
         string threadId,
-        string agreementId,
         string routeSheetId,
         string routeStopId,
         CancellationToken cancellationToken = default)
     {
         var uid = (actorUserId ?? "").Trim();
         var tid = (threadId ?? "").Trim();
-        var aid = (agreementId ?? "").Trim();
         var rsid = (routeSheetId ?? "").Trim();
         var sid = (routeStopId ?? "").Trim();
-        if (uid.Length < 2 || tid.Length < 4 || aid.Length < 8 || rsid.Length < 1 || sid.Length < 1)
+        if (uid.Length < 2 || tid.Length < 4 || rsid.Length < 1 || sid.Length < 1)
             return null;
 
         var thread = await db.ChatThreads.AsNoTracking()
@@ -173,24 +183,6 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
         if (!await chat.UserCanAccessThreadRowAsync(uid, thread, cancellationToken).ConfigureAwait(false))
             return null;
 
-        var actorConfirmed = await db.RouteTramoSubscriptions.AsNoTracking().AnyAsync(
-                x =>
-                    x.ThreadId == tid
-                    && x.RouteSheetId == rsid
-                    && x.StopId == sid
-                    && x.CarrierUserId == uid
-                    && x.Status == "confirmed",
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (!actorConfirmed)
-            return new CarrierOwnershipCedeResultDto(false, "not_carrier", "No eres transportista confirmado en este tramo.");
-
-        var sheetRow = await db.ChatRouteSheets.AsNoTracking()
-            .FirstOrDefaultAsync(
-                x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
-                cancellationToken)
-            .ConfigureAwait(false);
-        
         var ownershipEvents = await db.CarrierOwnershipEvents.AsNoTracking().Where(x =>
          x.ThreadId == tid && x.RouteSheetId == rsid && x.RouteStopId == sid && x.CarrierUserId == uid).ToListAsync(cancellationToken).ConfigureAwait(false);
         

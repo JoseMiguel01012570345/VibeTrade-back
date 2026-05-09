@@ -139,12 +139,6 @@ public static class RouteLegHandoffNotifications
             .ConfigureAwait(false);
         var stateByStop = deliveries.ToDictionary(x => x.RouteStopId.Trim(), x => x, StringComparer.Ordinal);
 
-        static bool PrevLegDone(RouteStopDeliveryRow? prev) =>
-            prev is not null
-            && (prev.State == RouteStopDeliveryStates.EvidenceAccepted
-                || prev.State == RouteStopDeliveryStates.DeliveredPendingEvidence
-                || prev.State == RouteStopDeliveryStates.EvidenceSubmitted);
-
         for (var idx = 0; idx < orderedStopIds.Count; idx++)
         {
             var stopId = orderedStopIds[idx];
