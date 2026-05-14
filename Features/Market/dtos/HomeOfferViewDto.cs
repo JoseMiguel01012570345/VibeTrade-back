@@ -1,6 +1,4 @@
 using System.Text.Json.Serialization;
-using VibeTrade.Backend.Domain.Market;
-
 namespace VibeTrade.Backend.Features.Market.Dtos;
 
 /// <summary>Shape alineado a <c>Offer</c> en Home / feed / búsqueda (sin JSON opaco).</summary>

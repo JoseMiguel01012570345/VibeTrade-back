@@ -2,8 +2,6 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Data.RouteSheets;
-using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
 

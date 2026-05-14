@@ -1,7 +1,6 @@
 using System.Text.Json;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Utils;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Chat.Core;
@@ -110,21 +109,7 @@ public static class ChatMessageDtoFactory
 public static class ChatMessagePreviewText
 {
     public static string FromPayload(ChatMessagePayload payload) =>
-        payload switch
-        {
-            ChatUnifiedMessagePayload u => PreviewUnified(u),
-            ChatTextPayload p => PreviewText(p.Text),
-            ChatAudioPayload => "Nota de voz",
-            ChatImagePayload p => string.IsNullOrWhiteSpace(p.Caption) ? "Foto" : p.Caption!.Trim(),
-            ChatDocPayload p => string.IsNullOrWhiteSpace(p.Name) ? "Documento" : p.Name.Trim(),
-            ChatDocsBundlePayload p => p.Documents.Count switch
-            {
-                0 => "Documento",
-                1 => string.IsNullOrWhiteSpace(p.Documents[0].Name) ? "Documento" : p.Documents[0].Name.Trim(),
-                var n => $"{n} documentos",
-            },
-            _ => "Mensaje",
-        };
+        payload is ChatUnifiedMessagePayload u ? PreviewUnified(u) : "Mensaje";
 
     private static string PreviewUnified(ChatUnifiedMessagePayload p)
     {
@@ -362,9 +347,15 @@ public static class ChatMessageStatusUpdateCore
 
 internal static class ChatPostPayloadValidation
 {
-    public static bool TryParseAndValidateImagePayload(PostChatMessageBody b, out ChatImagePayload? parsed)
+    public static bool TryParseAndValidateImagePayload(
+        PostChatMessageBody b,
+        out IReadOnlyList<ChatImageDto>? images,
+        out string? caption,
+        out ChatEmbeddedAudioDto? embeddedAudio)
     {
-        parsed = null;
+        images = null;
+        caption = null;
+        embeddedAudio = null;
         if (b.Images is not { Count: > 0 })
             return false;
 
@@ -385,18 +376,21 @@ internal static class ChatPostPayloadValidation
         if (b.Caption is { Length: > 4000 })
             return false;
 
-        parsed = new ChatImagePayload
-        {
-            Images = b.Images,
-            Caption = b.Caption,
-            EmbeddedAudio = b.EmbeddedAudio,
-        };
+        images = b.Images;
+        caption = b.Caption;
+        embeddedAudio = b.EmbeddedAudio;
         return true;
     }
 
-    public static bool TryParseAndValidateDocsBundlePayload(PostChatMessageBody b, out ChatDocsBundlePayload? parsed)
+    public static bool TryParseAndValidateDocsBundlePayload(
+        PostChatMessageBody b,
+        out IReadOnlyList<ChatDocumentDto>? documents,
+        out string? caption,
+        out ChatEmbeddedAudioDto? embeddedAudio)
     {
-        parsed = null;
+        documents = null;
+        caption = null;
+        embeddedAudio = null;
         if (b.Documents is not { Count: > 0 })
             return false;
 
@@ -419,12 +413,9 @@ internal static class ChatPostPayloadValidation
         if (b.Caption is { Length: > 4000 })
             return false;
 
-        parsed = new ChatDocsBundlePayload
-        {
-            Documents = b.Documents,
-            Caption = b.Caption,
-            EmbeddedAudio = b.EmbeddedAudio,
-        };
+        documents = b.Documents;
+        caption = b.Caption;
+        embeddedAudio = b.EmbeddedAudio;
         return true;
     }
 }

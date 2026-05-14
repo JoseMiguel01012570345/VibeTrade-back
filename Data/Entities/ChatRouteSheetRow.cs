@@ -1,5 +1,3 @@
-using VibeTrade.Backend.Data.RouteSheets;
-
 namespace VibeTrade.Backend.Data.Entities;
 
 /// <summary>Hoja de ruta persistida en un hilo de chat (sincronizada desde el cliente).</summary>

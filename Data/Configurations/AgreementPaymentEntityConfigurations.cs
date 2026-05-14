@@ -44,7 +44,6 @@ public sealed class TradeAgreementExtraFieldRowConfiguration : IEntityTypeConfig
         e.Property(x => x.TextValue).HasColumnType("text");
         e.Property(x => x.MediaUrl).HasColumnType("text");
         e.Property(x => x.FileName).HasMaxLength(512);
-        e.Property(x => x.Scope).HasMaxLength(32);
         e.HasIndex(x => x.TradeAgreementId);
     }
 }

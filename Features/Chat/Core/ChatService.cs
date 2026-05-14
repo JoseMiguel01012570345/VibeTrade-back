@@ -1,8 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Data.RouteSheets;
-using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Utils;
@@ -846,16 +844,19 @@ public sealed partial class ChatService(
             ? oqs.Trim()
             : null;
 
-        ChatImagePayload? imgParsed = null;
+        IReadOnlyList<ChatImageDto>? parsedImages = null;
+        string? imgCaption = null;
+        ChatEmbeddedAudioDto? imgEmbedded = null;
         if (body.Images is { Count: > 0 })
-            ChatPostPayloadValidation.TryParseAndValidateImagePayload(body, out imgParsed);
+            ChatPostPayloadValidation.TryParseAndValidateImagePayload(body, out parsedImages, out imgCaption, out imgEmbedded);
 
-        ChatDocsBundlePayload? docsParsed = null;
         IReadOnlyList<ChatDocumentDto>? documents = null;
+        string? docsCaption = null;
+        ChatEmbeddedAudioDto? docsEmbedded = null;
         if (body.Documents is { Count: > 0 })
         {
-            if (ChatPostPayloadValidation.TryParseAndValidateDocsBundlePayload(body, out docsParsed) && docsParsed is not null)
-                documents = docsParsed.Documents;
+            ChatPostPayloadValidation.TryParseAndValidateDocsBundlePayload(
+                body, out documents, out docsCaption, out docsEmbedded);
         }
         else if (!string.IsNullOrWhiteSpace(body.Name)
             && body.Name.Length <= 500
@@ -887,8 +888,8 @@ public sealed partial class ChatService(
             voiceSec = secVoice;
         }
 
-        ChatEmbeddedAudioDto? embedded = imgParsed?.EmbeddedAudio ?? docsParsed?.EmbeddedAudio;
-        string? caption = imgParsed?.Caption ?? docsParsed?.Caption;
+        ChatEmbeddedAudioDto? embedded = imgEmbedded ?? docsEmbedded;
+        string? caption = imgCaption ?? docsCaption;
         if (documents is { Count: > 0 } && body.Documents is null && body.Caption is { Length: > 0 } c0)
             caption = string.IsNullOrWhiteSpace(caption) ? c0.Trim() : caption;
 
@@ -896,7 +897,7 @@ public sealed partial class ChatService(
         {
             Text = text.Length > 0 ? text : null,
             OfferQaId = offerQaId,
-            Images = imgParsed?.Images,
+            Images = parsedImages,
             Documents = documents,
             Caption = caption,
             EmbeddedAudio = embedded,
@@ -1140,8 +1141,7 @@ public sealed partial class ChatService(
     }
 
     private bool SellerThreadAlreadyHasOfferQaAnswer(IReadOnlyList<ChatMessageRow> sellerMsgs, string qaId) =>
-        sellerMsgs.Any(m => m.Payload is ChatUnifiedMessagePayload u && u.OfferQaId == qaId)
-        || sellerMsgs.Any(m => m.Payload is ChatTextPayload text && text.OfferQaId == qaId);
+        sellerMsgs.Any(m => m.Payload is ChatUnifiedMessagePayload u && u.OfferQaId == qaId);
 
     private ChatMessageRow CreateAndStageOfferQaAnswerMessageRow(
         ChatThreadRow thread,

@@ -1,4 +1,3 @@
-using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 

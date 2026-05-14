@@ -44,17 +44,6 @@ public static class TradeAgreementDraftToEntityMapper
             if (IsSkippableEmptyExtraDraftRow(x))
                 continue;
 
-            var scope = NormalizeExtraScope(x.Scope);
-            if (scope == "merchandise" && !draft.IncludeMerchandise)
-                continue;
-            if (scope == "service" && !draft.IncludeService)
-                continue;
-            // Compatibilidad: `legacy_combined` se acepta y se trata como el bloque activo.
-            if (scope == "legacy_combined")
-            {
-                scope = draft.IncludeMerchandise ? "merchandise" : "service";
-            }
-
             var title = (x.Title ?? "").Trim();
             var kind = NormalizeExtraValueKind(x.ValueKind);
             ag.ExtraFields.Add(new TradeAgreementExtraFieldRow
@@ -62,7 +51,6 @@ public static class TradeAgreementDraftToEntityMapper
                 Id = TradeAgreementEntityIdFactory.NewId("xfe"),
                 TradeAgreementId = ag.Id,
                 SortOrder = order++,
-                Scope = scope,
                 Title = title,
                 ValueKind = kind,
                 TextValue = kind == "text" ? (x.TextValue ?? "").Trim() : null,
@@ -74,19 +62,6 @@ public static class TradeAgreementDraftToEntityMapper
                     : x.FileName.Trim(),
             });
         }
-    }
-
-    /// <summary>merchandise | service | legacy_combined</summary>
-    private static string NormalizeExtraScope(string? raw)
-    {
-        var s = (raw ?? "").Trim().ToLowerInvariant();
-        return s switch
-        {
-            "service" => "service",
-            "merchandise" => "merchandise",
-            "legacy_combined" => "legacy_combined",
-            _ => "legacy_combined",
-        };
     }
 
     private static bool IsSkippableEmptyExtraDraftRow(TradeAgreementExtraFieldRequest x)

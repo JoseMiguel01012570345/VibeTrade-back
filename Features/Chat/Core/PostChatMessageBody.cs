@@ -1,5 +1,3 @@
-using VibeTrade.Backend.Data;
-
 namespace VibeTrade.Backend.Features.Chat.Core;
 
 /// <summary>

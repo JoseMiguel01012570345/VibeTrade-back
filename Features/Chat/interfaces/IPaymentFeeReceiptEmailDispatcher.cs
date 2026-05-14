@@ -1,5 +1,3 @@
-using VibeTrade.Backend.Data;
-
 namespace VibeTrade.Backend.Features.Chat.Interfaces;
 
 /// <summary>Envía por correo el PDF del informe de pago a participantes del hilo con email configurado.</summary>

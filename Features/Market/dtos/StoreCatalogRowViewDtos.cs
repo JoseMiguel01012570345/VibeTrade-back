@@ -1,6 +1,4 @@
 using System.Text.Json.Serialization;
-using VibeTrade.Backend.Domain.Market;
-
 namespace VibeTrade.Backend.Features.Market.Dtos;
 
 /// <summary>Producto en <c>storeCatalogs[id].products[]</c> (lectura, mismo contrato que persistencia/PUT).</summary>

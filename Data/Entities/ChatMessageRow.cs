@@ -1,5 +1,3 @@
-using VibeTrade.Backend.Data;
-
 namespace VibeTrade.Backend.Data.Entities;
 
 /// <summary>Mensaje persistido; fechas siempre en UTC.</summary>
@@ -19,7 +17,7 @@ public sealed class ChatMessageRow
     public ChatMessageStatus Status { get; set; } = ChatMessageStatus.Sent;
 
     /// <summary>
-    /// JSON (ver <see cref="VibeTrade.Backend.Data.ChatMessageGroupReceipts"/>). Sólo grupos; si es null, aplica <see cref="Status"/> 1:1.
+    /// JSON (ver <see cref="ChatMessageGroupReceipts"/>). Sólo grupos; si es null, aplica <see cref="Status"/> 1:1.
     /// </summary>
     public string? GroupReceiptsJson { get; set; }
 

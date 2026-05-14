@@ -2,7 +2,6 @@ using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Features.Auth.Interfaces;
 using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Chat.Interfaces;
@@ -494,13 +493,6 @@ public sealed class TradeAgreementService(
             if (IsSkippableEmptyExtraDraftApiRow(x))
                 continue;
 
-            var sc = NormalizeExtraScopeDto(x.Scope);
-            if (sc == "merchandise" && !d.IncludeMerchandise)
-                return false;
-            if (sc == "service" && !d.IncludeService)
-                return false;
-            // Compatibilidad: `legacy_combined` se acepta y se trata como el bloque activo.
-
             var title = (x.Title ?? "").Trim();
             if (title.Length < 1 || title.Length > 256)
                 return false;
@@ -529,18 +521,6 @@ public sealed class TradeAgreementService(
         }
 
         return true;
-    }
-
-    private static string NormalizeExtraScopeDto(string? raw)
-    {
-        var s = (raw ?? "").Trim().ToLowerInvariant();
-        return s switch
-        {
-            "service" => "service",
-            "merchandise" => "merchandise",
-            "legacy_combined" => "legacy_combined",
-            _ => "legacy_combined",
-        };
     }
 
     private static bool IsSkippableEmptyExtraDraftApiRow(TradeAgreementExtraFieldRequest x)

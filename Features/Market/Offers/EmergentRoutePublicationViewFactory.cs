@@ -1,7 +1,4 @@
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Data.RouteSheets;
-using VibeTrade.Backend.Domain.Market;
-
 namespace VibeTrade.Backend.Features.Market.Offers;
 
 internal static class EmergentRoutePublicationViewFactory

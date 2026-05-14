@@ -1,5 +1,3 @@
-using VibeTrade.Backend.Domain.Market;
-
 namespace VibeTrade.Backend.Features.Market.Interfaces;
 
 public interface IOfferEngagementService

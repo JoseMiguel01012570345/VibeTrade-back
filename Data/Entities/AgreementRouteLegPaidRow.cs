@@ -9,7 +9,7 @@ public sealed class AgreementRouteLegPaidRow
 
     public AgreementCurrencyPaymentRow AgreementCurrencyPayment { get; set; } = null!;
 
-    /// <summary>Id de parada dentro del JSON (<see cref="Data.RouteSheets.RouteStopPayload.Id"/>).</summary>
+    /// <summary>Id de parada dentro del JSON (<see cref="RouteStopPayload.Id"/>).</summary>
     public string RouteSheetId { get; set; } = "";
 
     /// <summary>Id de parada (<c>stop_…</c>).</summary>

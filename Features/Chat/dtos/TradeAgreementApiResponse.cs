@@ -182,8 +182,4 @@ public sealed class TradeAgreementExtraFieldApi
 
     [JsonPropertyName("fileName")]
     public string? FileName { get; set; }
-
-    /// <summary>merchandise | service | legacy_combined</summary>
-    [JsonPropertyName("scope")]
-    public string Scope { get; set; } = "legacy_combined";
 }

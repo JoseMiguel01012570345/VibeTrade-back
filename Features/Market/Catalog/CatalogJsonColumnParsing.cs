@@ -1,5 +1,4 @@
 using System.Text.Json;
-using VibeTrade.Backend.Domain.Market;
 
 namespace VibeTrade.Backend.Features.Market.Catalog;
 

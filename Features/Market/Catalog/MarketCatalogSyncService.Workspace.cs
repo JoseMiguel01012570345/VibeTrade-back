@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market;

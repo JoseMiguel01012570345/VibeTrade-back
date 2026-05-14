@@ -1,12 +1,11 @@
 // Centralized global usings to keep feature folders lean.
-global using VibeTrade.Backend.Data.RouteSheets;
-global using VibeTrade.Backend.Domain.Market;
-global using VibeTrade.Backend.Domain.Taxonomy.Interfaces;
+global using VibeTrade.Backend.Features.Market.Taxonomy;
 global using VibeTrade.Backend.Features.Bootstrap.Dtos;
 global using VibeTrade.Backend.Features.Auth.Interfaces;
 global using VibeTrade.Backend.Features.Bootstrap.Interfaces;
 global using VibeTrade.Backend.Features.Chat;
 global using VibeTrade.Backend.Features.Chat.Core;
+global using VibeTrade.Backend.Features.Chat.Messages;
 global using VibeTrade.Backend.Features.Chat.Dtos;
 global using VibeTrade.Backend.Features.Chat.Interfaces;
 global using VibeTrade.Backend.Features.Notifications;

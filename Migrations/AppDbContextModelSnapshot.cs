@@ -1509,11 +1509,6 @@ namespace VibeTrade.Backend.Migrations
                     b.Property<string>("MediaUrl")
                         .HasColumnType("text");
 
-                    b.Property<string>("Scope")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 

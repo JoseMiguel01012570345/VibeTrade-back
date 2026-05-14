@@ -24,9 +24,4 @@ public sealed class TradeAgreementExtraFieldRow
     public string? MediaUrl { get; set; }
 
     public string? FileName { get; set; }
-
-    /// <summary>
-    /// Alcance del campo: merchandise, service (por bloque) o legacy_combined (acuerdos grabados antes de discriminar por sección).
-    /// </summary>
-    public string Scope { get; set; } = "legacy_combined";
 }

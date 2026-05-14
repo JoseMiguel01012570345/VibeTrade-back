@@ -2,8 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text.Json;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Data.RouteSheets;
-
 namespace VibeTrade.Backend.Features.Chat.RouteSheets;
 
 /// <summary>Detecta transportistas confirmados afectados por cambios en datos del tramo distintos del teléfono de contacto.</summary>

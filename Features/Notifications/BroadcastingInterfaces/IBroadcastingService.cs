@@ -1,9 +1,7 @@
-using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 
 namespace VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
-
 /// <summary>SignalR: grupos de hilo/usuario/oferta y envío a participantes del chat.</summary>
 public interface IBroadcastingService : ISignalRBroadcastService
 {

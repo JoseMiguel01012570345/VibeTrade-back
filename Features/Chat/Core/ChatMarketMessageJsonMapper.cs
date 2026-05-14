@@ -1,5 +1,3 @@
-using VibeTrade.Backend.Data;
-
 namespace VibeTrade.Backend.Features.Chat.Core;
 
 /// <summary>
@@ -14,16 +12,9 @@ public static class ChatMarketMessageJsonMapper
         var read = from == "me" ? m.Status == ChatMessageStatus.Read : true;
         var statusStr = ChatStatusToApiString(m.Status);
 
-        return m.Payload switch
-        {
-            ChatUnifiedMessagePayload p => MapUnified(m.Id, from, at, read, statusStr, p),
-            ChatTextPayload p => MapText(m.Id, from, at, read, statusStr, p),
-            ChatAudioPayload p => MapAudio(m.Id, from, at, read, p),
-            ChatImagePayload p => MapImage(m.Id, from, at, read, p),
-            ChatDocPayload p => MapDoc(m.Id, from, at, read, p),
-            ChatDocsBundlePayload p => MapDocs(m.Id, from, at, read, p),
-            _ => TextFallback(m.Id, from, at, read, statusStr, ""),
-        };
+        return m.Payload is ChatUnifiedMessagePayload p
+            ? MapUnified(m.Id, from, at, read, statusStr, p)
+            : TextFallback(m.Id, from, at, read, statusStr, "");
     }
 
     private static string ChatStatusToApiString(ChatMessageStatus s) => s switch
@@ -205,131 +196,6 @@ public static class ChatMarketMessageJsonMapper
         return v;
     }
 
-    private static ChatThreadMessageView MapText(
-        string id,
-        string from,
-        long at,
-        bool read,
-        string chatStatus,
-        ChatTextPayload p)
-    {
-        var v = new ChatThreadMessageView
-        {
-            Id = id,
-            From = from,
-            Type = "text",
-            Text = p.Text,
-            At = at,
-            Read = read,
-            ChatStatus = chatStatus,
-        };
-        if (!string.IsNullOrEmpty(p.OfferQaId))
-            v.OfferQaId = p.OfferQaId;
-        AppendReplyQuotes(v, p.ReplyQuotes);
-        AppendReplyThreadMetadata(v, p);
-        return v;
-    }
-
-    private static ChatThreadMessageView MapAudio(string id, string from, long at, bool read, ChatAudioPayload p)
-    {
-        var v = new ChatThreadMessageView
-        {
-            Id = id,
-            From = from,
-            Type = "audio",
-            Url = p.Url,
-            Seconds = p.Seconds,
-            At = at,
-            Read = read,
-        };
-        AppendReplyQuotes(v, p.ReplyQuotes);
-        AppendReplyThreadMetadata(v, p);
-        return v;
-    }
-
-    private static ChatThreadMessageView MapImage(string id, string from, long at, bool read, ChatImagePayload p)
-    {
-        var v = new ChatThreadMessageView
-        {
-            Id = id,
-            From = from,
-            Type = "image",
-            Images = p.Images.Select(img => new ChatMessageImageView { Url = img.Url }).ToList(),
-            At = at,
-            Read = read,
-        };
-        if (!string.IsNullOrEmpty(p.Caption))
-            v.Caption = p.Caption;
-        if (p.EmbeddedAudio is { } ea)
-        {
-            v.EmbeddedAudio = new ChatMessageEmbeddedAudioView
-            {
-                Url = ea.Url,
-                Seconds = ea.Seconds,
-            };
-        }
-        AppendReplyQuotes(v, p.ReplyQuotes);
-        AppendReplyThreadMetadata(v, p);
-        return v;
-    }
-
-    private static ChatThreadMessageView MapDoc(string id, string from, long at, bool read, ChatDocPayload p)
-    {
-        var v = new ChatThreadMessageView
-        {
-            Id = id,
-            From = from,
-            Type = "doc",
-            Name = p.Name,
-            Size = p.Size,
-            Kind = p.Kind,
-            At = at,
-            Read = read,
-        };
-        if (!string.IsNullOrEmpty(p.Url))
-            v.Url = p.Url;
-        if (!string.IsNullOrEmpty(p.Caption))
-            v.Caption = p.Caption;
-        AppendReplyQuotes(v, p.ReplyQuotes);
-        AppendReplyThreadMetadata(v, p);
-        return v;
-    }
-
-    private static ChatThreadMessageView MapDocs(string id, string from, long at, bool read, ChatDocsBundlePayload p)
-    {
-        var docs = p.Documents
-            .Select(el => new ChatMessageDocView
-            {
-                Name = el.Name,
-                Size = el.Size,
-                Kind = el.Kind,
-                Url = string.IsNullOrEmpty(el.Url) ? null : el.Url,
-            })
-            .ToList();
-        var v = new ChatThreadMessageView
-        {
-            Id = id,
-            From = from,
-            Type = "docs",
-            Documents = docs,
-            At = at,
-            Read = read,
-        };
-        if (!string.IsNullOrEmpty(p.Caption))
-            v.Caption = p.Caption;
-        if (p.EmbeddedAudio is { } ea)
-        {
-            v.EmbeddedAudio = new ChatMessageEmbeddedAudioView
-            {
-                Url = ea.Url,
-                Seconds = ea.Seconds,
-            };
-        }
-        AppendReplyQuotes(v, p.ReplyQuotes);
-        AppendReplyThreadMetadata(v, p);
-        return v;
-    }
-
     private static void AppendReplyQuotes(ChatThreadMessageView obj, IReadOnlyList<ReplyQuoteDto>? quotes)
     {
         if (quotes is null || quotes.Count == 0)
@@ -362,23 +228,16 @@ public static class ChatMarketMessageJsonMapper
     {
         if (payload.ReplyToMessageIds is { Count: > 0 } persisted)
             return persisted;
-        var quotes = payload switch
+        if (payload is ChatUnifiedMessagePayload { RepliesTo: { Count: > 0 } quotes })
         {
-            ChatUnifiedMessagePayload p => p.RepliesTo,
-            ChatTextPayload p => p.ReplyQuotes,
-            ChatImagePayload p => p.ReplyQuotes,
-            ChatAudioPayload p => p.ReplyQuotes,
-            ChatDocPayload p => p.ReplyQuotes,
-            ChatDocsBundlePayload p => p.ReplyQuotes,
-            _ => null,
-        };
-        if (quotes is null || quotes.Count == 0)
-            return null;
-        return quotes
-            .Select(static q => q.MessageId)
-            .Where(static id => !string.IsNullOrWhiteSpace(id))
-            .Distinct()
-            .ToList();
+            return quotes
+                .Select(static q => q.MessageId)
+                .Where(static id => !string.IsNullOrWhiteSpace(id))
+                .Distinct()
+                .ToList();
+        }
+
+        return null;
     }
 
     private static ChatThreadMessageView TextFallback(

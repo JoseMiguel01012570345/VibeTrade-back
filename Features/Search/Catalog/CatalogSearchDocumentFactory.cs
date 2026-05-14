@@ -1,7 +1,5 @@
 using Elastic.Clients.Elasticsearch;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Data.RouteSheets;
-
 namespace VibeTrade.Backend.Features.Search.Catalog;
 
 internal static class CatalogSearchDocumentFactory

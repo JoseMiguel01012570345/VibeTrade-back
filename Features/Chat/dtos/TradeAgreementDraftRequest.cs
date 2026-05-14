@@ -17,9 +17,7 @@ public sealed class TradeAgreementDraftRequest
 
     public List<ServiceItemRequest> Services { get; set; } = new();
 
-    /// <summary>
-    /// Campos libres (título + texto o adjunto) por bloque: mercancía, servicio, o legacy_combined.
-    /// </summary>
+    /// <summary>Campos libres (título + texto o adjunto) para el bloque activo (mercancía o servicio).</summary>
     [JsonPropertyName("extraFields")]
     public List<TradeAgreementExtraFieldRequest>? ExtraFields { get; set; }
 }
@@ -29,10 +27,6 @@ public sealed class TradeAgreementExtraFieldRequest
     /// <summary>Cliente (opcional, persistido en blobs JSON).</summary>
     [JsonPropertyName("id")]
     public string? Id { get; set; }
-
-    /// <summary>merchandise | service | legacy_combined</summary>
-    [JsonPropertyName("scope")]
-    public string Scope { get; set; } = "merchandise";
 
     public string Title { get; set; } = "";
 

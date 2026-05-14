@@ -105,7 +105,6 @@ public static class TradeAgreementEntityToApiMapper
                 TextValue = f.TextValue,
                 MediaUrl = f.MediaUrl,
                 FileName = f.FileName,
-                Scope = string.IsNullOrWhiteSpace(f.Scope) ? "legacy_combined" : f.Scope.Trim(),
             });
         }
     }

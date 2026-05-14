@@ -1,5 +1,3 @@
-using VibeTrade.Backend.Domain.Market;
-
 namespace VibeTrade.Backend.Features.Market.Interfaces;
 
 /// <summary>Sincroniza tiendas, productos y servicios entre PostgreSQL y el shape JSON del cliente.</summary>
