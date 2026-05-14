@@ -2,11 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using Stripe;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Chat.Interfaces;
-using VibeTrade.Backend.Features.Logistics.Dtos;
-using VibeTrade.Backend.Features.Payments.Interfaces;
-using VibeTrade.Backend.Features.Payments;
-using VibeTrade.Backend.Features.Payments.Interfaces;
 
 namespace VibeTrade.Backend.Features.Logistics;
 
@@ -104,9 +99,7 @@ public sealed class CarrierLegRefundService(IChatService chat, AppDbContext db) 
 
         var now = DateTimeOffset.UtcNow;
         delivery.RefundedAtUtc = now;
-        delivery.State = delivery.RefundEligibleReason == RouteStopRefundEligibleReasons.EvidenceExpired
-            ? RouteStopDeliveryStates.RefundedExpired
-            : RouteStopDeliveryStates.RefundedCarrierExit;
+        delivery.State = RouteStopDeliveryStates.Refunded;
         delivery.UpdatedAtUtc = now;
         delivery.CurrentOwnerUserId = null;
 

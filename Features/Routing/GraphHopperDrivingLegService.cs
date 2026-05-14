@@ -3,6 +3,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
+using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Features.Routing;
 
@@ -16,6 +17,14 @@ public sealed class GraphHopperDrivingLegService(
     ILogger<GraphHopperDrivingLegService> log) : IDrivingLegRoutingService
 {
     private const int MaxLatLngPointsPerLeg = 4000;
+
+    private static readonly TooManyRequestsRetryOptions GraphHopperTooManyRequestsRetry = new()
+    {
+        TotalBudget = TimeSpan.FromSeconds(60),
+        InitialBackoff = TimeSpan.FromSeconds(1),
+        MaxBackoff = TimeSpan.FromSeconds(60),
+        OperationName = "GraphHopper route",
+    };
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -122,7 +131,22 @@ public sealed class GraphHopperDrivingLegService(
         if (apiKey.Length > 0)
             q += $"&key={Uri.EscapeDataString(apiKey)}";
 
-        using var response = await http.GetAsync(q, cancellationToken);
+        using var response = await GeneralUtils.SendWithTooManyRequestsRetryAsync(
+            () => http.GetAsync(q, cancellationToken),
+            GraphHopperTooManyRequestsRetry,
+            log,
+            cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            var body429 = await response.Content.ReadAsStringAsync(cancellationToken);
+            log.LogWarning(
+                "GraphHopper route: HTTP 429 (Too Many Requests) tras ~{Budget}s de reintentos. Body (truncado): {Body}",
+                GraphHopperTooManyRequestsRetry.TotalBudget.TotalSeconds,
+                body429.Length > 400 ? body429[..400] + "…" : body429);
+            return null;
+        }
+
         if (response.StatusCode != HttpStatusCode.OK)
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken);

@@ -112,6 +112,7 @@ public static class ChatMessagePreviewText
     public static string FromPayload(ChatMessagePayload payload) =>
         payload switch
         {
+            ChatUnifiedMessagePayload u => PreviewUnified(u),
             ChatTextPayload p => PreviewText(p.Text),
             ChatAudioPayload => "Nota de voz",
             ChatImagePayload p => string.IsNullOrWhiteSpace(p.Caption) ? "Foto" : p.Caption!.Trim(),
@@ -122,19 +123,39 @@ public static class ChatMessagePreviewText
                 1 => string.IsNullOrWhiteSpace(p.Documents[0].Name) ? "Documento" : p.Documents[0].Name.Trim(),
                 var n => $"{n} documentos",
             },
-            ChatAgreementPayload p => string.IsNullOrWhiteSpace(p.Title)
-                ? "Acuerdo"
-                : $"Acuerdo: {p.Title.Trim()}",
-            ChatSystemTextPayload p => PreviewText(p.Text),
-            ChatPaymentFeeReceiptPayload p =>
-                string.IsNullOrWhiteSpace(p.AgreementTitle)
-                    ? "Recibo de pago (PDF)"
-                    : $"Recibo de pago: {p.AgreementTitle.Trim()}",
-            ChatCertificatePayload p => string.IsNullOrWhiteSpace(p.Title)
-                ? "Certificado"
-                : p.Title.Trim(),
             _ => "Mensaje",
         };
+
+    private static string PreviewUnified(ChatUnifiedMessagePayload p)
+    {
+        if (!string.IsNullOrWhiteSpace(p.Text))
+            return PreviewText(p.Text!);
+        if (p.Images is { Count: > 0 })
+            return string.IsNullOrWhiteSpace(p.Caption) ? "Foto" : p.Caption!.Trim();
+        if (p.Documents is { Count: > 0 } docs)
+            return docs.Count switch
+            {
+                1 => string.IsNullOrWhiteSpace(docs[0].Name) ? "Documento" : docs[0].Name.Trim(),
+                var n => $"{n} documentos",
+            };
+        if (!string.IsNullOrWhiteSpace(p.VoiceUrl))
+            return "Nota de voz";
+        if (p.PaymentFeeReceipt is { } r)
+            return string.IsNullOrWhiteSpace(r.AgreementTitle)
+                ? "Recibo de pago (PDF)"
+                : $"Recibo de pago: {r.AgreementTitle.Trim()}";
+        if (p.Agreement is { } ag)
+            return string.IsNullOrWhiteSpace(ag.Title)
+                ? "Acuerdo"
+                : $"Acuerdo: {ag.Title.Trim()}";
+        if (p.Certificate is { } cert)
+            return string.IsNullOrWhiteSpace(cert.Title)
+                ? "Certificado"
+                : cert.Title.Trim();
+        if (!string.IsNullOrWhiteSpace(p.SystemText))
+            return PreviewText(p.SystemText!);
+        return "Mensaje";
+    }
 
     private static string PreviewText(string tx)
     {

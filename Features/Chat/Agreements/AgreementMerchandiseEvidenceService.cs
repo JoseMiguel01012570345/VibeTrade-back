@@ -208,7 +208,7 @@ public sealed class AgreementMerchandiseEvidenceService(
 
         var d = (body.Decision ?? "").Trim().ToLowerInvariant();
         var now = DateTimeOffset.UtcNow;
-        if (d == "accept" || d == "accepted")
+        if (string.Equals(d, "accepted", StringComparison.OrdinalIgnoreCase))
         {
             ev.Status = MerchandiseEvidenceStatuses.Accepted;
             ev.BuyerDecisionAtUtc = now;
@@ -216,7 +216,7 @@ public sealed class AgreementMerchandiseEvidenceService(
             pay.Status = AgreementMerchandiseLinePaidStatuses.Released;
             pay.ReleasedAtUtc = now;
         }
-        else if (d == "reject" || d == "rejected")
+        else if (string.Equals(d, "rejected", StringComparison.OrdinalIgnoreCase))
         {
             ev.Status = MerchandiseEvidenceStatuses.Rejected;
             ev.BuyerDecisionAtUtc = now;
@@ -224,11 +224,11 @@ public sealed class AgreementMerchandiseEvidenceService(
         }
         else
         {
-            return (StatusCodes.Status400BadRequest, "Decision inválida (accept|reject).");
+            return (StatusCodes.Status400BadRequest, "Decision inválida (accepted|rejected).");
         }
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        var notice = d.StartsWith("a", StringComparison.Ordinal)
+        var notice = string.Equals(d, "accepted", StringComparison.OrdinalIgnoreCase)
             ? "El comprador aceptó la evidencia de mercadería. Pago liberado (demo)."
             : "El comprador rechazó la evidencia de mercadería.";
         await chat.PostAutomatedSystemThreadNoticeAsync(tid, notice, cancellationToken).ConfigureAwait(false);

@@ -3,7 +3,7 @@ using System.Globalization;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Data.RouteSheets;
 
-namespace VibeTrade.Backend.Features.Chat.Payments;
+namespace VibeTrade.Backend.Features.Payments;
 
 /// <summary>
 /// Replica la lógica de <c>paymentCheckoutBreakdown.ts</c> para validar montos en servidor.

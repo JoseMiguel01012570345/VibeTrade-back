@@ -652,6 +652,16 @@ public sealed class RouteTramoSubscriptionService(
         var subs = await db.RouteTramoSubscriptions
             .Where(x => x.ThreadId == tid && x.CarrierUserId == carrierId && x.Status != "withdrawn")
             .ToListAsync(cancellationToken);
+
+        var hasDeliveryOnStop = await db.RouteStopDeliveries.AsNoTracking()
+        .AnyAsync(
+            x => x.ThreadId == tid &&
+            x.RouteSheetId == filterRs &&
+            x.RouteStopId == filterStop &&
+            x.CurrentOwnerUserId == carrierId &&
+            x.State != RouteStopDeliveryStates.EvidenceAccepted,
+            cancellationToken);
+
         if (subs.Count == 0)
             return null;
 
@@ -680,7 +690,8 @@ public sealed class RouteTramoSubscriptionService(
 
         var applyStoreTrustPenalty = hadConfirmed
             && thread.BuyerExpelledAtUtc is null
-            && thread.SellerExpelledAtUtc is null;
+            && thread.SellerExpelledAtUtc is null
+            && !hasDeliveryOnStop;
 
         var distinctSheetIds = subs.Select(x => x.RouteSheetId).Distinct().ToList();
 
@@ -821,19 +832,8 @@ public sealed class RouteTramoSubscriptionService(
         if (hasRejectedRouteEvidence)
             return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_route_evidence_rejected" };
 
-        var hasBlockingOwnership = await db.RouteStopDeliveries.AsNoTracking()
-            .AnyAsync(
-                x =>
-                    x.ThreadId == tid
-                    && x.CurrentOwnerUserId == uid
-                    && x.RefundedAtUtc == null
-                    && x.State != RouteStopDeliveryStates.EvidenceAccepted
-                    && x.State != RouteStopDeliveryStates.RefundedExpired
-                    && x.State != RouteStopDeliveryStates.RefundedCarrierExit,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (hasBlockingOwnership)
-            return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_holds_ownership" };
+        if (await HasPostCedeNonterminalRouteDeliveriesAsync(tid, uid, subs, cancellationToken).ConfigureAwait(false))
+            return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_route_post_cede_pending" };
 
         var hadConfirmed = confirmedStopCount > 0;
 
@@ -1386,6 +1386,65 @@ public sealed class RouteTramoSubscriptionService(
     }
 
     /// <summary>
+    /// Tras ceder titularidad en un tramo, el transportista no puede abandonar el hilo mientras la entrega de ese tramo
+    /// no esté cerrada (evidencia aceptada o reembolso).
+    /// </summary>
+    private async Task<bool> HasPostCedeNonterminalRouteDeliveriesAsync(
+        string threadId,
+        string carrierUserId,
+        List<RouteTramoSubscriptionRow> subs,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var uid = (carrierUserId ?? "").Trim();
+        if (tid.Length < 4 || uid.Length < 2)
+            return false;
+
+        var keys = subs
+            .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+            .Select(x => ((x.RouteSheetId ?? "").Trim(), (x.StopId ?? "").Trim()))
+            .Where(t => t.Item1.Length > 0 && t.Item2.Length > 0)
+            .Distinct()
+            .ToList();
+        if (keys.Count == 0)
+            return false;
+
+        foreach (var (rsid, stopId) in keys)
+        {
+            var cededHere = await db.CarrierOwnershipEvents.AsNoTracking()
+                .AnyAsync(
+                    e =>
+                        e.ThreadId == tid
+                        && e.RouteSheetId == rsid
+                        && e.RouteStopId == stopId
+                        && e.CarrierUserId == uid
+                        && e.Action == CarrierOwnershipActions.Released
+                        && (e.Reason == "carrier_cede" || e.Reason == "end_of_route"),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!cededHere)
+                return true;
+
+            var stillOpen = await db.RouteStopDeliveries.AsNoTracking()
+                .AnyAsync(
+                    d =>
+                        d.ThreadId == tid
+                        && d.RouteSheetId == rsid
+                        && d.RouteStopId == stopId
+                        && d.RefundedAtUtc == null
+                        && d.State != RouteStopDeliveryStates.Unpaid
+                        && d.State != RouteStopDeliveryStates.EvidenceAccepted
+                        && !RouteStopDeliveryStates.IsRefundedTerminal(d.State),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (stillOpen)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Cada tramo <b>confirmado</b> del transportista tiene filas de entrega y todas están en estado terminal
     /// (evidencia aceptada o reembolso por vencimiento/salida): ya no queda logística activa en esos tramos.
     /// </summary>
@@ -1434,8 +1493,7 @@ public sealed class RouteTramoSubscriptionService(
     {
         var s = (stateRaw ?? "").Trim().ToLowerInvariant();
         return s is RouteStopDeliveryStates.EvidenceAccepted
-            or RouteStopDeliveryStates.RefundedExpired
-            or RouteStopDeliveryStates.RefundedCarrierExit;
+            || RouteStopDeliveryStates.IsRefundedTerminal(s);
     }
 
     private async Task<int?> ApplyTrustPenaltyIfNeededAsync(

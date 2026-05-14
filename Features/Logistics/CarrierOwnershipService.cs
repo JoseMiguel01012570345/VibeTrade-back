@@ -1,9 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Chat.Interfaces;
-using VibeTrade.Backend.Features.Logistics.Dtos;
-using VibeTrade.Backend.Features.Chat.Interfaces;
 
 namespace VibeTrade.Backend.Features.Logistics;
 
@@ -183,10 +180,18 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
         if (!await chat.UserCanAccessThreadRowAsync(uid, thread, cancellationToken).ConfigureAwait(false))
             return null;
 
-        var ownershipEvents = await db.CarrierOwnershipEvents.AsNoTracking().Where(x =>
-         x.ThreadId == tid && x.RouteSheetId == rsid && x.RouteStopId == sid && x.CarrierUserId == uid).ToListAsync(cancellationToken).ConfigureAwait(false);
-        
-        return ownershipEvents.Count > 0 ? new CarrierOwnershipCedeResultDto(true, null, null) : null;
+        var releasedOperational = await db.CarrierOwnershipEvents.AsNoTracking().AnyAsync(
+                x =>
+                    x.ThreadId == tid
+                    && x.RouteSheetId == rsid
+                    && x.RouteStopId == sid
+                    && x.CarrierUserId == uid
+                    && x.Action == CarrierOwnershipActions.Released
+                    && (x.Reason == "carrier_cede" || x.Reason == "end_of_route"),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return releasedOperational ? new CarrierOwnershipCedeResultDto(true, null, null) : null;
     }
 
     /// <summary>

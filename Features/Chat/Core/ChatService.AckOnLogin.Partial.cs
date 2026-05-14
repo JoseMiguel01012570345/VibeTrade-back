@@ -42,7 +42,7 @@ public sealed partial class ChatService
             {
                 if (string.Equals(m.SenderUserId, uid, StringComparison.Ordinal))
                     continue;
-                var fromRecipients = (await GetMessageRecipientUserIdsAsync(t, m.SenderUserId, cancellationToken))
+                var fromRecipients = (await broadcasting.GetMessageRecipientUserIdsAsync(t, m.SenderUserId, cancellationToken))
                     .ToList();
                 if (fromRecipients.Count == 0
                     || !ChatMessageStatusUpdateCore.InExpectedList(uid, fromRecipients))

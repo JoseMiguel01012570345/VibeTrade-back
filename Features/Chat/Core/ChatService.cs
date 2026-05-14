@@ -1,5 +1,3 @@
-using System.Text.Json;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
@@ -7,11 +5,6 @@ using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Domain.Market;
 using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
-using VibeTrade.Backend.Features.Recommendations.Core;
-using VibeTrade.Backend.Features.Recommendations.Feed;
-using VibeTrade.Backend.Features.Recommendations.Guest;
-using VibeTrade.Backend.Features.Recommendations.Popularity;
-using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Utils;
 using VibeTrade.Backend.Features.Chat;
 
@@ -19,175 +12,26 @@ namespace VibeTrade.Backend.Features.Chat.Core;
 
 public sealed partial class ChatService(
     AppDbContext db,
-    IHubContext<ChatHub> hub,
-    IPartySoftLeaveCoordinator partySoftLeave)
+    IBroadcastingService broadcasting,
+    INotificationService notifications,
+    IThreadAccessControlService threadAccess,
+    IChatThreadSystemMessageService threadSystemMessages)
     : IChatService,
         IThreadManagementService,
         IMessageHandlingService,
         IParticipantManagementService,
-        INotificationService,
-        ISignalRBroadcastService,
         IOfferRelationService,
-        IThreadAccessControlService
+        IChatMessageInserter
 {
     /// <summary>Oferta ficticia para hilos solo mensajería (lista/chat sin catálogo).</summary>
     private const string SocialThreadOfferId = "__vt_social__";
 
-    /// <summary>
-    /// Comprador/vendedor que hizo soft-leave ya no debe recibir mensajes ni avisos del hilo
-    /// (tampoco vía rol transportista en el mismo hilo).
-    /// </summary>
-    private static bool IsBuyerOrSellerExpelledFromThread(ChatThreadRow thread, string userId)
-    {
-        var uid = (userId ?? "").Trim();
-        if (uid.Length < 2)
-            return false;
-        var buyer = (thread.BuyerUserId ?? "").Trim();
-        var seller = (thread.SellerUserId ?? "").Trim();
-        if (string.Equals(uid, buyer, StringComparison.Ordinal) && thread.BuyerExpelledAtUtc is not null)
-            return true;
-        if (string.Equals(uid, seller, StringComparison.Ordinal) && thread.SellerExpelledAtUtc is not null)
-            return true;
-        return false;
-    }
-
-    private async Task<HashSet<string>> GetThreadParticipantUserIdsAsync(
-        ChatThreadRow thread,
-        CancellationToken cancellationToken)
-    {
-        var set = new HashSet<string>(StringComparer.Ordinal);
-        if (thread.BuyerExpelledAtUtc is null && !string.IsNullOrWhiteSpace(thread.BuyerUserId))
-            set.Add(thread.BuyerUserId.Trim());
-        if (thread.SellerExpelledAtUtc is null && !string.IsNullOrWhiteSpace(thread.SellerUserId))
-            set.Add(thread.SellerUserId.Trim());
-        var carriers = await ChatQueryHelpers.GetActiveCarrierUserIdsForThreadAsync(db, thread.Id, cancellationToken);
-        foreach (var c in carriers)
-        {
-            if (string.IsNullOrWhiteSpace(c))
-                continue;
-            var cid = c.Trim();
-            if (IsBuyerOrSellerExpelledFromThread(thread, cid))
-                continue;
-            set.Add(cid);
-        }
-
-        if (thread.IsSocialGroup)
-        {
-            var socialExtra = await ChatQueryHelpers.GetSocialGroupMemberUserIdsAsync(db, thread.Id, cancellationToken);
-            foreach (var x in socialExtra)
-            {
-                if (!string.IsNullOrWhiteSpace(x))
-                    set.Add(x.Trim());
-            }
-        }
-
-        var participatedHereIds = await ChatQueryHelpers.GetParticipatedCarrierUserIdsForThreadAsync(db, thread.Id, cancellationToken);
-        var activeElsewhereIds = await ChatQueryHelpers.GetActiveCarrierUserIdsElsewhereAsync(db, thread.Id, cancellationToken);
-        foreach (var pid in participatedHereIds)
-        {
-            if (string.IsNullOrWhiteSpace(pid))
-                continue;
-            var p = pid.Trim();
-            if (set.Contains(p))
-                continue;
-            if (IsBuyerOrSellerExpelledFromThread(thread, p))
-                continue;
-            if (activeElsewhereIds.Any(e =>
-                    !string.IsNullOrWhiteSpace(e)
-                    && (string.Equals(e.Trim(), p, StringComparison.Ordinal)
-                        || ChatThreadAccess.UserIdsMatchLoose(p, e))))
-                set.Add(p);
-        }
-
-        return set;
-    }
-
-    private async Task<IReadOnlyList<string>> GetMessageRecipientUserIdsAsync(
-        ChatThreadRow thread,
-        string senderUserId,
-        CancellationToken cancellationToken)
-    {
-        var set = await GetThreadParticipantUserIdsAsync(thread, cancellationToken);
-        var s = (senderUserId ?? "").Trim();
-        set.Remove(s);
-        return set.ToList();
-    }
-
-
-    private async Task HubSendToThreadParticipantsAsync(
-        ChatThreadRow thread,
-        string method,
-        object payload,
-        CancellationToken cancellationToken)
-    {
-        var participants = await GetThreadParticipantUserIdsAsync(thread, cancellationToken);
-        foreach (var uid in participants)
-        {
-            await hub.Clients.Group(ChatHubGroupNames.ForUser(uid)).SendAsync(method, payload, cancellationToken);
-        }
-    }
-
     /// <inheritdoc />
-    public async Task<bool> UserCanAccessThreadRowAsync(
+    public Task<bool> UserCanAccessThreadRowAsync(
         string userId,
         ChatThreadRow thread,
         CancellationToken cancellationToken = default)
-    {
-        if (thread.DeletedAtUtc is not null)
-            return false;
-        var uid = (userId ?? "").Trim();
-        if (uid.Length == 0)
-            return false;
-        var buyerId = (thread.BuyerUserId ?? "").Trim();
-        var sellerId = (thread.SellerUserId ?? "").Trim();
-        // Comprador / vendedor: si fue expulsado, sin acceso. Si no, acceso aunque aún no cumplan Initiator/FirstMessage.
-        if (string.Equals(uid, buyerId, StringComparison.Ordinal))
-        {
-            if (thread.BuyerExpelledAtUtc is not null)
-                return false;
-            return true;
-        }
-        if (string.Equals(uid, sellerId, StringComparison.Ordinal))
-        {
-            if (thread.SellerExpelledAtUtc is not null)
-                return false;
-            return true;
-        }
-        if (thread.IsSocialGroup
-            && await ChatQueryHelpers.IsUserSocialGroupMemberAsync(db, uid, thread.Id, cancellationToken))
-            return true;
-        if (ChatThreadAccess.UserCanSeeThread(uid, thread))
-            return true;
-        if (await ChatQueryHelpers.IsUserActiveCarrierOnThreadAsync(db, uid, thread.Id, cancellationToken))
-            return true;
-
-        // Retirado/expulsado en este hilo pero con tramos activos en otro hilo: mantiene el chat acá.
-        var carrierIdsThisThread = await ChatQueryHelpers.GetParticipatedCarrierUserIdsForThreadAsync(db, thread.Id, cancellationToken);
-        if (carrierIdsThisThread.Any(cid =>
-                !string.IsNullOrWhiteSpace(cid)
-                && (string.Equals(cid.Trim(), uid, StringComparison.Ordinal)
-                    || ChatThreadAccess.UserIdsMatchLoose(uid, cid))))
-        {
-            if (await db.RouteTramoSubscriptions.AsNoTracking()
-                    .AnyAsync(
-                        x => x.CarrierUserId == uid
-                            && x.ThreadId != thread.Id
-                            && x.Status != "rejected"
-                            && x.Status != "withdrawn",
-                        cancellationToken))
-                return true;
-            var otherCarrierIds = await ChatQueryHelpers.GetActiveCarrierUserIdsElsewhereAsync(db, thread.Id, cancellationToken);
-            if (otherCarrierIds.Any(oid =>
-                    !string.IsNullOrWhiteSpace(oid)
-                    && (string.Equals(oid.Trim(), uid, StringComparison.Ordinal)
-                        || ChatThreadAccess.UserIdsMatchLoose(uid, oid))))
-                return true;
-        }
-
-        // Misma fila pero id guardado con otro formato (p. ej. prefijos / solo dígitos).
-        var carrierIds = await ChatQueryHelpers.GetActiveCarrierUserIdsForThreadAsync(db, thread.Id, cancellationToken);
-        return carrierIds.Any(cid => ChatThreadAccess.UserIdsMatchLoose(uid, cid));
-    }
+        => threadAccess.UserCanAccessThreadRowAsync(userId, thread, cancellationToken);
 
     public async Task<bool> IsUserSellerForOfferAsync(
         string userId,
@@ -204,777 +48,6 @@ public sealed partial class ChatService(
     {
         var (_, sellerUserId) = await ResolveOfferStoreAsync((offerId ?? "").Trim(), cancellationToken);
         return string.IsNullOrWhiteSpace(sellerUserId) ? null : sellerUserId.Trim();
-    }
-
-    public async Task NotifyOfferCommentAsync(
-        OfferCommentNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(request.RecipientUserId))
-            return;
-
-        var preview = request.TextPreview.Length > 500 ? request.TextPreview[..500] + "…" : request.TextPreview;
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        var rid = request.RecipientUserId.Trim();
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = rid,
-            ThreadId = null,
-            MessageId = null,
-            OfferId = request.OfferId,
-            MessagePreview = preview,
-            AuthorStoreName = request.AuthorLabel,
-            AuthorTrustScore = request.AuthorTrust,
-            SenderUserId = request.SenderUserId,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-            ReadAtUtc = null,
-            Kind = "offer_comment",
-        });
-        await db.SaveChangesAsync(cancellationToken);
-
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-            "notificationCreated",
-            new { kind = "offer_comment", offerId = request.OfferId },
-            cancellationToken);
-    }
-
-    public async Task NotifyOfferLikeAsync(
-        OfferLikeNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(request.SellerUserId))
-            return;
-
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        var rid = request.SellerUserId.Trim();
-        var oid = (request.OfferId ?? "").Trim();
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = rid,
-            ThreadId = null,
-            MessageId = null,
-            OfferId = oid,
-            MessagePreview = "Le dio me gusta a tu oferta.",
-            AuthorStoreName = request.LikerLabel,
-            AuthorTrustScore = request.LikerTrust,
-            SenderUserId = request.LikerSenderUserId,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-            ReadAtUtc = null,
-            Kind = "offer_like",
-        });
-        await db.SaveChangesAsync(cancellationToken);
-
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-            "notificationCreated",
-            new { kind = "offer_like", offerId = oid },
-            cancellationToken);
-    }
-
-    public async Task NotifyQaCommentLikeAsync(
-        QaCommentLikeNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(request.CommentAuthorUserId))
-            return;
-
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        var rid = request.CommentAuthorUserId.Trim();
-        var oid = (request.OfferId ?? "").Trim();
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = rid,
-            ThreadId = null,
-            MessageId = null,
-            OfferId = oid,
-            MessagePreview = "Le dio me gusta a tu comentario.",
-            AuthorStoreName = request.LikerLabel,
-            AuthorTrustScore = request.LikerTrust,
-            SenderUserId = request.LikerSenderUserId,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-            ReadAtUtc = null,
-            Kind = "qa_comment_like",
-        });
-        await db.SaveChangesAsync(cancellationToken);
-
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-            "notificationCreated",
-            new { kind = "qa_comment_like", offerId = oid },
-            cancellationToken);
-    }
-
-    public async Task NotifyRouteTramoSubscriptionRequestAsync(
-        RouteTramoSubscriptionRequestNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        var tid = (request.ThreadId ?? "").Trim();
-        if (tid.Length < 4 || request.RecipientUserIds.Count == 0)
-            return;
-
-        var carrier = (request.CarrierUserId ?? "").Trim();
-        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
-        var now = DateTimeOffset.UtcNow;
-        var meta = string.IsNullOrWhiteSpace(request.MetaJson) ? null : request.MetaJson.Trim();
-        if (meta is { Length: > 4000 })
-            meta = meta[..4000];
-
-        AddRouteTramoSubscribeRequestNotificationRows(
-            request.RecipientUserIds, tid, preview, request.AuthorLabel, request.AuthorTrust, carrier, meta, now);
-        await db.SaveChangesAsync(cancellationToken);
-        await SendRouteTramoSubscribeRequestHubToRecipientsAsync(request.RecipientUserIds, tid, cancellationToken);
-    }
-
-    private void AddRouteTramoSubscribeRequestNotificationRows(
-        IReadOnlyCollection<string> recipientUserIds,
-        string tid,
-        string preview,
-        string authorLabel,
-        int authorTrust,
-        string carrier,
-        string? meta,
-        DateTimeOffset now)
-    {
-        foreach (var raw in recipientUserIds)
-        {
-            var rid = (raw ?? "").Trim();
-            if (rid.Length == 0)
-                continue;
-            var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-            db.ChatNotifications.Add(new ChatNotificationRow
-            {
-                Id = nid,
-                RecipientUserId = rid,
-                ThreadId = tid,
-                MessageId = null,
-                OfferId = null,
-                MessagePreview = preview,
-                AuthorStoreName = authorLabel,
-                AuthorTrustScore = authorTrust,
-                SenderUserId = carrier,
-                CreatedAtUtc = now,
-                ReadAtUtc = null,
-                Kind = "route_tramo_subscribe",
-                MetaJson = meta,
-            });
-        }
-    }
-
-    private async Task SendRouteTramoSubscribeRequestHubToRecipientsAsync(
-        IReadOnlyCollection<string> recipientUserIds,
-        string tid,
-        CancellationToken cancellationToken)
-    {
-        foreach (var raw in recipientUserIds)
-        {
-            var rid = (raw ?? "").Trim();
-            if (rid.Length == 0)
-                continue;
-            await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-                "notificationCreated",
-                new { kind = "route_tramo_subscribe", threadId = tid },
-                cancellationToken);
-        }
-    }
-
-    public async Task NotifyRouteTramoSubscriptionAcceptedAsync(
-        RouteTramoSubscriptionAcceptedNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        var tid = (request.ThreadId ?? "").Trim();
-        var cid = (request.CarrierUserId ?? "").Trim();
-        if (tid.Length < 4 || cid.Length < 2)
-            return;
-
-        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
-        var now = DateTimeOffset.UtcNow;
-        var meta = string.IsNullOrWhiteSpace(request.MetaJson) ? null : request.MetaJson.Trim();
-        await NotifyCarrierOfRouteTramoSubscriptionAcceptedCoreAsync(
-            cid, tid, preview, request.DeciderLabel, request.DeciderTrust, request.DeciderUserId, now, meta, cancellationToken);
-        await TryNotifyRouteTramoAcceptedSellerInboxAsync(
-            tid,
-            cid,
-            request.SellerInboxUserId,
-            request.SellerInboxPreview,
-            request.SellerInboxSubjectLabel,
-            request.SellerInboxSubjectTrust,
-            now,
-            meta,
-            cancellationToken);
-    }
-
-    private async Task NotifyCarrierOfRouteTramoSubscriptionAcceptedCoreAsync(
-        string carrierId,
-        string threadId,
-        string preview,
-        string deciderLabel,
-        int deciderTrust,
-        string deciderUserId,
-        DateTimeOffset now,
-        string? metaJson,
-        CancellationToken cancellationToken)
-    {
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = carrierId,
-            ThreadId = threadId,
-            MessageId = null,
-            OfferId = null,
-            MessagePreview = preview,
-            AuthorStoreName = (deciderLabel ?? "").Trim().Length > 0 ? deciderLabel.Trim() : "Participante",
-            AuthorTrustScore = deciderTrust,
-            SenderUserId = (deciderUserId ?? "").Trim(),
-            CreatedAtUtc = now,
-            ReadAtUtc = null,
-            Kind = "route_tramo_subscribe_accepted",
-            MetaJson = metaJson,
-        });
-        await db.SaveChangesAsync(cancellationToken);
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(carrierId)).SendAsync(
-            "notificationCreated",
-            new { kind = "route_tramo_subscribe_accepted", threadId = threadId },
-            cancellationToken);
-    }
-
-    private async Task TryNotifyRouteTramoAcceptedSellerInboxAsync(
-        string tid,
-        string carrierId,
-        string? sellerInboxUserId,
-        string? sellerInboxPreview,
-        string? sellerInboxSubjectLabel,
-        int sellerInboxSubjectTrust,
-        DateTimeOffset now,
-        string? metaJson,
-        CancellationToken cancellationToken)
-    {
-        var sid = (sellerInboxUserId ?? "").Trim();
-        var spv = (sellerInboxPreview ?? "").Trim();
-        if (sid.Length == 0
-            || spv.Length == 0
-            || string.Equals(sid, carrierId, StringComparison.Ordinal))
-            return;
-        var sl = (sellerInboxSubjectLabel ?? "").Trim();
-        if (sl.Length == 0)
-            sl = "Transportista";
-        var nid2 = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid2,
-            RecipientUserId = sid,
-            ThreadId = tid,
-            MessageId = null,
-            OfferId = null,
-            MessagePreview = spv.Length > 500 ? spv[..500] + "…" : spv,
-            AuthorStoreName = sl,
-            AuthorTrustScore = sellerInboxSubjectTrust,
-            SenderUserId = carrierId,
-            CreatedAtUtc = now,
-            ReadAtUtc = null,
-            Kind = "route_tramo_subscribe_accepted",
-            MetaJson = metaJson,
-        });
-        await db.SaveChangesAsync(cancellationToken);
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(sid)).SendAsync(
-            "notificationCreated",
-            new { kind = "route_tramo_subscribe_accepted", threadId = tid },
-            cancellationToken);
-    }
-
-    public async Task NotifyRouteTramoSubscriptionRejectedAsync(
-        RouteTramoSubscriptionRejectedNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        var tid = (request.ThreadId ?? "").Trim();
-        var cid = (request.CarrierUserId ?? "").Trim();
-        if (tid.Length < 4 || cid.Length < 2)
-            return;
-
-        var oid = (request.RouteOfferId ?? "").Trim();
-        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
-        var now = DateTimeOffset.UtcNow;
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = cid,
-            ThreadId = tid,
-            MessageId = null,
-            OfferId = oid.Length > 0 ? oid : null,
-            MessagePreview = preview,
-            AuthorStoreName = (request.SellerLabel ?? "").Trim().Length > 0 ? request.SellerLabel.Trim() : "Vendedor",
-            AuthorTrustScore = request.SellerTrust,
-            SenderUserId = (request.SellerUserId ?? "").Trim(),
-            CreatedAtUtc = now,
-            ReadAtUtc = null,
-            Kind = "route_tramo_subscribe_rejected",
-            MetaJson = null,
-        });
-
-        await db.SaveChangesAsync(cancellationToken);
-
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(cid)).SendAsync(
-            "notificationCreated",
-            new
-            {
-                kind = "route_tramo_subscribe_rejected",
-                threadId = tid,
-                offerId = oid.Length > 0 ? oid : null,
-            },
-            cancellationToken);
-    }
-
-    public async Task NotifyRouteTramoSellerExpelledAsync(
-        RouteTramoSellerExpelledNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        var tid = (request.ThreadId ?? "").Trim();
-        var cid = (request.CarrierUserId ?? "").Trim();
-        if (tid.Length < 4 || cid.Length < 2)
-            return;
-
-        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
-        var r = (request.Reason ?? "").Trim();
-        var meta = System.Text.Json.JsonSerializer.Serialize(new { reason = r });
-        var oid = (request.RouteOfferId ?? "").Trim();
-        var now = DateTimeOffset.UtcNow;
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = cid,
-            ThreadId = tid,
-            MessageId = null,
-            OfferId = oid.Length > 0 ? oid : null,
-            MessagePreview = preview,
-            AuthorStoreName = (request.SellerLabel ?? "").Trim().Length > 0 ? request.SellerLabel.Trim() : "Vendedor",
-            AuthorTrustScore = request.SellerTrust,
-            SenderUserId = (request.SellerUserId ?? "").Trim(),
-            CreatedAtUtc = now,
-            ReadAtUtc = null,
-            Kind = "route_tramo_seller_expelled",
-            MetaJson = meta,
-        });
-        await db.SaveChangesAsync(cancellationToken);
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(cid)).SendAsync(
-            "notificationCreated",
-            new
-            {
-                kind = "route_tramo_seller_expelled",
-                threadId = tid,
-                offerId = oid.Length > 0 ? oid : null,
-            },
-            cancellationToken);
-    }
-
-    public async Task NotifyRouteSheetPreselectedTransportistaAsync(
-        RouteSheetPreselectedTransportistaNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        var rid = (request.RecipientUserId ?? "").Trim();
-        var tid = (request.ThreadId ?? "").Trim();
-        var oid = (request.OfferId ?? "").Trim();
-        var rsid = (request.RouteSheetId ?? "").Trim();
-        if (rid.Length < 2 || tid.Length < 4 || oid.Length < 2 || rsid.Length < 1)
-            return;
-
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
-        var stopIds = request.StopIds?
-            .Select(x => (x ?? "").Trim())
-            .Where(x => x.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray() ?? [];
-        var metaDict = new Dictionary<string, object?> { ["routeSheetId"] = rsid };
-        if (stopIds.Length > 0)
-            metaDict["stopIds"] = stopIds;
-        var meta = JsonSerializer.Serialize(metaDict, RouteSheetJson.Options);
-        var now = DateTimeOffset.UtcNow;
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = rid,
-            ThreadId = tid,
-            MessageId = null,
-            OfferId = oid,
-            MessagePreview = preview,
-            AuthorStoreName = (request.AuthorLabel ?? "").Trim().Length > 0 ? request.AuthorLabel.Trim() : "Participante",
-            AuthorTrustScore = request.AuthorTrust,
-            SenderUserId = (request.SenderUserId ?? "").Trim(),
-            CreatedAtUtc = now,
-            ReadAtUtc = null,
-            Kind = "route_sheet_presel",
-            MetaJson = meta,
-        });
-        await db.SaveChangesAsync(cancellationToken);
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-            "notificationCreated",
-            new
-            {
-                kind = "route_sheet_presel",
-                threadId = tid,
-                offerId = oid,
-                routeSheetId = rsid,
-                stopIds = stopIds.Length > 0 ? stopIds : null,
-            },
-            cancellationToken);
-    }
-
-    public async Task NotifyRouteSheetPreselDeclinedByCarrierAsync(
-        RouteSheetPreselDeclinedByCarrierNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        var sellerId = (request.SellerUserId ?? "").Trim();
-        var tid = (request.ThreadId ?? "").Trim();
-        var oid = (request.OfferId ?? "").Trim();
-        var rsid = (request.RouteSheetId ?? "").Trim();
-        var cid = (request.CarrierUserId ?? "").Trim();
-        if (sellerId.Length < 2 || tid.Length < 4 || oid.Length < 2 || rsid.Length < 1 || cid.Length < 2)
-            return;
-
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
-        var meta = System.Text.Json.JsonSerializer.Serialize(new { routeSheetId = rsid, carrierUserId = cid });
-        var now = DateTimeOffset.UtcNow;
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = sellerId,
-            ThreadId = tid,
-            MessageId = null,
-            OfferId = oid,
-            MessagePreview = preview,
-            AuthorStoreName = (request.CarrierDisplayName ?? "").Trim().Length > 0
-                ? request.CarrierDisplayName.Trim()
-                : "Transportista",
-            AuthorTrustScore = request.CarrierTrustScore,
-            SenderUserId = cid,
-            CreatedAtUtc = now,
-            ReadAtUtc = null,
-            Kind = "route_sheet_presel_decl",
-            MetaJson = meta,
-        });
-        await db.SaveChangesAsync(cancellationToken);
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(sellerId)).SendAsync(
-            "notificationCreated",
-            new
-            {
-                kind = "route_sheet_presel_decl",
-                threadId = tid,
-                offerId = oid,
-                routeSheetId = rsid,
-                carrierUserId = cid,
-            },
-            cancellationToken);
-    }
-
-    public async Task NotifyRouteLegHandoffReadyAsync(
-        RouteLegHandoffReadyNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        var rid = (request.RecipientCarrierUserId ?? "").Trim();
-        var tid = (request.ThreadId ?? "").Trim();
-        var rsid = (request.RouteSheetId ?? "").Trim();
-        var aid = (request.AgreementId ?? "").Trim();
-        var sid = (request.RouteStopId ?? "").Trim();
-        if (rid.Length < 2 || tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1)
-            return;
-
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
-        var meta = System.Text.Json.JsonSerializer.Serialize(new
-        {
-            routeSheetId = rsid,
-            agreementId = aid,
-            routeStopId = sid,
-            threadId = tid,
-        });
-        var now = DateTimeOffset.UtcNow;
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = rid,
-            ThreadId = tid,
-            MessageId = null,
-            OfferId = null,
-            MessagePreview = preview,
-            AuthorStoreName = "Entrega",
-            AuthorTrustScore = 0,
-            SenderUserId = rid,
-            CreatedAtUtc = now,
-            ReadAtUtc = null,
-            Kind = "rl_handoff_ready",
-            MetaJson = meta,
-        });
-        await db.SaveChangesAsync(cancellationToken);
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-            "notificationCreated",
-            new
-            {
-                kind = "rl_handoff_ready",
-                threadId = tid,
-                routeSheetId = rsid,
-                agreementId = aid,
-                routeStopId = sid,
-            },
-            cancellationToken);
-    }
-
-    public async Task NotifyRouteOwnershipGrantedAsync(
-        RouteOwnershipGrantedNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        var rid = (request.RecipientCarrierUserId ?? "").Trim();
-        var tid = (request.ThreadId ?? "").Trim();
-        var rsid = (request.RouteSheetId ?? "").Trim();
-        var aid = (request.AgreementId ?? "").Trim();
-        var sid = (request.RouteStopId ?? "").Trim();
-        if (rid.Length < 2 || tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1)
-            return;
-
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
-        var meta = JsonSerializer.Serialize(new
-        {
-            routeSheetId = rsid,
-            agreementId = aid,
-            routeStopId = sid,
-            threadId = tid,
-        });
-        var now = DateTimeOffset.UtcNow;
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = rid,
-            ThreadId = tid,
-            MessageId = null,
-            OfferId = null,
-            MessagePreview = preview,
-            AuthorStoreName = "Entrega",
-            AuthorTrustScore = 0,
-            SenderUserId = rid,
-            CreatedAtUtc = now,
-            ReadAtUtc = null,
-            Kind = "rl_ownership_granted",
-            MetaJson = meta,
-        });
-        await db.SaveChangesAsync(cancellationToken);
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-            "notificationCreated",
-            new
-            {
-                kind = "rl_ownership_granted",
-                threadId = tid,
-                routeSheetId = rsid,
-                agreementId = aid,
-                routeStopId = sid,
-            },
-            cancellationToken);
-    }
-
-    public async Task NotifyRouteLegProximityAsync(
-        RouteLegProximityNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        var rid = (request.RecipientUserId ?? "").Trim();
-        var tid = (request.ThreadId ?? "").Trim();
-        var rsid = (request.RouteSheetId ?? "").Trim();
-        var aid = (request.AgreementId ?? "").Trim();
-        var sid = (request.RouteStopId ?? "").Trim();
-        if (rid.Length < 2 || tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1)
-            return;
-
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
-        var meta = System.Text.Json.JsonSerializer.Serialize(new
-        {
-            routeSheetId = rsid,
-            agreementId = aid,
-            routeStopId = sid,
-            threadId = tid,
-        });
-        var now = DateTimeOffset.UtcNow;
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = rid,
-            ThreadId = tid,
-            MessageId = null,
-            OfferId = null,
-            MessagePreview = preview,
-            AuthorStoreName = "Entrega",
-            AuthorTrustScore = 0,
-            SenderUserId = rid,
-            CreatedAtUtc = now,
-            ReadAtUtc = null,
-            Kind = "rl_proximity",
-            MetaJson = meta,
-        });
-        await db.SaveChangesAsync(cancellationToken);
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-            "notificationCreated",
-            new
-            {
-                kind = "rl_proximity",
-                threadId = tid,
-                routeSheetId = rsid,
-                agreementId = aid,
-                routeStopId = sid,
-            },
-            cancellationToken);
-    }
-
-    public Task BroadcastCarrierTelemetryUpdatedAsync(
-        string threadId,
-        string routeSheetId,
-        string agreementId,
-        string routeStopId,
-        string carrierUserId,
-        double lat,
-        double lng,
-        double? progressFraction,
-        bool offRoute,
-        DateTimeOffset reportedAtUtc,
-        double? speedKmh,
-        string? avatarUrl,
-        CancellationToken cancellationToken = default)
-    {
-        var tid = (threadId ?? "").Trim();
-        var rsid = (routeSheetId ?? "").Trim();
-        var aid = (agreementId ?? "").Trim();
-        var sid = (routeStopId ?? "").Trim();
-        var cid = (carrierUserId ?? "").Trim();
-        if (tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1 || cid.Length < 2)
-            return Task.CompletedTask;
-
-        return hub.Clients.Group(ChatHubGroupNames.ForThread(tid)).SendAsync(
-            "carrierTelemetryUpdated",
-            new
-            {
-                threadId = tid,
-                routeSheetId = rsid,
-                agreementId = aid,
-                routeStopId = sid,
-                carrierUserId = cid,
-                lat,
-                lng,
-                progressFraction,
-                offRoute,
-                reportedAtUtc,
-                speedKmh,
-                avatarUrl,
-            },
-            cancellationToken);
-    }
-
-    public async Task NotifySellerStoreTrustPenaltyAsync(
-        SellerStoreTrustPenaltyNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        var sellerId = (request.SellerUserId ?? "").Trim();
-        if (sellerId.Length < 2)
-            return;
-
-        var tid = (request.ThreadId ?? "").Trim();
-        var oid = (request.OfferId ?? "").Trim();
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
-        var meta = JsonSerializer.Serialize(new
-        {
-            delta = request.Delta,
-            balanceAfter = request.BalanceAfter,
-        });
-        var now = DateTimeOffset.UtcNow;
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = sellerId,
-            ThreadId = tid.Length >= 4 ? tid : null,
-            MessageId = null,
-            OfferId = oid.Length >= 2 ? oid : null,
-            MessagePreview = preview,
-            AuthorStoreName = "Confianza de la tienda",
-            AuthorTrustScore = request.BalanceAfter,
-            SenderUserId = sellerId,
-            CreatedAtUtc = now,
-            ReadAtUtc = null,
-            Kind = "store_trust_penalty",
-            MetaJson = meta,
-        });
-        await db.SaveChangesAsync(cancellationToken);
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(sellerId)).SendAsync(
-            "notificationCreated",
-            new
-            {
-                kind = "store_trust_penalty",
-                threadId = tid.Length >= 4 ? tid : null,
-                offerId = oid.Length >= 2 ? oid : null,
-                delta = request.Delta,
-                balanceAfter = request.BalanceAfter,
-            },
-            cancellationToken);
-    }
-
-    public Task BroadcastRouteTramoSubscriptionsChangedAsync(
-        RouteTramoSubscriptionsBroadcastArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        var tid = (request.ThreadId ?? "").Trim();
-        var rsid = (request.RouteSheetId ?? "").Trim();
-        var ch = (request.Change ?? "").Trim().ToLowerInvariant();
-        var aid = (request.ActorUserId ?? "").Trim();
-        var eid = (request.EmergentPublicationOfferId ?? "").Trim();
-        if (tid.Length < 4 || rsid.Length < 1 || ch.Length == 0)
-            return Task.CompletedTask;
-
-        var payload = new
-        {
-            threadId = tid,
-            routeSheetId = rsid,
-            change = ch,
-            actorUserId = aid.Length > 0 ? aid : null,
-            emergentOfferId = eid.Length >= 4 && RecommendationBatchOfferLoader.IsEmergentPublicationId(eid) ? eid : null,
-        };
-
-        var threadTask = hub.Clients.Group(ChatHubGroupNames.ForThread(tid)).SendAsync(
-            "routeTramoSubscriptionsChanged",
-            payload,
-            cancellationToken);
-
-        if (payload.emergentOfferId is null)
-            return threadTask;
-
-        return Task.WhenAll(
-            threadTask,
-            hub.Clients.Group(ChatHubGroupNames.ForOffer(payload.emergentOfferId)).SendAsync(
-                "routeTramoSubscriptionsChanged",
-                payload,
-                cancellationToken));
-    }
-
-    public Task BroadcastOfferCommentsUpdatedAsync(string offerId, CancellationToken cancellationToken = default)
-    {
-        var oid = (offerId ?? "").Trim();
-        if (oid.Length < 2)
-            return Task.CompletedTask;
-        return hub.Clients.Group(ChatHubGroupNames.ForOffer(oid)).SendAsync(
-            "offerCommentsUpdated",
-            new { offerId = oid },
-            cancellationToken);
     }
 
     private async Task<(string? storeId, string? sellerUserId)> ResolveOfferStoreAsync(
@@ -1153,20 +226,8 @@ public sealed partial class ChatService(
         db.ChatThreads.Add(row);
         await db.SaveChangesAsync(cancellationToken);
         var created = await MapThreadWithBuyerLabelAsync(row, cancellationToken);
-        await NotifyThreadCreatedAsync(created, cancellationToken);
+        await broadcasting.NotifyThreadCreatedToBuyerAsync(created, cancellationToken);
         return created;
-    }
-
-    /// <summary>
-    /// Solo el comprador recibe el hilo al crearlo; el vendedor lo recibe tras el primer mensaje
-    /// (<see cref="InsertChatMessageAsync"/>).
-    /// </summary>
-    private async Task NotifyThreadCreatedAsync(ChatThreadDto dto, CancellationToken cancellationToken)
-    {
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(dto.BuyerUserId)).SendAsync(
-            "threadCreated",
-            new { thread = dto },
-            cancellationToken);
     }
 
     public async Task<ChatThreadDto?> GetThreadIfVisibleAsync(
@@ -1331,118 +392,6 @@ public sealed partial class ChatService(
         return new ListThreadsForUserMaterialized(threads, lastByThread, buyerById);
     }
 
-    private async Task<string> ResolveDisplayNameForParticipantLeftAsync(
-        string userId,
-        CancellationToken cancellationToken)
-    {
-        var acc = await db.UserAccounts.AsNoTracking()
-            .Where(u => u.Id == userId)
-            .Select(u => new { u.DisplayName, u.PhoneDisplay, u.PhoneDigits })
-            .FirstOrDefaultAsync(cancellationToken);
-        if (acc is not null && !string.IsNullOrWhiteSpace(acc.DisplayName))
-            return acc.DisplayName.Trim();
-        return (acc?.PhoneDisplay ?? acc?.PhoneDigits ?? userId).Trim();
-    }
-
-
-    /// <inheritdoc />
-    public async Task<bool> BroadcastParticipantLeftToOthersAsync(
-        string leaverUserId,
-        string threadId,
-        CancellationToken cancellationToken = default)
-    {
-        var tid = ChatThreadIds.NormalizePersistedId(threadId);
-        if (tid.Length < 4)
-            return false;
-        var uid = (leaverUserId ?? "").Trim();
-        if (uid.Length < 2)
-            return false;
-
-        var t = await db.ChatThreads
-            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null)
-            return false;
-
-        if (!await UserCanAccessThreadRowAsync(uid, t, cancellationToken))
-            return false;
-
-        if (t.IsSocialGroup)
-        {
-            var buyerId = (t.BuyerUserId ?? "").Trim();
-            var sellerId = (t.SellerUserId ?? "").Trim();
-            var now = DateTimeOffset.UtcNow;
-            if (string.Equals(uid, buyerId, StringComparison.Ordinal))
-                t.BuyerExpelledAtUtc = now;
-            else if (string.Equals(uid, sellerId, StringComparison.Ordinal))
-                t.SellerExpelledAtUtc = now;
-            else
-            {
-                var extraRows = await db.ChatSocialGroupMembers
-                    .Where(m => m.ThreadId == tid && m.UserId == uid)
-                    .ToListAsync(cancellationToken)
-                    .ConfigureAwait(false);
-                if (extraRows.Count == 0)
-                    return false;
-                db.ChatSocialGroupMembers.RemoveRange(extraRows);
-            }
-
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        }
-        else
-        {
-            var buyerId = (t.BuyerUserId ?? "").Trim();
-            var sellerId = (t.SellerUserId ?? "").Trim();
-            var now = DateTimeOffset.UtcNow;
-            if (string.Equals(uid, buyerId, StringComparison.Ordinal))
-            {
-                t.BuyerExpelledAtUtc = now;
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            }
-            else if (string.Equals(uid, sellerId, StringComparison.Ordinal))
-            {
-                t.SellerExpelledAtUtc = now;
-                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        var displayName = await ResolveDisplayNameForParticipantLeftAsync(uid, cancellationToken);
-        var payload = new { threadId = tid, userId = uid, displayName };
-        var others = await GetThreadParticipantUserIdsAsync(t, cancellationToken);
-        others.Remove(uid);
-        foreach (var oid in others)
-        {
-            var rid = (oid ?? "").Trim();
-            if (rid.Length < 2)
-                continue;
-            if (string.Equals(rid, uid, StringComparison.Ordinal))
-                continue;
-            await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-                "participantLeft",
-                payload,
-                cancellationToken);
-        }
-        return true;
-    }
-
-    /// <inheritdoc />
-    public async Task<IReadOnlyList<string>> GetThreadParticipantUserIdsAsync(
-        string threadId,
-        CancellationToken cancellationToken = default)
-    {
-        var tid = ChatThreadIds.NormalizePersistedId(threadId);
-        if (tid.Length < 4)
-            return [];
-
-        var t = await db.ChatThreads.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken)
-            .ConfigureAwait(false);
-        if (t is null || t.DeletedAtUtc is not null)
-            return [];
-
-        var set = await GetThreadParticipantUserIdsAsync(t, cancellationToken).ConfigureAwait(false);
-        return set.ToList();
-    }
-
     /// <inheritdoc />
     public async Task<ChatThreadDto?> CreateSocialGroupThreadAsync(
         string creatorUserId,
@@ -1517,14 +466,7 @@ public sealed partial class ChatService(
         var notifyIds = new HashSet<string>(StringComparer.Ordinal) { buyerId, sellerId };
         foreach (var u in rest)
             notifyIds.Add(u);
-        foreach (var n in notifyIds)
-        {
-            await hub.Clients.Group(ChatHubGroupNames.ForUser(n)).SendAsync(
-                    "threadCreated",
-                    new { thread = dto },
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
+        await broadcasting.BroadcastThreadCreatedToUsersAsync(notifyIds, dto, cancellationToken).ConfigureAwait(false);
 
         return dto;
     }
@@ -1547,7 +489,7 @@ public sealed partial class ChatService(
         if (!await UserCanAccessThreadRowAsync(userId, t, cancellationToken).ConfigureAwait(false))
             return null;
 
-        var ids = await GetThreadParticipantUserIdsAsync(t, cancellationToken).ConfigureAwait(false);
+        var ids = await broadcasting.GetThreadParticipantUserIdsForThreadRowAsync(t, cancellationToken).ConfigureAwait(false);
         var idList = ids.ToList();
         if (idList.Count == 0)
             return Array.Empty<ChatThreadMemberDto>();
@@ -1613,5 +555,650 @@ public sealed partial class ChatService(
 
         return await MapThreadWithBuyerLabelAsync(t, cancellationToken).ConfigureAwait(false);
     }
+    public async Task<IReadOnlyList<ChatMessageDto>> ListMessagesAsync(
+        string userId,
+        string threadId,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return Array.Empty<ChatMessageDto>();
+
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || !await UserCanAccessThreadRowAsync(userId, t, cancellationToken))
+            return Array.Empty<ChatMessageDto>();
+
+        var msgs = await db.ChatMessages.AsNoTracking()
+            .Where(m => m.ThreadId == tid && m.DeletedAtUtc == null)
+            .OrderBy(m => m.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        var labelCache = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var uid in msgs.Select(m => m.SenderUserId).Distinct())
+        {
+            labelCache[uid] = await GetParticipantAuthorLabelAsync(t, uid, cancellationToken);
+        }
+
+        var myExpected = (await broadcasting.GetMessageRecipientUserIdsAsync(t, userId, cancellationToken))
+            .ToList();
+
+        return msgs.Select(
+            m =>
+            {
+                var label = labelCache[m.SenderUserId];
+                if (m.SenderUserId != userId)
+                    return ChatMessageDtoFactory.FromRow(m, label);
+                var gr = ChatGroupReceiptsJsonUtil.Parse(m.GroupReceiptsJson);
+                IReadOnlyList<string> expected = ChatMessageStatusUpdateCore
+                    .MergedExpectedIds(gr, myExpected);
+                if (expected.Count <= 1)
+                    return ChatMessageDtoFactory.FromRow(m, label);
+                var display = ChatMessageStatusUpdateCore.OutgoingGroupDisplayStatus(expected, gr);
+                return ChatMessageDtoFactory.FromRowWithStatus(m, display, label);
+            }).ToList();
+    }
+
+    private static IReadOnlyList<string>? ReplyIdsFromQuotes(IReadOnlyList<ReplyQuoteDto>? quotes) =>
+        quotes is null or { Count: 0 }
+            ? null
+            : quotes.Select(static q => q.MessageId).Where(static id => !string.IsNullOrWhiteSpace(id)).ToList();
+
+    private async Task<IReadOnlyList<ReplyQuoteDto>?> BuildReplyQuotesAsync(
+        ChatThreadRow thread,
+        PostChatMessageBody body,
+        CancellationToken cancellationToken)
+    {
+        var ids = ChatReplyToIdsFromPayload.ReadList(body);
+        if (ids is null || ids.Count == 0)
+            return null;
+
+        var list = new List<ReplyQuoteDto>();
+        foreach (var id in ids.Distinct(StringComparer.Ordinal))
+        {
+            var row = await db.ChatMessages.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    m => m.Id == id && m.ThreadId == thread.Id && m.DeletedAtUtc == null,
+                    cancellationToken);
+            if (row is null)
+                continue;
+            var author = await GetParticipantAuthorLabelAsync(thread, row.SenderUserId, cancellationToken);
+            var preview = ChatMessagePreviewText.FromPayload(row.Payload);
+            list.Add(new ReplyQuoteDto
+            {
+                MessageId = row.Id,
+                Author = author,
+                Preview = preview,
+                AtUtc = row.CreatedAtUtc,
+            });
+        }
+
+        return list.Count == 0 ? null : list;
+    }
+
+    private async Task<string> GetParticipantAuthorLabelAsync(
+        ChatThreadRow thread,
+        string senderUserId,
+        CancellationToken cancellationToken)
+    {
+        if (thread.IsSocialGroup)
+        {
+            var acc = await db.UserAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == senderUserId, cancellationToken);
+            if (acc == null)
+                return "Usuario";
+            if (!string.IsNullOrWhiteSpace(acc.DisplayName))
+                return acc.DisplayName.Trim();
+            if (!string.IsNullOrWhiteSpace(acc.PhoneDisplay))
+                return acc.PhoneDisplay.Trim();
+            if (!string.IsNullOrWhiteSpace(acc.PhoneDigits))
+                return acc.PhoneDigits.Trim();
+            return senderUserId.Length >= 6 ? senderUserId[..6] : "Usuario";
+        }
+
+        if (senderUserId == thread.BuyerUserId)
+        {
+            var acc = await db.UserAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == senderUserId, cancellationToken);
+            return string.IsNullOrWhiteSpace(acc?.DisplayName)
+                ? "Comprador"
+                : acc!.DisplayName.Trim();
+        }
+
+        if (senderUserId == thread.SellerUserId)
+        {
+            var store = await db.Stores.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == thread.StoreId, cancellationToken);
+            return string.IsNullOrWhiteSpace(store?.Name)
+                ? "Tienda"
+                : store!.Name.Trim();
+        }
+
+        if (await ChatQueryHelpers.IsUserActiveCarrierOnThreadAsync(db, senderUserId, thread.Id, cancellationToken))
+        {
+            var cAcc = await db.UserAccounts.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == senderUserId, cancellationToken);
+            return string.IsNullOrWhiteSpace(cAcc?.DisplayName) ? "Transportista" : cAcc!.DisplayName.Trim();
+        }
+
+        return "Participante";
+    }
+
+    private async Task<ChatMessageDto> InsertChatMessageAsync(
+        ChatThreadRow thread,
+        string senderUserId,
+        ChatMessagePayload payloadObj,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var sellerHadNotSeenThreadYet = thread.FirstMessageSentAtUtc is null;
+        if (thread.FirstMessageSentAtUtc is null)
+            thread.FirstMessageSentAtUtc = now;
+
+        var msgId = "cmg_" + Guid.NewGuid().ToString("N")[..16];
+        var row = new ChatMessageRow
+        {
+            Id = msgId,
+            ThreadId = thread.Id,
+            SenderUserId = senderUserId,
+            Payload = payloadObj,
+            Status = ChatMessageStatus.Sent,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+        };
+        db.ChatMessages.Add(row);
+
+        var preview = ChatMessagePreviewText.FromPayload(payloadObj);
+        var recipients = (await broadcasting.GetMessageRecipientUserIdsAsync(thread, senderUserId, cancellationToken))
+            .ToList();
+        AttachGroupReceiptsJsonForMultiRecipientMessage(row, recipients);
+        if (recipients.Count > 0
+            && await AllRecipientAccountsHaveValidSessionAsync(recipients, cancellationToken))
+        {
+            ChatMessageStatusUpdateCore.ApplyAllRecipientsSessionActiveAsDelivered(
+                row, recipients, now);
+        }
+
+        await notifications.StageInAppNotificationsForMessageRecipientsAsync(
+            recipients, thread, row, preview, senderUserId, cancellationToken);
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        if (sellerHadNotSeenThreadYet)
+        {
+            var threadDto = await MapThreadWithBuyerLabelAsync(thread, cancellationToken);
+            await broadcasting.NotifyThreadCreatedToUserAsync(thread.SellerUserId, threadDto, cancellationToken);
+        }
+
+        var senderLabel = await GetParticipantAuthorLabelAsync(thread, senderUserId, cancellationToken);
+        var dto = ChatMessageDtoFactory.FromRow(row, senderLabel);
+        await broadcasting.BroadcastChatMessageCreatedAsync(thread, dto, cancellationToken);
+        return dto;
+    }
+
+    private static void AttachGroupReceiptsJsonForMultiRecipientMessage(
+        ChatMessageRow row,
+        IReadOnlyList<string> recipients)
+    {
+        if (recipients.Count <= 1)
+            return;
+        var gr = new ChatMessageGroupReceipts { ExpectedRecipientIds = new List<string>(recipients) };
+        row.GroupReceiptsJson = ChatGroupReceiptsJsonUtil.Serialize(gr);
+    }
+
+    /// <summary>
+    /// Cada integrante de <paramref name="recipients"/> con sesión de auth activa
+    /// (<c>auth_sessions.ExpiresAt</c> y <c>User.id</c> en la entidad mapeada).
+    /// </summary>
+    private async Task<bool> AllRecipientAccountsHaveValidSessionAsync(
+        IReadOnlyList<string> recipients,
+        CancellationToken cancellationToken)
+    {
+        if (recipients is not { Count: > 0 })
+            return false;
+        var utcNow = DateTimeOffset.UtcNow;
+        var sessionUsers = await db.AuthSessions.AsNoTracking()
+            .Where(s => s.ExpiresAt > utcNow)
+            .Select(s => s.User)
+            .ToListAsync(cancellationToken);
+        var onlineUserIds = new List<string>(sessionUsers.Count);
+        foreach (var u in sessionUsers)
+        {
+            var id = (u.Id ?? "").Trim();
+            if (id.Length > 0)
+                onlineUserIds.Add(id);
+        }
+
+        return recipients.All(
+            r => ChatMessageStatusUpdateCore.InExpectedList(r, onlineUserIds));
+    }
+
+    public async Task<ChatMessageDto?> PostMessageAsync(
+        PostChatMessageArgs request,
+        CancellationToken cancellationToken = default)
+    {
+        var senderUserId = request.SenderUserId;
+        var tid = (request.ThreadId ?? "").Trim();
+        if (tid.Length < 4)
+            return null;
+
+        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null
+            || !await UserCanAccessThreadRowAsync(senderUserId, t, cancellationToken))
+            return null;
+
+        var body = request.Message;
+
+        var sid = (senderUserId ?? "").Trim();
+        if (sid.Length < 2)
+            return null;
+        var buyerId = (t.BuyerUserId ?? "").Trim();
+        var sellerId = (t.SellerUserId ?? "").Trim();
+        var isBuyerOrSeller =
+            string.Equals(sid, buyerId, StringComparison.Ordinal)
+            || string.Equals(sid, sellerId, StringComparison.Ordinal);
+        var isSocialExtraMember =
+            t.IsSocialGroup
+            && await db.ChatSocialGroupMembers.AsNoTracking()
+                .AnyAsync(m => m.ThreadId == t.Id && m.UserId == sid, cancellationToken);
+        if (!isBuyerOrSeller
+            && !isSocialExtraMember
+            && !await ChatQueryHelpers.IsUserActiveCarrierOnThreadAsync(db, sid, t.Id, cancellationToken))
+            return null;
+
+        return await TryPostUnifiedUserChatMessageAsync(sid, t, body, cancellationToken);
+    }
+
+    private async Task<ChatMessageDto?> TryPostUnifiedUserChatMessageAsync(
+        string senderUserId,
+        ChatThreadRow t,
+        PostChatMessageBody body,
+        CancellationToken cancellationToken)
+    {
+        var payload = await BuildUnifiedUserMessagePayloadAsync(t, body, cancellationToken);
+        return await InsertChatMessageAsync(t, senderUserId, payload, cancellationToken);
+    }
+
+    private async Task<ChatUnifiedMessagePayload> BuildUnifiedUserMessagePayloadAsync(
+        ChatThreadRow t,
+        PostChatMessageBody body,
+        CancellationToken cancellationToken)
+    {
+        var replies = await BuildReplyQuotesAsync(t, body, cancellationToken);
+        var replyIds = ReplyIdsFromQuotes(replies);
+        return ComposeUnifiedUserMessagePayloadFromBody(body, replies, replyIds);
+    }
+
+    /// <summary>
+    /// Arma un <see cref="ChatUnifiedMessagePayload"/> desde el cuerpo del POST sin ramificar por <c>type</c>:
+    /// cada slot se rellena si los datos son válidos y si no queda vacío o null.
+    /// </summary>
+    private static ChatUnifiedMessagePayload ComposeUnifiedUserMessagePayloadFromBody(
+        PostChatMessageBody body,
+        IReadOnlyList<ReplyQuoteDto>? replies,
+        IReadOnlyList<string>? replyIds)
+    {
+        var text = (body.Text ?? "").Trim();
+        if (text.Length > 12_000)
+            text = text[..12_000];
+
+        string? offerQaId = body.OfferQaId is { } oqs && !string.IsNullOrWhiteSpace(oqs)
+            ? oqs.Trim()
+            : null;
+
+        ChatImagePayload? imgParsed = null;
+        if (body.Images is { Count: > 0 })
+            ChatPostPayloadValidation.TryParseAndValidateImagePayload(body, out imgParsed);
+
+        ChatDocsBundlePayload? docsParsed = null;
+        IReadOnlyList<ChatDocumentDto>? documents = null;
+        if (body.Documents is { Count: > 0 })
+        {
+            if (ChatPostPayloadValidation.TryParseAndValidateDocsBundlePayload(body, out docsParsed) && docsParsed is not null)
+                documents = docsParsed.Documents;
+        }
+        else if (!string.IsNullOrWhiteSpace(body.Name)
+            && body.Name.Length <= 500
+            && (body.Url is null || ChatMediaUrlRules.IsAllowedPersisted(body.Url))
+            && body.Kind is ("pdf" or "doc" or "other")
+            && !string.IsNullOrWhiteSpace(body.Size)
+            && body.Caption is null or { Length: <= 4000 })
+        {
+            documents =
+            [
+                new ChatDocumentDto
+                {
+                    Name = body.Name.Trim(),
+                    Size = body.Size.Trim(),
+                    Kind = body.Kind!,
+                    Url = body.Url,
+                },
+            ];
+        }
+
+        string? voiceUrl = null;
+        int? voiceSec = null;
+        if (body.Seconds is { } secVoice
+            && secVoice is >= 1 and <= 3600
+            && !string.IsNullOrWhiteSpace(body.Url)
+            && ChatMediaUrlRules.IsAllowedPersisted(body.Url))
+        {
+            voiceUrl = body.Url.Trim();
+            voiceSec = secVoice;
+        }
+
+        ChatEmbeddedAudioDto? embedded = imgParsed?.EmbeddedAudio ?? docsParsed?.EmbeddedAudio;
+        string? caption = imgParsed?.Caption ?? docsParsed?.Caption;
+        if (documents is { Count: > 0 } && body.Documents is null && body.Caption is { Length: > 0 } c0)
+            caption = string.IsNullOrWhiteSpace(caption) ? c0.Trim() : caption;
+
+        return new ChatUnifiedMessagePayload
+        {
+            Text = text.Length > 0 ? text : null,
+            OfferQaId = offerQaId,
+            Images = imgParsed?.Images,
+            Documents = documents,
+            Caption = caption,
+            EmbeddedAudio = embedded,
+            VoiceUrl = voiceUrl,
+            VoiceSeconds = voiceSec,
+            RepliesTo = replies,
+            ReplyToMessageIds = replyIds,
+        };
+    }
+
+    private async Task<(ChatThreadRow t, ChatMessageRow m, IReadOnlyList<string> expected, ChatMessageGroupReceipts parsedGr)?> TryGetMessageStatusUpdateContextAsync(
+        string userId,
+        string tid,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null
+            || !await UserCanAccessThreadRowAsync(userId, t, cancellationToken))
+            return null;
+
+        var m = await db.ChatMessages.FirstOrDefaultAsync(
+            x => x.Id == messageId && x.ThreadId == tid && x.DeletedAtUtc == null,
+            cancellationToken);
+        if (m is null || string.Equals(m.SenderUserId, userId, StringComparison.Ordinal))
+            return null;
+
+        var fromRecipients = (await broadcasting.GetMessageRecipientUserIdsAsync(t, m.SenderUserId, cancellationToken))
+            .ToList();
+        var parsed = ChatGroupReceiptsJsonUtil.Parse(m.GroupReceiptsJson);
+        IReadOnlyList<string> expected = ChatMessageStatusUpdateCore
+            .MergedExpectedIds(parsed, fromRecipients);
+        if (expected.Count == 0
+            || !ChatMessageStatusUpdateCore.InExpectedList(userId, expected))
+            return null;
+        return (t, m, expected, parsed);
+    }
+
+    public async Task<ChatMessageDto?> UpdateMessageStatusAsync(
+        UpdateChatMessageStatusArgs request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.Status is not (ChatMessageStatus.Delivered or ChatMessageStatus.Read))
+            return null;
+
+        var tid = (request.ThreadId ?? "").Trim();
+        if (tid.Length < 4)
+            return null;
+
+        var userId = request.UserId;
+        var messageId = request.MessageId;
+        var status = request.Status;
+        var ctx = await TryGetMessageStatusUpdateContextAsync(userId, tid, messageId, cancellationToken);
+        if (ctx is null)
+            return null;
+        var (t, m, expected, parsedGr) = ctx.Value;
+
+        var now = DateTimeOffset.UtcNow;
+        var before = m.Status;
+        var groupReceiptsJsonBefore = m.GroupReceiptsJson;
+
+        if (expected.Count == 1)
+        {
+            var paired = ChatMessageStatusUpdateCore.TryApplyPaired(m, status, now);
+            if (paired is ChatMessageStatusUpdateCore.PairedApplyOutcome.RejectNull)
+                return null;
+            if (paired is ChatMessageStatusUpdateCore.PairedApplyOutcome.ReturnDtoWithoutSave)
+                return ChatMessageDtoFactory.FromRow(m);
+        }
+        else
+        {
+            var canonical = ChatMessageStatusUpdateCore.CanonicalRecipientId(userId, expected);
+            ChatMessageStatusUpdateCore.ApplyGroup(parsedGr, expected, canonical, status, m, now);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        var dto = ChatMessageDtoFactory.FromRow(m);
+        await broadcasting.TryBroadcastChatMessageStatusChangedAsync(
+            t, tid, m, before, groupReceiptsJsonBefore, cancellationToken);
+        return dto;
+    }
+
+    public async Task<bool> DeleteThreadAsync(string userId, string threadId, CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return false;
+
+        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(userId, t))
+            return false;
+
+        var now = DateTimeOffset.UtcNow;
+        t.DeletedAtUtc = now;
+        await db.SaveChangesAsync(cancellationToken);
+
+        await db.ChatMessages
+            .Where(m => m.ThreadId == tid)
+            .ExecuteUpdateAsync(
+                s => s.SetProperty(m => m.DeletedAtUtc, now),
+                cancellationToken);
+
+        return true;
+    }
+
+    private async Task<List<ChatMessageRow>> StageOfferQaAnswerRowsFromProductListAsync(
+        IReadOnlyList<OfferQaComment> qaList,
+        List<ChatThreadRow> threads,
+        IReadOnlyDictionary<string, List<ChatMessageRow>> sellerMsgsCache,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var hubRows = new List<ChatMessageRow>();
+        foreach (var c in qaList)
+        {
+            if (!TryGetOfferQaSyncEntry(c, out var qaId, out var answer, out var buyerId))
+                continue;
+
+            var thread = threads.FirstOrDefault(t => t.BuyerUserId == buyerId);
+            if (thread is null)
+                continue;
+
+            if (!sellerMsgsCache.TryGetValue(thread.Id, out var sellerMsgs))
+                continue;
+
+            if (SellerThreadAlreadyHasOfferQaAnswer(sellerMsgs, qaId))
+                continue;
+
+            var row = CreateAndStageOfferQaAnswerMessageRow(thread, qaId, answer, now, sellerMsgs, hubRows);
+            await notifications.StageInAppNotificationForMessageRecipientAsync(
+                thread.BuyerUserId,
+                thread,
+                row,
+                answer,
+                thread.SellerUserId,
+                cancellationToken);
+        }
+
+        return hubRows;
+    }
+
+    public async Task SyncOfferQaAnswersForOfferAsync(string offerId, CancellationToken cancellationToken = default)
+    {
+        var oid = (offerId ?? "").Trim();
+        if (oid.Length < 4)
+            return;
+
+        var qaList = await GetOfferQaListForOfferAsync(oid, cancellationToken);
+        if (qaList is null || qaList.Count == 0)
+            return;
+
+        var threads = await GetActiveThreadsForOfferAsync(oid, cancellationToken);
+        if (threads.Count == 0)
+            return;
+
+        var sellerMsgsCache = await BuildSellerOfferQaMessagesCacheAsync(threads, cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var hubRows = await StageOfferQaAnswerRowsFromProductListAsync(
+            qaList, threads, sellerMsgsCache, now, cancellationToken);
+
+        if (hubRows.Count == 0)
+            return;
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        await broadcasting.TryNotifySellersThreadCreatedAfterQaMessageInsertSyncAsync(
+            hubRows,
+            threads,
+            MapThreadWithBuyerLabelAsync,
+            cancellationToken);
+
+        var byId = threads.ToDictionary(x => x.Id, StringComparer.Ordinal);
+        var hubItems = new List<(ChatThreadRow Thread, ChatMessageDto Message)>();
+        foreach (var row in hubRows)
+        {
+            if (!byId.TryGetValue(row.ThreadId, out var thread))
+                continue;
+            var senderLabel = await GetParticipantAuthorLabelAsync(thread, row.SenderUserId, cancellationToken);
+            hubItems.Add((thread, ChatMessageDtoFactory.FromRow(row, senderLabel)));
+        }
+
+        if (hubItems.Count > 0)
+            await broadcasting.BroadcastChatMessagesCreatedAsync(hubItems, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<OfferQaComment>?> GetOfferQaListForOfferAsync(
+        string offerId,
+        CancellationToken cancellationToken)
+    {
+        var product = await db.StoreProducts.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
+        if (product is not null)
+            return product.OfferQa;
+
+        var service = await db.StoreServices.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
+        return service?.OfferQa;
+    }
+
+    private async Task<List<ChatThreadRow>> GetActiveThreadsForOfferAsync(
+        string offerId,
+        CancellationToken cancellationToken) =>
+        await db.ChatThreads
+            .Where(x => x.OfferId == offerId && x.DeletedAtUtc == null)
+            .ToListAsync(cancellationToken);
+
+    private async Task<Dictionary<string, List<ChatMessageRow>>> BuildSellerOfferQaMessagesCacheAsync(
+        List<ChatThreadRow> threads,
+        CancellationToken cancellationToken)
+    {
+        var sellerMsgsCache = new Dictionary<string, List<ChatMessageRow>>(StringComparer.Ordinal);
+        foreach (var th in threads)
+        {
+            var list = await db.ChatMessages.AsNoTracking()
+                .Where(m =>
+                    m.ThreadId == th.Id
+                    && m.SenderUserId == th.SellerUserId
+                    && m.DeletedAtUtc == null)
+                .ToListAsync(cancellationToken);
+            sellerMsgsCache[th.Id] = list;
+        }
+
+        return sellerMsgsCache;
+    }
+
+    private static bool TryGetOfferQaSyncEntry(
+        OfferQaComment c,
+        out string qaId,
+        out string answer,
+        out string buyerId)
+    {
+        qaId = (c.Id ?? "").Trim();
+        answer = (c.Answer ?? "").Trim();
+        buyerId = (c.AskedBy?.Id ?? "").Trim();
+        if (string.IsNullOrEmpty(qaId) || answer.Length == 0)
+            return false;
+        if (string.IsNullOrEmpty(buyerId) || buyerId.Equals("guest", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return true;
+    }
+
+    private bool SellerThreadAlreadyHasOfferQaAnswer(IReadOnlyList<ChatMessageRow> sellerMsgs, string qaId) =>
+        sellerMsgs.Any(m => m.Payload is ChatUnifiedMessagePayload u && u.OfferQaId == qaId)
+        || sellerMsgs.Any(m => m.Payload is ChatTextPayload text && text.OfferQaId == qaId);
+
+    private ChatMessageRow CreateAndStageOfferQaAnswerMessageRow(
+        ChatThreadRow thread,
+        string qaId,
+        string answer,
+        DateTimeOffset now,
+        List<ChatMessageRow> sellerMsgs,
+        List<ChatMessageRow> hubRows)
+    {
+        var msgId = "cmg_" + Guid.NewGuid().ToString("N")[..16];
+        var payloadObj = new ChatUnifiedMessagePayload
+        {
+            Text = answer,
+            OfferQaId = qaId,
+        };
+
+        if (thread.FirstMessageSentAtUtc is null)
+            thread.FirstMessageSentAtUtc = now;
+
+        var row = new ChatMessageRow
+        {
+            Id = msgId,
+            ThreadId = thread.Id,
+            SenderUserId = thread.SellerUserId,
+            Payload = payloadObj,
+            Status = ChatMessageStatus.Sent,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+        };
+        db.ChatMessages.Add(row);
+        sellerMsgs.Add(row);
+        hubRows.Add(row);
+        return row;
+    }
+
+    public Task<ChatMessageDto?> PostAgreementAnnouncementAsync(
+        PostAgreementAnnouncementArgs request,
+        CancellationToken cancellationToken = default) =>
+        threadSystemMessages.PostAgreementAnnouncementAsync(request, cancellationToken);
+
+    public Task<ChatMessageDto?> PostSystemThreadNoticeAsync(
+        string actorUserId,
+        string threadId,
+        string text,
+        CancellationToken cancellationToken = default) =>
+        threadSystemMessages.PostSystemThreadNoticeAsync(actorUserId, threadId, text, cancellationToken);
+
+    public Task<ChatMessageDto?> PostAutomatedSystemThreadNoticeAsync(
+        string threadId,
+        string text,
+        CancellationToken cancellationToken = default) =>
+        threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(threadId, text, cancellationToken);
+
+    public Task<ChatMessageDto?> PostAutomatedPaymentFeeReceiptAsync(
+        string threadId,
+        ChatPaymentFeeReceiptData payload,
+        CancellationToken cancellationToken = default) =>
+        threadSystemMessages.PostAutomatedPaymentFeeReceiptAsync(threadId, payload, cancellationToken);
 }
 

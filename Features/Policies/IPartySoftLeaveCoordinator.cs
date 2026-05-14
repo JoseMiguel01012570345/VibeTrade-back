@@ -1,6 +1,6 @@
 using VibeTrade.Backend.Data.Entities;
 
-namespace VibeTrade.Backend.Features.Chat.Interfaces;
+namespace VibeTrade.Backend.Features.Policies;
 
 /// <summary>
 /// Reglas de pago al abandonar el chat con acuerdo: bloqueo por pagos <c>held</c>, reembolsos y penalización al vendedor.

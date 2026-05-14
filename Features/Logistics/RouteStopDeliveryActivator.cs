@@ -76,27 +76,33 @@ public static class RouteStopDeliveryActivator
             if (!map.TryGetValue(row.RouteStopId.Trim(), out var carrier) || carrier.Length < 2)
                 continue;
 
-            var paidEnough =
-                row.State == RouteStopDeliveryStates.Paid
-                || row.State == RouteStopDeliveryStates.InTransit
-                || row.State == RouteStopDeliveryStates.DeliveredPendingEvidence
-                || row.State == RouteStopDeliveryStates.EvidenceSubmitted
-                || row.State == RouteStopDeliveryStates.EvidenceAccepted
-                || row.State == RouteStopDeliveryStates.EvidenceRejected;
+            var paidEnough = RouteLegOwnershipChain.IsPaidLikeState(row.State);
 
             var aid = (row.TradeAgreementId ?? "").Trim();
             var byStop = byAgreement.TryGetValue(aid, out var dict) ? dict : new Dictionary<string, RouteStopDeliveryRow>(StringComparer.Ordinal);
-            if (ordered.Count > 0
-                && !RouteLegOwnershipChain.MayAssignOperationalOwner(ordered, byStop, row.RouteStopId.Trim()))
-                continue;
 
-            if (row.State == RouteStopDeliveryStates.AwaitingCarrierForHandoff ||
-                (paidEnough && string.IsNullOrWhiteSpace(row.CurrentOwnerUserId)))
+            // Igual que tras el cobro: solo el primer tramo pagado (en orden de hoja) recibe titular aquí;
+            // los siguientes quedan sin titular hasta cesión / handoff (no adelantar ownership al confirmar carrier).
+            var paidStopIds = byStop.Values
+                .Where(r =>
+                    !string.Equals(r.State, RouteStopDeliveryStates.Unpaid, StringComparison.OrdinalIgnoreCase)
+                    && !RouteStopDeliveryStates.IsRefundedTerminal(r.State))
+                .Select(r => r.RouteStopId.Trim())
+                .Where(s => s.Length > 0)
+                .ToHashSet(StringComparer.Ordinal);
+            var firstPaidStopId = RouteLegOwnershipChain.FirstPaidStopId(ordered, paidStopIds);
+            var mayGrantOperationalOwner =
+                firstPaidStopId is not null
+                && string.Equals(row.RouteStopId.Trim(), firstPaidStopId, StringComparison.Ordinal);
+
+            if (string.IsNullOrWhiteSpace(row.CurrentOwnerUserId)
+                && mayGrantOperationalOwner
+                && (row.State == RouteStopDeliveryStates.AwaitingCarrierForHandoff || paidEnough))
             {
-                row.State = paidEnough ? row.State : RouteStopDeliveryStates.Paid;
                 row.CurrentOwnerUserId = carrier;
                 row.OwnershipGrantedAtUtc = now;
                 row.UpdatedAtUtc = now;
+                row.State = RouteStopDeliveryStates.AwaitingCarrierForHandoff;
 
                 db.CarrierOwnershipEvents.Add(new CarrierOwnershipEventRow
                 {

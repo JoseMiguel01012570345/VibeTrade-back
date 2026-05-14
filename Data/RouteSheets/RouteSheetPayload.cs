@@ -76,7 +76,7 @@ public sealed class RouteSheetPayload
 
     public long ActualizadoEn { get; set; }
 
-    public string Estado { get; set; } = "borrador";
+    public string Estado { get; set; } = "programada";
 
     public string MercanciasResumen { get; set; } = "";
 

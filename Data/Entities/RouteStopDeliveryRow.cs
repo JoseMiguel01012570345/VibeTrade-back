@@ -10,9 +10,18 @@ public static class RouteStopDeliveryStates
     public const string EvidenceSubmitted = "evidence_submitted";
     public const string EvidenceAccepted = "evidence_accepted";
     public const string EvidenceRejected = "evidence_rejected";
-    public const string RefundedExpired = "refunded_expired";
-    public const string RefundedCarrierExit = "refunded_carrier_exit";
+    /// <summary>Venció el plazo de envío de evidencia sin submit (transición documentada; puede persistirse vía jobs).</summary>
+    public const string EvidenceSubmitExpired = "evidence_submit_expired";
+
+    /// <summary>
+    /// Tramo cerrado: se reembolsó el cobro del tramo (el plazo de evidencia es otro concepto; ver <see cref="EvidenceSubmitExpired"/>).
+    /// </summary>
+    public const string Refunded = "refunded";
+
     public const string AwaitingCarrierForHandoff = "awaiting_carrier_for_handoff";
+
+    public static bool IsRefundedTerminal(string? stateRaw) =>
+        string.Equals((stateRaw ?? "").Trim(), Refunded, StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>Motivo por el cual un tramo es elegible para reembolso manual.</summary>

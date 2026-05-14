@@ -216,7 +216,7 @@ public sealed class AgreementServiceEvidenceService(
 
         var d = (body.Decision ?? "").Trim().ToLowerInvariant();
         var now = DateTimeOffset.UtcNow;
-        if (d == "accept" || d == "accepted")
+        if (string.Equals(d, "accepted", StringComparison.OrdinalIgnoreCase))
         {
             ev.Status = ServiceEvidenceStatuses.Accepted;
             ev.BuyerDecisionAtUtc = now;
@@ -224,7 +224,7 @@ public sealed class AgreementServiceEvidenceService(
             pay.Status = AgreementServicePaymentStatuses.Released;
             pay.ReleasedAtUtc = now;
         }
-        else if (d == "reject" || d == "rejected")
+        else if (string.Equals(d, "rejected", StringComparison.OrdinalIgnoreCase))
         {
             ev.Status = ServiceEvidenceStatuses.Rejected;
             ev.BuyerDecisionAtUtc = now;
@@ -232,12 +232,12 @@ public sealed class AgreementServiceEvidenceService(
         }
         else
         {
-            return (StatusCodes.Status400BadRequest, "Decision inválida (accept|reject).");
+            return (StatusCodes.Status400BadRequest, "Decision inválida (accepted|rejected).");
         }
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         var payKey = $"mes {pay.EntryMonth} día {pay.EntryDay}";
-        var notice = d.StartsWith("a", StringComparison.Ordinal)
+        var notice = string.Equals(d, "accepted", StringComparison.OrdinalIgnoreCase)
             ? $"El comprador aceptó la evidencia del servicio ({payKey}). Pago liberado (demo)."
             : $"El comprador rechazó la evidencia del servicio ({payKey}).";
         await chat.PostAutomatedSystemThreadNoticeAsync(tid, notice, cancellationToken).ConfigureAwait(false);

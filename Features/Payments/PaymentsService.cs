@@ -1,7 +1,10 @@
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Npgsql;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Dtos;
@@ -16,7 +19,8 @@ namespace VibeTrade.Backend.Features.Payments;
 public sealed class PaymentsService(
     AppDbContext db,
     IChatService chat,
-    IPaymentFeeReceiptEmailDispatcher paymentFeeReceiptEmail)
+    IPaymentFeeReceiptEmailDispatcher paymentFeeReceiptEmail,
+    ILogger<PaymentsService> logger)
     : IPaymentsService, IStripeUserPaymentService, IStripePaymentIntentService, IAgreementPaymentService
 {
     private sealed record AgreementCheckoutTarget(
@@ -306,45 +310,121 @@ public sealed class PaymentsService(
         IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default)
     {
-        if (!await BuyerMayExecuteAgreementPaymentAsync(buyerUserId, threadId, cancellationToken).ConfigureAwait(false))
-            return null;
-        var cur = currencyLower.Trim().ToLowerInvariant();
-        var pmId = paymentMethodStripeId.Trim();
-        if (cur.Length is < 3 or > 8 || pmId.Length < 12)
-            return ExecutePaymentErr.InvalidParams();
-        var ik = (idempotencyKey ?? "").Trim();
-        var blocked = await TryPreChargeExitAsync(ik, agreementId, cur, selectedServicePayments, selectedRouteStopIds,
-                selectedMerchandiseLineIds, cancellationToken)
-            .ConfigureAwait(false);
-        if (blocked is not null)
-            return blocked;
-
-        var agr = await AgreementCheckoutExecutor.LoadAgreementAsync(db, threadId.Trim(), agreementId.Trim(),
-            cancellationToken).ConfigureAwait(false);
-        if (agr is null)
-            return ExecutePaymentErr.AgreementNotFound();
-        var rp = await AgreementCheckoutExecutor.LoadRoutePayloadAsync(db, threadId.Trim(),
-            agr.RouteSheetId?.Trim(), cancellationToken).ConfigureAwait(false);
-        var paidMerch =
-            await LoadPaidMerchandiseLineIdsByCurrencyAsync(agreementId.Trim(), cancellationToken)
+        var routeStopSummary = selectedRouteStopIds is null or { Count: 0 }
+            ? "none"
+            : string.Join(',', selectedRouteStopIds.Select(x => (x ?? "").Trim()).Where(x => x.Length > 0));
+        try
+        {
+            if (!await BuyerMayExecuteAgreementPaymentAsync(buyerUserId, threadId, cancellationToken).ConfigureAwait(false))
+                return null;
+            var cur = currencyLower.Trim().ToLowerInvariant();
+            var pmId = paymentMethodStripeId.Trim();
+            if (cur.Length is < 3 or > 8 || pmId.Length < 12)
+                return ExecutePaymentErr.InvalidParams();
+            var ik = (idempotencyKey ?? "").Trim();
+            var blocked = await TryPreChargeExitAsync(ik, agreementId, cur, selectedServicePayments, selectedRouteStopIds,
+                    selectedMerchandiseLineIds, cancellationToken)
                 .ConfigureAwait(false);
-        var breakdown = PaymentCheckoutComputation.ComputeForAgreement(agr, rp, selectedServicePayments,
-            selectedRouteStopIds, selectedMerchandiseLineIds, paidMerch);
-        var qb = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, cur);
-        if (!breakdown.Ok || qb is null)
-            return ExecutePaymentErr.CheckoutInvalid(breakdown.Errors.FirstOrDefault());
-        var custId = await ResolveBuyerStripeCustomerIdAsync(buyerUserId.Trim(), cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrEmpty(custId))
-            return ExecutePaymentErr.StripeNoCustomer();
+            if (blocked is not null)
+                return blocked;
 
-        var pay = AgreementCheckoutExecutor.NewRow(threadId.Trim(), agr.Id.Trim(), buyerUserId.Trim(), cur, qb, pmId,
-            ik.Length >= 8 ? ik : null);
-        var result = await AgreementCheckoutExecutor.PersistAndChargeAsync(db, pay, qb, pmId, custId!, cancellationToken)
-            .ConfigureAwait(false);
-        if (result is { Succeeded: true, AgreementCurrencyPaymentId: { } pid })
-            await PersistSucceededAgreementCurrencyPaymentSideEffectsAsync(threadId.Trim(), agr, buyerUserId.Trim(),
-                cur, rp, qb, pid, selectedServicePayments, selectedRouteStopIds, cancellationToken).ConfigureAwait(false);
-        return result;
+            var agr = await AgreementCheckoutExecutor.LoadAgreementAsync(db, threadId.Trim(), agreementId.Trim(),
+                cancellationToken).ConfigureAwait(false);
+            if (agr is null)
+                return ExecutePaymentErr.AgreementNotFound();
+            var rp = await AgreementCheckoutExecutor.LoadRoutePayloadAsync(db, threadId.Trim(),
+                agr.RouteSheetId?.Trim(), cancellationToken).ConfigureAwait(false);
+            var paidMerch =
+                await LoadPaidMerchandiseLineIdsByCurrencyAsync(agreementId.Trim(), cancellationToken)
+                    .ConfigureAwait(false);
+            var breakdown = PaymentCheckoutComputation.ComputeForAgreement(agr, rp, selectedServicePayments,
+                selectedRouteStopIds, selectedMerchandiseLineIds, paidMerch);
+            var qb = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, cur);
+            if (!breakdown.Ok || qb is null)
+            {
+                logger.LogWarning(
+                    "ExecuteCurrencyPayment checkout invalid: thread={ThreadId} agreement={AgreementId} currency={Currency} routeStops={RouteStops} error={Error}",
+                    threadId.Trim(), agreementId.Trim(), cur, routeStopSummary,
+                    breakdown.Errors.FirstOrDefault() ?? "(none)");
+                return ExecutePaymentErr.CheckoutInvalid(breakdown.Errors.FirstOrDefault());
+            }
+
+            var custId = await ResolveBuyerStripeCustomerIdAsync(buyerUserId.Trim(), cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(custId))
+            {
+                logger.LogWarning(
+                    "ExecuteCurrencyPayment stripe customer missing: buyer={BuyerId} thread={ThreadId} agreement={AgreementId}",
+                    buyerUserId.Trim(), threadId.Trim(), agreementId.Trim());
+                return ExecutePaymentErr.StripeNoCustomer();
+            }
+
+            logger.LogInformation(
+                "ExecuteCurrencyPayment start: buyer={BuyerId} thread={ThreadId} agreement={AgreementId} currency={Currency} routeSheetId={RouteSheetId} routeStops={RouteStops} skipStripeIntents={Skip}",
+                buyerUserId.Trim(), threadId.Trim(), agreementId.Trim(), cur,
+                (agr.RouteSheetId ?? "").Trim(),
+                routeStopSummary,
+                PaymentStripeEnv.SkipStripePaymentIntentCreate());
+
+            var pay = AgreementCheckoutExecutor.NewRow(threadId.Trim(), agr.Id.Trim(), buyerUserId.Trim(), cur, qb, pmId,
+                ik.Length >= 8 ? ik : null);
+            var result = await AgreementCheckoutExecutor.PersistAndChargeAsync(db, pay, qb, pmId, custId!, cancellationToken)
+                .ConfigureAwait(false);
+            if (result is { Succeeded: true, AgreementCurrencyPaymentId: { } pid })
+            {
+                logger.LogInformation(
+                    "ExecuteCurrencyPayment charge ok, side-effects: paymentId={PaymentId} thread={ThreadId}",
+                    pid, threadId.Trim());
+                await PersistSucceededAgreementCurrencyPaymentSideEffectsAsync(threadId.Trim(), agr, buyerUserId.Trim(),
+                    cur, rp, qb, pid, selectedServicePayments, selectedRouteStopIds, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                logger.LogInformation(
+                    "ExecuteCurrencyPayment finished without success side-effects: accepted={Accepted} thread={ThreadId} errorCode={ErrorCode} stripeMsg={StripeMsg}",
+                    result.Accepted, threadId.Trim(), result.ErrorCode ?? "", result.StripeErrorMessage ?? "");
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            LogExecuteCurrencyPaymentFailure(ex, buyerUserId, threadId, agreementId, currencyLower, routeStopSummary);
+            throw;
+        }
+    }
+
+    private void LogExecuteCurrencyPaymentFailure(
+        Exception ex,
+        string buyerUserId,
+        string threadId,
+        string agreementId,
+        string currencyLower,
+        string routeStopSummary)
+    {
+        var sb = new StringBuilder();
+        sb.Append("ExecuteCurrencyPaymentAsync threw. ");
+        for (Exception? e = ex; e is not null; e = e.InnerException)
+            sb.Append('[').Append(e.GetType().Name).Append(": ").Append(e.Message).Append("] ");
+        if (ex is DbUpdateException due)
+        {
+            foreach (var entry in due.Entries)
+            {
+                sb.Append("Entry=").Append(entry.Entity.GetType().Name).Append(" State=").Append(entry.State).Append("; ");
+            }
+
+            for (Exception? scan = due; scan is not null; scan = scan.InnerException)
+            {
+                if (scan is PostgresException pg)
+                {
+                    sb.Append("Postgres SqlState=").Append(pg.SqlState)
+                        .Append(" Constraint=").Append(pg.ConstraintName ?? "")
+                        .Append(" Detail=").Append(pg.Detail ?? "");
+                    break;
+                }
+            }
+        }
+
+        logger.LogCritical(ex, "{Detail}", sb.ToString());
     }
 
     private async Task<bool> BuyerMayExecuteAgreementPaymentAsync(
@@ -725,7 +805,6 @@ public sealed class PaymentsService(
             if (row.State == RouteStopDeliveryStates.Unpaid
                 || row.State == RouteStopDeliveryStates.AwaitingCarrierForHandoff)
             {
-                row.State = RouteStopDeliveryStates.Paid;
                 row.UpdatedAtUtc = now;
 
                 var carrier = carrierByStop.TryGetValue(stopId, out var c) ? c : "";
@@ -751,12 +830,17 @@ public sealed class PaymentsService(
                                 Reason = "payment_success",
                             });
                         }
+
+                        row.State = RouteStopDeliveryStates.AwaitingCarrierForHandoff;
+                        row.UpdatedAtUtc = now;
                     }
                     else
                     {
-                        /* Tramos siguientes: pagados pero sin titular hasta cadena (evidencia / ceder). */
+                        /* Tramos siguientes pagados: sin titular hasta cadena (ceder / evidencia en tramo previo). */
                         row.CurrentOwnerUserId = null;
                         row.OwnershipGrantedAtUtc = null;
+                        row.State = RouteStopDeliveryStates.AwaitingCarrierForHandoff;
+                        row.UpdatedAtUtc = now;
                     }
                 }
                 else
@@ -819,7 +903,7 @@ public sealed class PaymentsService(
             AmountMinor = l.AmountMinor,
         }).ToList();
 
-        var receiptPayload = new ChatPaymentFeeReceiptPayload
+        var receiptPayload = new ChatPaymentFeeReceiptData
         {
             AgreementId = agr.Id.Trim(),
             AgreementTitle = (agr.Title ?? "").Trim(),

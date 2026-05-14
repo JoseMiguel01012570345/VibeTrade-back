@@ -14,6 +14,11 @@ public abstract record ChatMessagePayload
     /// Discriminador; coincide con la propiedad JSON <c>type</c>.
     /// </summary>
     public string Type { get; init; } = "";
+
+    /// <summary>
+    /// Ids denormalizados de mensajes citados (mismo hilo). En mensajes <see cref="ChatUnifiedMessagePayload"/> se rellenan desde <see cref="ChatUnifiedMessagePayload.RepliesTo"/>.
+    /// </summary>
+    public IReadOnlyList<string>? ReplyToMessageIds { get; init; }
 }
 
 public sealed record ReplyQuoteDto
@@ -47,6 +52,22 @@ public sealed record ChatDocumentDto
     public required string Size { get; init; } // e.g. "1.2 MB"
     public required string Kind { get; init; } // "pdf" | "doc" | "other"
     public string? Url { get; init; }
+}
+
+/// <summary>Certificado dentro de <see cref="ChatUnifiedMessagePayload"/> (VibeTrade).</summary>
+public sealed record ChatUnifiedPlatformCertificateBlock
+{
+    public required string Title { get; init; }
+    public required string Body { get; init; }
+}
+
+/// <summary>Acuerdo dentro de <see cref="ChatUnifiedMessagePayload"/> (VibeTrade).</summary>
+public sealed record ChatUnifiedPlatformAgreementBlock
+{
+    public required string AgreementId { get; init; }
+    public required string Title { get; init; }
+    public string Body { get; init; } = "";
+    public required string Status { get; init; }
 }
 
 public sealed record ChatTextPayload : ChatMessagePayload
@@ -114,37 +135,47 @@ public sealed record ChatDocsBundlePayload : ChatMessagePayload
     public IReadOnlyList<ReplyQuoteDto>? ReplyQuotes { get; init; }
 }
 
-public sealed record ChatCertificatePayload : ChatMessagePayload
-{
-    public ChatCertificatePayload() => Type = "certificate";
-
-    public required string Title { get; init; }
-    public required string Body { get; init; }
-}
-
-public sealed record ChatAgreementPayload : ChatMessagePayload
-{
-    public ChatAgreementPayload() => Type = "agreement";
-
-    /// <summary>Id del registro en <c>trade_agreements</c> (cliente: <c>agreementId</c> en el mensaje).</summary>
-    public required string AgreementId { get; init; }
-
-    public required string Title { get; init; }
-
-    public string Body { get; init; } = "";
-
-    /// <summary><c>pending_buyer</c> | <c>accepted</c> | <c>rejected</c>.</summary>
-    public required string Status { get; init; }
-}
-
 /// <summary>
-/// System-only informational text, not authored by buyer/seller.
+/// Mensaje de usuario: un solo JSON con medios opcionales y <see cref="RepliesTo"/> (mensajes del hilo a los que responde; usar <see cref="ReplyQuoteDto.MessageId"/>, no timestamps, como ancla).
 /// </summary>
-public sealed record ChatSystemTextPayload : ChatMessagePayload
+public sealed record ChatUnifiedMessagePayload : ChatMessagePayload
 {
-    public ChatSystemTextPayload() => Type = "system_text";
+    public ChatUnifiedMessagePayload() => Type = "unified";
 
-    public required string Text { get; init; }
+    public string? Text { get; init; }
+
+    public string? OfferQaId { get; init; }
+
+    public IReadOnlyList<ChatImageDto>? Images { get; init; }
+
+    public IReadOnlyList<ChatDocumentDto>? Documents { get; init; }
+
+    public string? Caption { get; init; }
+
+    public ChatEmbeddedAudioDto? EmbeddedAudio { get; init; }
+
+    /// <summary>Nota de voz (opcional; independiente de adjuntos).</summary>
+    public string? VoiceUrl { get; init; }
+
+    public int? VoiceSeconds { get; init; }
+
+    /// <summary>Mensajes del hilo a los que responde (id + vista previa + autor + instante del mensaje citado).</summary>
+    public IReadOnlyList<ReplyQuoteDto>? RepliesTo { get; init; }
+
+    /// <summary>Texto de sistema (no es el mensaje de chat del usuario; ver <see cref="Text"/>).</summary>
+    public string? SystemText { get; init; }
+
+    /// <summary>Certificado emitido en nombre de VibeTrade.</summary>
+    public ChatUnifiedPlatformCertificateBlock? Certificate { get; init; }
+
+    /// <summary>Acuerdo anunciado en el hilo (VibeTrade / flujo contractual).</summary>
+    public ChatUnifiedPlatformAgreementBlock? Agreement { get; init; }
+
+    /// <summary>Recibo de tarifa post-pago (VibeTrade).</summary>
+    public ChatUnifiedPlatformPaymentFeeReceiptBlock? PaymentFeeReceipt { get; init; }
+
+    /// <summary>True cuando el bloque platform lo emite VibeTrade (avisos automáticos, recibo, acuerdo contractual, certificado).</summary>
+    public bool IssuedByVibeTradePlatform { get; init; }
 }
 
 /// <summary>Línea del desglose (mercancía, servicio, tramo, etc.).</summary>
@@ -155,13 +186,69 @@ public sealed record ChatPaymentFeeReceiptLineDto
     public required long AmountMinor { get; init; }
 }
 
-/// <summary>
-/// Recibo post-pago con tarifa Stripe según liquidación (<c>balance_transaction.fee</c>) y enlace a políticas Stripe.
-/// </summary>
-public sealed record ChatPaymentFeeReceiptPayload : ChatMessagePayload
+/// <summary>Recibo de tarifa dentro de <see cref="ChatUnifiedMessagePayload"/> (VibeTrade).</summary>
+public sealed record ChatUnifiedPlatformPaymentFeeReceiptBlock
 {
-    public ChatPaymentFeeReceiptPayload() => Type = "payment_fee_receipt";
+    public required string AgreementId { get; init; }
+    public required string AgreementTitle { get; init; }
+    public required string PaymentId { get; init; }
+    public required string CurrencyLower { get; init; }
+    public required long SubtotalMinor { get; init; }
+    public required long ClimateMinor { get; init; }
+    public required long StripeFeeMinorActual { get; init; }
+    public required long StripeFeeMinorEstimated { get; init; }
+    public required long TotalChargedMinor { get; init; }
+    public required string StripePricingUrl { get; init; }
+    public required List<ChatPaymentFeeReceiptLineDto> Lines { get; init; } = [];
+    public string InvoiceIssuerPlatform { get; init; } = "VibeTrade";
+    public string InvoiceStoreName { get; init; } = "";
+}
 
+/// <summary>Mapea bloque recibo unificado ↔ <see cref="ChatPaymentFeeReceiptData"/> (PDF / email / servicios).</summary>
+public static class ChatUnifiedPlatformReceiptMapper
+{
+    public static ChatUnifiedPlatformPaymentFeeReceiptBlock FromPayload(ChatPaymentFeeReceiptData p) =>
+        new()
+        {
+            AgreementId = p.AgreementId,
+            AgreementTitle = p.AgreementTitle,
+            PaymentId = p.PaymentId,
+            CurrencyLower = p.CurrencyLower,
+            SubtotalMinor = p.SubtotalMinor,
+            ClimateMinor = p.ClimateMinor,
+            StripeFeeMinorActual = p.StripeFeeMinorActual,
+            StripeFeeMinorEstimated = p.StripeFeeMinorEstimated,
+            TotalChargedMinor = p.TotalChargedMinor,
+            StripePricingUrl = p.StripePricingUrl,
+            Lines = p.Lines,
+            InvoiceIssuerPlatform = p.InvoiceIssuerPlatform,
+            InvoiceStoreName = p.InvoiceStoreName,
+        };
+
+    public static ChatPaymentFeeReceiptData ToData(ChatUnifiedPlatformPaymentFeeReceiptBlock b) =>
+        new()
+        {
+            AgreementId = b.AgreementId,
+            AgreementTitle = b.AgreementTitle,
+            PaymentId = b.PaymentId,
+            CurrencyLower = b.CurrencyLower,
+            SubtotalMinor = b.SubtotalMinor,
+            ClimateMinor = b.ClimateMinor,
+            StripeFeeMinorActual = b.StripeFeeMinorActual,
+            StripeFeeMinorEstimated = b.StripeFeeMinorEstimated,
+            TotalChargedMinor = b.TotalChargedMinor,
+            StripePricingUrl = b.StripePricingUrl,
+            Lines = b.Lines,
+            InvoiceIssuerPlatform = b.InvoiceIssuerPlatform,
+            InvoiceStoreName = b.InvoiceStoreName,
+        };
+}
+
+/// <summary>
+/// Datos del recibo post-pago (tarifa Stripe, desglose). No es un <see cref="ChatMessagePayload"/>; en hilo se persiste dentro de <see cref="ChatUnifiedMessagePayload.PaymentFeeReceipt"/>.
+/// </summary>
+public sealed record ChatPaymentFeeReceiptData
+{
     public required string AgreementId { get; init; }
 
     public required string AgreementTitle { get; init; }

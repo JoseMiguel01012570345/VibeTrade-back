@@ -3,10 +3,8 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Logistics.Dtos;
-using VibeTrade.Backend.Features.Chat;
-using VibeTrade.Backend.Features.Chat.Interfaces;
 
-namespace VibeTrade.Backend.Features.Logistics;
+namespace VibeTrade.Backend.Features.Notifications;
 
 public static class RouteLegHandoffNotifications
 {
@@ -147,10 +145,14 @@ public static class RouteLegHandoffNotifications
             if (!carrierByStop.TryGetValue(stopId, out var nextCarrier) || nextCarrier.Length < 2)
                 continue;
 
-            var prevId = orderedStopIds[idx - 1];
-            stateByStop.TryGetValue(prevId, out var prevRow);
+            var prevCarrier = "";
+            if (idx > 0)
+            {
+                var prevId = orderedStopIds[idx - 1];
+                stateByStop.TryGetValue(prevId, out var prevRow);
+                prevCarrier = (prevRow?.CurrentOwnerUserId ?? "").Trim();
+            }
 
-            var prevCarrier = (prevRow?.CurrentOwnerUserId ?? "").Trim();
             if (prevCarrier.Length >= 2 &&
                 string.Equals(prevCarrier, nextCarrier, StringComparison.Ordinal))
                 continue;

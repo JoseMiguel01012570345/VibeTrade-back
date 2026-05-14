@@ -4,7 +4,7 @@ using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using VibeTrade.Backend.Data;
 
-namespace VibeTrade.Backend.Features.Chat.Payments;
+namespace VibeTrade.Backend.Features.Payments;
 
 /// <summary>PDF del informe de pago (mismo contenido base que el mensaje de chat).</summary>
 public static class PaymentFeeReceiptPdfBuilder
@@ -14,7 +14,10 @@ public static class PaymentFeeReceiptPdfBuilder
         QuestPDF.Settings.License = LicenseType.Community;
     }
 
-    public static byte[] Build(ChatPaymentFeeReceiptPayload p)
+    public static byte[] Build(ChatUnifiedPlatformPaymentFeeReceiptBlock b) =>
+        Build(ChatUnifiedPlatformReceiptMapper.ToData(b));
+
+    public static byte[] Build(ChatPaymentFeeReceiptData p)
     {
         var cur = (p.CurrencyLower ?? "").Trim().ToUpperInvariant();
         if (cur.Length == 0)

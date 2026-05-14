@@ -1,6 +1,6 @@
 namespace VibeTrade.Backend.Features.Chat.Interfaces;
 
-/// <summary>Gestión de hilos de chat: crear, listar, borrar, soft-leave.</summary>
+/// <summary>Gestión de hilos de chat: crear, listar, borrar.</summary>
 public interface IThreadManagementService
 {
     Task<ChatThreadDto?> CreateOrGetThreadForBuyerAsync(
@@ -22,10 +22,6 @@ public interface IThreadManagementService
     Task<IReadOnlyList<ChatThreadSummaryDto>> ListThreadsForUserAsync(string userId, CancellationToken cancellationToken = default);
 
     Task<bool> DeleteThreadAsync(string userId, string threadId, CancellationToken cancellationToken = default);
-
-    Task<PartySoftLeaveResult> SoftLeaveThreadAsPartyAsync(
-        PartySoftLeaveArgs request,
-        CancellationToken cancellationToken = default);
 
     Task<ChatThreadDto?> PatchSocialGroupTitleAsync(
         string userId,

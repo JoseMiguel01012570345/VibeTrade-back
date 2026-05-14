@@ -12,7 +12,11 @@ using VibeTrade.Backend.Features.Auth.Interfaces;
 using VibeTrade.Backend.Features.Bootstrap;
 using VibeTrade.Backend.Features.Bootstrap.Interfaces;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Features.Chat.Core;
 using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Notifications;
+using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.EmergentOffers;
 using VibeTrade.Backend.Features.EmergentOffers.Interfaces;
 using VibeTrade.Backend.Features.Logistics;
@@ -21,6 +25,7 @@ using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Payments;
 using VibeTrade.Backend.Features.Payments.Interfaces;
+using VibeTrade.Backend.Features.Policies.ChatExit;
 using VibeTrade.Backend.Features.Recommendations.Core;
 using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
@@ -85,14 +90,26 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITrustScoreLedgerService, TrustScoreLedgerService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
+        services.AddScoped<IThreadAccessControlService, ThreadAccessControlService>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<IBroadcastingService, BroadcastingService>();
+        services.AddScoped<ISignalRBroadcastService>(sp => sp.GetRequiredService<IBroadcastingService>());
+        services.AddScoped<IChatMessageInserter>(sp => sp.GetRequiredService<ChatService>());
+        services.AddScoped<IChatThreadSystemMessageService>(sp =>
+        {
+            var lazyInserter = new Lazy<IChatMessageInserter>(() => sp.GetRequiredService<ChatService>());
+            return new ChatThreadSystemMessageService(
+                sp.GetRequiredService<AppDbContext>(),
+                sp.GetRequiredService<IThreadAccessControlService>(),
+                lazyInserter);
+        });
         services.AddScoped<IChatService, ChatService>();
         services.AddScoped<IThreadManagementService, ChatService>();
         services.AddScoped<IMessageHandlingService, ChatService>();
         services.AddScoped<IParticipantManagementService, ChatService>();
-        services.AddScoped<INotificationService, ChatService>();
-        services.AddScoped<ISignalRBroadcastService, ChatService>();
         services.AddScoped<IOfferRelationService, ChatService>();
-        services.AddScoped<IThreadAccessControlService, ChatService>();
+        services.AddSingleton<IChatExitPolicyRegistry, ChatExitPolicyRegistry>();
+        services.AddScoped<IChatExitOperationsService, ChatExitOperationsService>();
         services.AddScoped<IPartySoftLeaveCoordinator, PartySoftLeaveCoordinator>();
         services.AddScoped<IRouteSheetChatService, RouteSheetChatService>();
         services.AddScoped<IRouteTramoSubscriptionService, RouteTramoSubscriptionService>();

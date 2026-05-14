@@ -8,17 +8,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Market.Dtos;
-using VibeTrade.Backend.Features.Recommendations.Core;
-using VibeTrade.Backend.Features.Recommendations.Feed;
-using VibeTrade.Backend.Features.Recommendations.Guest;
-using VibeTrade.Backend.Features.Recommendations.Popularity;
-using VibeTrade.Backend.Features.Recommendations.Interfaces;
-using VibeTrade.Backend.Features.Search.Catalog;
-using VibeTrade.Backend.Features.Search.Elasticsearch;
-using VibeTrade.Backend.Features.Search.Embeddings;
-using VibeTrade.Backend.Features.Search.Recommendations;
-using VibeTrade.Backend.Features.Search.Interfaces;
 
 namespace VibeTrade.Backend.Features.Search.Elasticsearch;
 

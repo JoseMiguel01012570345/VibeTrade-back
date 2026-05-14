@@ -1,4 +1,4 @@
-namespace VibeTrade.Backend.Features.Chat.Payments;
+namespace VibeTrade.Backend.Features.Payments;
 
 /// <summary>URL pública de referencia para políticas / precios de procesamiento Stripe (PDF y chat).</summary>
 public static class StripePricingLinks

@@ -8,6 +8,6 @@ public interface IPaymentFeeReceiptEmailDispatcher
     /// <summary>No lanza si SMTP falla; registra advertencias. Omite usuarios sin email.</summary>
     Task TryDispatchToThreadParticipantsAsync(
         string threadId,
-        ChatPaymentFeeReceiptPayload payload,
+        ChatPaymentFeeReceiptData payload,
         CancellationToken cancellationToken = default);
 }

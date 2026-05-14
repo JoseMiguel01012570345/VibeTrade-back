@@ -16,15 +16,12 @@ public static class ChatMarketMessageJsonMapper
 
         return m.Payload switch
         {
+            ChatUnifiedMessagePayload p => MapUnified(m.Id, from, at, read, statusStr, p),
             ChatTextPayload p => MapText(m.Id, from, at, read, statusStr, p),
             ChatAudioPayload p => MapAudio(m.Id, from, at, read, p),
             ChatImagePayload p => MapImage(m.Id, from, at, read, p),
             ChatDocPayload p => MapDoc(m.Id, from, at, read, p),
             ChatDocsBundlePayload p => MapDocs(m.Id, from, at, read, p),
-            ChatAgreementPayload p => MapAgreement(m.Id, from, at, read, statusStr, p),
-            ChatSystemTextPayload p => MapSystemText(m.Id, at, read, p),
-            ChatPaymentFeeReceiptPayload p => MapPaymentFeeReceipt(m.Id, at, read, p),
-            ChatCertificatePayload p => MapCertificate(m.Id, from, at, read, statusStr, p),
             _ => TextFallback(m.Id, from, at, read, statusStr, ""),
         };
     }
@@ -38,6 +35,175 @@ public static class ChatMarketMessageJsonMapper
         ChatMessageStatus.Error => "error",
         _ => "sent",
     };
+
+    private static bool UnifiedHasUserFacingSlots(ChatUnifiedMessagePayload p) =>
+        !string.IsNullOrWhiteSpace(p.Text)
+        || p.Images is { Count: > 0 }
+        || p.Documents is { Count: > 0 }
+        || !string.IsNullOrWhiteSpace(p.VoiceUrl)
+        || !string.IsNullOrWhiteSpace(p.Caption)
+        || p.EmbeddedAudio is not null
+        || !string.IsNullOrWhiteSpace(p.OfferQaId);
+
+    private static ChatThreadMessageView? TryMapUnifiedPlatformDominant(
+        string id,
+        string from,
+        long at,
+        bool read,
+        string chatStatus,
+        ChatUnifiedMessagePayload p)
+    {
+        if (UnifiedHasUserFacingSlots(p))
+            return null;
+
+        if (p.PaymentFeeReceipt is { } r)
+        {
+            return new ChatThreadMessageView
+            {
+                Id = id,
+                From = "system",
+                Type = "payment_fee_receipt",
+                At = at,
+                Read = read,
+                FromVibeTrade = true,
+                PaymentFeeReceipt = ToPaymentFeeReceiptView(r),
+            };
+        }
+
+        if (p.Agreement is { } ag)
+        {
+            return new ChatThreadMessageView
+            {
+                Id = id,
+                From = from,
+                Type = "agreement",
+                AgreementId = ag.AgreementId,
+                Title = ag.Title,
+                At = at,
+                Read = read,
+                ChatStatus = chatStatus,
+                FromVibeTrade = p.IssuedByVibeTradePlatform,
+            };
+        }
+
+        if (p.Certificate is { } cert)
+        {
+            var txt = string.IsNullOrEmpty(cert.Body) ? cert.Title : $"{cert.Title}: {cert.Body}";
+            return new ChatThreadMessageView
+            {
+                Id = id,
+                From = "system",
+                Type = "text",
+                Text = txt,
+                At = at,
+                Read = read,
+                ChatStatus = chatStatus,
+                FromVibeTrade = true,
+            };
+        }
+
+        if (!string.IsNullOrWhiteSpace(p.SystemText))
+        {
+            var platform = p.IssuedByVibeTradePlatform;
+            return new ChatThreadMessageView
+            {
+                Id = id,
+                From = platform ? "system" : from,
+                Type = "text",
+                Text = p.SystemText.Trim(),
+                At = at,
+                Read = read,
+                ChatStatus = platform ? null : chatStatus,
+                FromVibeTrade = platform,
+            };
+        }
+
+        return null;
+    }
+
+    private static ChatPaymentFeeReceiptView ToPaymentFeeReceiptView(ChatUnifiedPlatformPaymentFeeReceiptBlock p) =>
+        new()
+        {
+            AgreementId = p.AgreementId,
+            AgreementTitle = p.AgreementTitle,
+            PaymentId = p.PaymentId,
+            CurrencyLower = p.CurrencyLower,
+            SubtotalMinor = p.SubtotalMinor,
+            ClimateMinor = p.ClimateMinor,
+            StripeFeeMinorActual = p.StripeFeeMinorActual,
+            StripeFeeMinorEstimated = p.StripeFeeMinorEstimated,
+            TotalChargedMinor = p.TotalChargedMinor,
+            StripePricingUrl = p.StripePricingUrl,
+            Lines = p.Lines.Select(x => new ChatPaymentFeeReceiptLineView
+            {
+                Label = x.Label,
+                AmountMinor = x.AmountMinor,
+            }).ToList(),
+            InvoiceIssuerPlatform = string.IsNullOrWhiteSpace(p.InvoiceIssuerPlatform)
+                ? "VibeTrade"
+                : p.InvoiceIssuerPlatform.Trim(),
+            InvoiceStoreName = (p.InvoiceStoreName ?? "").Trim(),
+        };
+
+    private static ChatThreadMessageView MapUnified(
+        string id,
+        string from,
+        long at,
+        bool read,
+        string chatStatus,
+        ChatUnifiedMessagePayload p)
+    {
+        var dominant = TryMapUnifiedPlatformDominant(id, from, at, read, chatStatus, p);
+        if (dominant is not null)
+            return dominant;
+
+        var v = new ChatThreadMessageView
+        {
+            Id = id,
+            From = from,
+            Type = "unified",
+            At = at,
+            Read = read,
+            ChatStatus = chatStatus,
+            FromVibeTrade = p.IssuedByVibeTradePlatform,
+        };
+        if (!string.IsNullOrWhiteSpace(p.Text))
+            v.Text = p.Text.Trim();
+        if (!string.IsNullOrWhiteSpace(p.OfferQaId))
+            v.OfferQaId = p.OfferQaId.Trim();
+        if (p.Images is { Count: > 0 } imgs)
+            v.Images = imgs.Select(img => new ChatMessageImageView { Url = img.Url }).ToList();
+        if (!string.IsNullOrWhiteSpace(p.Caption))
+            v.Caption = p.Caption.Trim();
+        if (p.EmbeddedAudio is { } ea)
+        {
+            v.EmbeddedAudio = new ChatMessageEmbeddedAudioView
+            {
+                Url = ea.Url,
+                Seconds = ea.Seconds,
+            };
+        }
+        if (p.Documents is { Count: > 0 } docs)
+        {
+            v.Documents = docs
+                .Select(el => new ChatMessageDocView
+                {
+                    Name = el.Name,
+                    Size = el.Size,
+                    Kind = el.Kind,
+                    Url = string.IsNullOrEmpty(el.Url) ? null : el.Url,
+                })
+                .ToList();
+        }
+        if (!string.IsNullOrWhiteSpace(p.VoiceUrl))
+        {
+            v.Url = p.VoiceUrl.Trim();
+            v.Seconds = p.VoiceSeconds;
+        }
+        AppendReplyQuotes(v, p.RepliesTo);
+        AppendReplyThreadMetadata(v, p);
+        return v;
+    }
 
     private static ChatThreadMessageView MapText(
         string id,
@@ -60,6 +226,7 @@ public static class ChatMarketMessageJsonMapper
         if (!string.IsNullOrEmpty(p.OfferQaId))
             v.OfferQaId = p.OfferQaId;
         AppendReplyQuotes(v, p.ReplyQuotes);
+        AppendReplyThreadMetadata(v, p);
         return v;
     }
 
@@ -76,6 +243,7 @@ public static class ChatMarketMessageJsonMapper
             Read = read,
         };
         AppendReplyQuotes(v, p.ReplyQuotes);
+        AppendReplyThreadMetadata(v, p);
         return v;
     }
 
@@ -101,6 +269,7 @@ public static class ChatMarketMessageJsonMapper
             };
         }
         AppendReplyQuotes(v, p.ReplyQuotes);
+        AppendReplyThreadMetadata(v, p);
         return v;
     }
 
@@ -122,6 +291,7 @@ public static class ChatMarketMessageJsonMapper
         if (!string.IsNullOrEmpty(p.Caption))
             v.Caption = p.Caption;
         AppendReplyQuotes(v, p.ReplyQuotes);
+        AppendReplyThreadMetadata(v, p);
         return v;
     }
 
@@ -156,6 +326,7 @@ public static class ChatMarketMessageJsonMapper
             };
         }
         AppendReplyQuotes(v, p.ReplyQuotes);
+        AppendReplyThreadMetadata(v, p);
         return v;
     }
 
@@ -173,95 +344,42 @@ public static class ChatMarketMessageJsonMapper
                 Id = el.MessageId,
                 Author = el.Author,
                 Preview = el.Preview,
+                At = el.AtUtc.ToUnixTimeMilliseconds(),
             });
         }
         if (outList.Count > 0)
             obj.ReplyQuotes = outList;
     }
 
-    private static ChatThreadMessageView MapAgreement(
-        string id,
-        string from,
-        long at,
-        bool read,
-        string chatStatus,
-        ChatAgreementPayload p) =>
-        new()
-        {
-            Id = id,
-            From = from,
-            Type = "agreement",
-            AgreementId = p.AgreementId,
-            Title = p.Title,
-            At = at,
-            Read = read,
-            ChatStatus = chatStatus,
-        };
+    private static void AppendReplyThreadMetadata(ChatThreadMessageView obj, ChatMessagePayload payload)
+    {
+        var ids = ResolveReplyToMessageIds(payload);
+        if (ids is { Count: > 0 })
+            obj.ReplyToMessageIds = ids;
+    }
 
-    private static ChatThreadMessageView MapCertificate(
-        string id,
-        string from,
-        long at,
-        bool read,
-        string chatStatus,
-        ChatCertificatePayload p) =>
-        new()
+    private static IReadOnlyList<string>? ResolveReplyToMessageIds(ChatMessagePayload payload)
+    {
+        if (payload.ReplyToMessageIds is { Count: > 0 } persisted)
+            return persisted;
+        var quotes = payload switch
         {
-            Id = id,
-            From = from,
-            Type = "text",
-            Text = string.IsNullOrEmpty(p.Body) ? p.Title : $"{p.Title}: {p.Body}",
-            At = at,
-            Read = read,
-            ChatStatus = chatStatus,
+            ChatUnifiedMessagePayload p => p.RepliesTo,
+            ChatTextPayload p => p.ReplyQuotes,
+            ChatImagePayload p => p.ReplyQuotes,
+            ChatAudioPayload p => p.ReplyQuotes,
+            ChatDocPayload p => p.ReplyQuotes,
+            ChatDocsBundlePayload p => p.ReplyQuotes,
+            _ => null,
         };
-
-    private static ChatThreadMessageView MapSystemText(string id, long at, bool read, ChatSystemTextPayload p) =>
-        new()
-        {
-            Id = id,
-            From = "system",
-            Type = "text",
-            Text = p.Text,
-            At = at,
-            Read = read,
-        };
-
-    private static ChatThreadMessageView MapPaymentFeeReceipt(
-        string id,
-        long at,
-        bool read,
-        ChatPaymentFeeReceiptPayload p) =>
-        new()
-        {
-            Id = id,
-            From = "system",
-            Type = "payment_fee_receipt",
-            At = at,
-            Read = read,
-            PaymentFeeReceipt = new ChatPaymentFeeReceiptView
-            {
-                AgreementId = p.AgreementId,
-                AgreementTitle = p.AgreementTitle,
-                PaymentId = p.PaymentId,
-                CurrencyLower = p.CurrencyLower,
-                SubtotalMinor = p.SubtotalMinor,
-                ClimateMinor = p.ClimateMinor,
-                StripeFeeMinorActual = p.StripeFeeMinorActual,
-                StripeFeeMinorEstimated = p.StripeFeeMinorEstimated,
-                TotalChargedMinor = p.TotalChargedMinor,
-                StripePricingUrl = p.StripePricingUrl,
-                Lines = p.Lines.Select(x => new ChatPaymentFeeReceiptLineView
-                {
-                    Label = x.Label,
-                    AmountMinor = x.AmountMinor,
-                }).ToList(),
-                InvoiceIssuerPlatform = string.IsNullOrWhiteSpace(p.InvoiceIssuerPlatform)
-                    ? "VibeTrade"
-                    : p.InvoiceIssuerPlatform.Trim(),
-                InvoiceStoreName = (p.InvoiceStoreName ?? "").Trim(),
-            },
-        };
+        if (quotes is null || quotes.Count == 0)
+            return null;
+        return quotes
+            .Select(static q => q.MessageId)
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Distinct()
+            .ToList();
+    }
 
     private static ChatThreadMessageView TextFallback(
         string id,

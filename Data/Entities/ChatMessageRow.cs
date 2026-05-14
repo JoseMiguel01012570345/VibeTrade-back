@@ -14,7 +14,7 @@ public sealed class ChatMessageRow
     public string SenderUserId { get; set; } = "";
 
     /// <summary>Contenido del mensaje; persistido en columna <c>PayloadJson</c> (jsonb).</summary>
-    public ChatMessagePayload Payload { get; set; } = new ChatTextPayload { Text = "" };
+    public ChatMessagePayload Payload { get; set; } = new ChatUnifiedMessagePayload { Text = "" };
 
     public ChatMessageStatus Status { get; set; } = ChatMessageStatus.Sent;
 

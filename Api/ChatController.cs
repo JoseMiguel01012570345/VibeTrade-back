@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Auth;
@@ -7,6 +8,7 @@ using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Data.RouteSheets;
 using VibeTrade.Backend.Infrastructure;
+using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Api;
 
@@ -17,6 +19,7 @@ namespace VibeTrade.Backend.Api;
 [Tags("Chat")]
 public sealed class ChatController(
     ICurrentUserAccessor currentUser,
+    AppDbContext db,
     IChatService chat,
     ITradeAgreementService tradeAgreements,
     IRouteSheetChatService routeSheets,
@@ -138,166 +141,11 @@ public sealed class ChatController(
         return Ok(dto);
     }
 
-    public sealed record PartySoftLeaveBody(string Reason);
-
-    /// <summary>
-    /// Comprador o vendedor con acuerdo aceptado: oculta el hilo en su lista, notifica al resto con el motivo; el hilo no se borra.
-    /// </summary>
-    public sealed record PartySoftLeaveOkBody(bool SkipClientTrustPenalty);
-
-    [HttpPost("threads/{threadId}/party-soft-leave")]
-    [Consumes("application/json")]
-    [ProducesResponseType(typeof(PartySoftLeaveOkBody), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    [ProducesResponseType(StatusCodes.Status502BadGateway)]
-    public async Task<IActionResult> PostPartySoftLeave(
-        string threadId,
-        [FromBody] PartySoftLeaveBody body,
-        CancellationToken cancellationToken)
-    {
-        var userId = currentUser.GetUserId(Request);
-        if (userId is null)
-            return Unauthorized();
-        var r = (body?.Reason ?? "").Trim();
-        if (r.Length < 1)
-            return BadRequest(new { error = "reason_required", message = "Indica un motivo para salir." });
-        var result = await chat.SoftLeaveThreadAsPartyAsync(new PartySoftLeaveArgs(userId, threadId, r), cancellationToken);
-        if (!result.Success)
-        {
-            if (string.Equals(result.ErrorCode, "not_eligible_party", StringComparison.Ordinal))
-            {
-                return StatusCode(
-                    StatusCodes.Status403Forbidden,
-                    new
-                    {
-                        error = result.ErrorCode,
-                        message =
-                            "Tu usuario no es el comprador ni el vendedor registrados en este hilo (por ejemplo, sos transportista). Esta acción es la salida «con acuerdo» del comprador/vendedor: para abandonar los tramos como transportista usá Salir del chat desde la lista; el sistema des-suscribe los tramos automáticamente.",
-                    });
-            }
-
-            if (string.Equals(result.ErrorCode, "party_leave_no_accepted_agreement", StringComparison.Ordinal))
-            {
-                return Conflict(new
-                {
-                    error = result.ErrorCode,
-                    message =
-                        "No hay acuerdos aceptados en este hilo: no corresponde la salida con acuerdo. Podés quitar el chat de tu lista sin este paso.",
-                });
-            }
-
-            if (string.Equals(result.ErrorCode, "party_leave_thread_not_found", StringComparison.Ordinal))
-            {
-                return NotFound(new
-                {
-                    error = result.ErrorCode,
-                    message = "El chat no existe o ya no está disponible.",
-                });
-            }
-
-            if (string.Equals(result.ErrorCode, "party_leave_invalid_request", StringComparison.Ordinal)
-                || string.Equals(result.ErrorCode, "party_leave_notice_failed", StringComparison.Ordinal))
-            {
-                return BadRequest(new
-                {
-                    error = result.ErrorCode ?? "bad_request",
-                    message =
-                        string.Equals(result.ErrorCode, "party_leave_notice_failed", StringComparison.Ordinal)
-                            ? "No se pudo registrar el aviso de salida. Reintentá en unos segundos."
-                            : "Solicitud de salida inválida.",
-                });
-            }
-
-            if (string.Equals(result.ErrorCode, "held_payments_buyer", StringComparison.Ordinal))
-            {
-                return Conflict(new
-                {
-                    error = result.ErrorCode,
-                    message =
-                        "No podés salir del chat mientras haya pagos retenidos (servicios y/o mercadería en espera). Esperá la liberación o el reembolso.",
-                });
-            }
-
-            if (string.Equals(result.ErrorCode, "held_payments_seller_mixed", StringComparison.Ordinal))
-            {
-                return Conflict(new
-                {
-                    error = result.ErrorCode,
-                    message =
-                        "No podés salir del chat con pagos retenidos cuando el acuerdo mezcla servicios y mercadería. Coordiná la liberación o el reembolso con la contraparte.",
-                });
-            }
-
-            if (string.Equals(result.ErrorCode, "evidence_pending", StringComparison.Ordinal))
-            {
-                return Conflict(new
-                {
-                    error = result.ErrorCode,
-                    message =
-                        "No podés salir del chat mientras haya evidencia enviada al comprador sin resolver o rechazada con pago aún retenido (servicio o mercadería).",
-                });
-            }
-
-            if (string.Equals(result.ErrorCode, "route_delivery_active_buyer", StringComparison.Ordinal))
-            {
-                return Conflict(new
-                {
-                    error = result.ErrorCode,
-                    message =
-                        "No podés salir del chat mientras haya entregas de ruta activas en este acuerdo (tramos pagados / en curso). Esperá la evidencia o solicitá reembolso elegible.",
-                });
-            }
-
-            if (string.Equals(result.ErrorCode, "route_delivery_active_seller", StringComparison.Ordinal))
-            {
-                return Conflict(new
-                {
-                    error = result.ErrorCode,
-                    message =
-                        "No podés salir del chat mientras haya entregas de ruta activas en este acuerdo (tramos pagados / en curso). Coordiná la evidencia o el reembolso elegible con la contraparte.",
-                });
-            }
-
-            if (string.Equals(result.ErrorCode, "stripe_refund_failed", StringComparison.Ordinal))
-            {
-                return StatusCode(StatusCodes.Status502BadGateway,
-                    new
-                    {
-                        error = result.ErrorCode,
-                        message =
-                            "No se pudieron reembolsar los pagos retenidos en este momento. Reintentá en unos minutos o contactá soporte.",
-                    });
-            }
-
-            return StatusCode(
-                StatusCodes.Status400BadRequest,
-                new
-                {
-                    error = result.ErrorCode ?? "party_leave_failed",
-                    message =
-                        "No se pudo completar la salida. Si sos transportista, usá Salir desde la lista del chat (des-suscripción de tramos). Si el problema continúa, contactá soporte.",
-                });
-        }
-
-        return Ok(new
-        {
-            skipClientTrustPenalty = result.SkipClientTrustPenalty,
-            otherMemberCount = result.OtherMemberCount,
-            otherMemberPenaltyApplied = result.OtherMemberPenaltyApplied,
-            trustScoreAfterMemberPenalty = result.TrustScoreAfterMemberPenalty,
-        });
-    }
-
     /// <summary>
     /// Aviso a la contraparte (y demás participantes) de que el usuario dejó de seguir el chat; emite
     /// <c>participantLeft</c> en SignalR al resto de participantes conectados. Sin acuerdo aceptado,
-    /// se usa al «Salir» de la lista; con acuerdo, el flujo es <c>party-soft-leave</c> y no hace falta.
+    /// se usa al «Salir» de la lista; con acuerdo, el flujo es <c>party-soft-leave</c> bajo <c>/api/v1/policies/chat</c> y no hace falta.
     /// </summary>
-    [HttpPost("threads/{threadId}/notify-participant-left")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -411,9 +259,9 @@ public sealed class ChatController(
         return Ok(list);
     }
 
-    /// <summary>Envía un mensaje (texto, imagen, etc.) según el shape JSON esperado por el servicio.</summary>
+    /// <summary>Envía un mensaje (texto, imagen, documentos, voz, citas) en un solo cuerpo JSON.</summary>
     /// <param name="threadId">Id del hilo.</param>
-    /// <param name="body">Mensaje (tipos: text, audio, image, doc, docs y opcional replyToIds).</param>
+    /// <param name="body">Campos opcionales; el servidor persiste siempre como payload <c>unified</c>.</param>
     /// <param name="cancellationToken">Token de cancelación.</param>
     [HttpPost("threads/{threadId}/messages")]
     [Consumes("application/json")]
@@ -477,6 +325,40 @@ public sealed class ChatController(
         if (list is null)
             return NotFound();
         return Ok(list);
+    }
+
+    /// <summary>
+    /// Indica si el hilo tiene al menos una hoja de ruta vinculada a un acuerdo aceptado sin pagos exitosos.
+    /// </summary>
+    [HttpGet("threads/{threadId}/route-sheets/has-unpaid")]
+    [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetHasUnpaidRouteSheets(
+        string threadId,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
+            return Unauthorized();
+
+        var tid = (threadId ?? "").Trim();
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
+        if (t is null || t.DeletedAtUtc is not null || !await chat.UserCanAccessThreadRowAsync(userId, t, cancellationToken))
+            return NotFound();
+
+        var hasUnpaid = await db.TradeAgreements.AsNoTracking()
+            .Where(a => a.ThreadId == tid
+                        && a.DeletedAtUtc == null
+                        && a.Status == "accepted"
+                        && a.RouteSheetId != null)
+            .AnyAsync(
+                a => !db.AgreementCurrencyPayments.AsNoTracking().Any(
+                    p => p.TradeAgreementId == a.Id && p.Status == AgreementPaymentStatuses.Succeeded),
+                cancellationToken);
+
+        return Ok(hasUnpaid);
     }
 
     /// <summary>
@@ -653,46 +535,6 @@ public sealed class ChatController(
         return Ok(r);
     }
 
-    /// <summary>
-    /// Transportista (no comprador/vendedor del hilo): abandona la operación, des-suscribe tramos y limpia teléfonos en hoja.
-    /// </summary>
-    [HttpPost("threads/{threadId}/route-tramo-subscriptions/carrier-withdraw")]
-    [ProducesResponseType(typeof(CarrierWithdrawFromThreadResult), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> PostCarrierWithdrawFromRouteSubscriptions(
-        string threadId,
-        CancellationToken cancellationToken)
-    {
-        var userId = currentUser.GetUserId(Request);
-        if (userId is null)
-            return Unauthorized();
-        var result = await routeTramoSubscriptions.WithdrawCarrierFromThreadAsync(
-            userId,
-            threadId,
-            cancellationToken);
-        if (result is null)
-            return NotFound(new { error = "not_found", message = "No hay suscripciones activas que retirar." });
-        if (string.Equals(result.ErrorCode, "carrier_holds_ownership", StringComparison.Ordinal))
-        {
-            return Conflict(new
-            {
-                error = result.ErrorCode,
-                message = "No podés salir mientras tengas carga asignada como transportista activo.",
-            });
-        }
-        if (string.Equals(result.ErrorCode, "carrier_route_evidence_rejected", StringComparison.Ordinal))
-        {
-            return Conflict(new
-            {
-                error = result.ErrorCode,
-                message = "Tenés evidencia de tramo rechazada: reenviá o coordiná con la tienda antes de salir de la operación.",
-            });
-        }
-        return Ok(result);
-    }
-
     /// <summary>Crea o actualiza una hoja de ruta en el hilo.</summary>
     [HttpPut("threads/{threadId}/route-sheets/{routeSheetId}")]
     [Consumes("application/json")]
@@ -724,7 +566,7 @@ public sealed class ChatController(
             {
                 error = "publish_requires_agreement_link",
                 message =
-                    "Publicá la hoja solo después de vincularla al acuerdo (RouteSheetId). Guardá en borrador, vinculá, y recién entonces marcá publicadaPlataforma.",
+                    "Publica la hoja solo después de vincularla al acuerdo (RouteSheetId). Guarda la hoja, vincúlala, y recién entonces marca publicada en la plataforma.",
             }),
             _ => NotFound(new { error = "not_found", message = "Hilo no encontrado o datos inválidos." }),
         };

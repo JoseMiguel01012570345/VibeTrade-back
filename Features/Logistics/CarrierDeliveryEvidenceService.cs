@@ -66,12 +66,11 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
             .ConfigureAwait(false);
         if (!cededOwnershipOnThisLeg)
             return (StatusCodes.Status403Forbidden,
-                "Solo el titular del tramo o quien ya cedió la titularidad aquí puede enviar evidencia.",
+                "Tienes que ceder la titularidad del paquete en este tramo antes de enviar evidencia.",
                     null);
 
-        if (delivery.State is RouteStopDeliveryStates.RefundedExpired
-            or RouteStopDeliveryStates.RefundedCarrierExit
-            or RouteStopDeliveryStates.Unpaid)
+        if (RouteStopDeliveryStates.IsRefundedTerminal(delivery.State)
+            || delivery.State == RouteStopDeliveryStates.Unpaid)
             return (StatusCodes.Status400BadRequest, "Este tramo no admite evidencias en su estado actual.", null);
 
         var now = DateTimeOffset.UtcNow;
@@ -139,7 +138,9 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
             delivery.State = RouteStopDeliveryStates.EvidenceSubmitted;
             delivery.UpdatedAtUtc = now;
         }
-        else if (delivery.State == RouteStopDeliveryStates.InTransit || delivery.State == RouteStopDeliveryStates.Paid)
+        else if (delivery.State == RouteStopDeliveryStates.InTransit
+            || delivery.State == RouteStopDeliveryStates.Paid
+            || delivery.State == RouteStopDeliveryStates.AwaitingCarrierForHandoff)
         {
             delivery.State = RouteStopDeliveryStates.DeliveredPendingEvidence;
             delivery.UpdatedAtUtc = now;
@@ -207,17 +208,20 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
         var deliveryState = "";
         var message = "";
 
-        if (d is "accepted")
+        if (string.Equals(d, "accepted", StringComparison.OrdinalIgnoreCase))
         {
             status = ServiceEvidenceStatuses.Accepted;
             deliveryState = RouteStopDeliveryStates.EvidenceAccepted;
             message = "Evidencia de entrega aceptada para un tramo de la hoja de ruta.";
         }
-        else {
+        else if (string.Equals(d, "rejected", StringComparison.OrdinalIgnoreCase))
+        {
             status = ServiceEvidenceStatuses.Rejected;
             deliveryState = RouteStopDeliveryStates.EvidenceRejected;
             message = "Evidencia de entrega rechazada para un tramo de la hoja de ruta.";
         }
+        else
+            return (StatusCodes.Status400BadRequest, "Decisión no válida: use accepted o rejected.");
         ev.Status = status;
         ev.DecidedAtUtc = now;
         ev.DecidedByUserId = uid;
@@ -233,6 +237,39 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
                 message,
                 cancellationToken)
             .ConfigureAwait(false);
+
+        if (string.Equals(status, ServiceEvidenceStatuses.Accepted, StringComparison.OrdinalIgnoreCase))
+        {
+            var sheetRow = await db.ChatRouteSheets.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var rp = sheetRow?.Payload;
+            if (rp is not null)
+            {
+                var paidStopIds = await db.RouteStopDeliveries.AsNoTracking()
+                    .Where(x =>
+                        x.ThreadId == tid
+                        && x.TradeAgreementId == aid
+                        && x.RouteSheetId == rsid
+                        && x.State != RouteStopDeliveryStates.Unpaid)
+                    .Select(x => x.RouteStopId.Trim())
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                await RouteLegHandoffNotifications.NotifyPaidStopsAsync(
+                        db,
+                        chat,
+                        tid,
+                        aid,
+                        rsid,
+                        rp,
+                        paidStopIds.ToHashSet(StringComparer.Ordinal),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+
         return (StatusCodes.Status200OK, null);
     }
 
@@ -273,19 +310,6 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
             return (StatusCodes.Status404NotFound, null, null);
 
         return (StatusCodes.Status200OK, null, Map(ev));
-    }
-
-    private async Task<Data.RouteSheets.RouteSheetPayload> LoadPayloadAsync(
-        string threadId,
-        string routeSheetId,
-        CancellationToken cancellationToken)
-    {
-        var row = await db.ChatRouteSheets.AsNoTracking()
-            .FirstOrDefaultAsync(
-                x => x.ThreadId == threadId && x.RouteSheetId == routeSheetId && x.DeletedAtUtc == null,
-                cancellationToken)
-            .ConfigureAwait(false);
-        return row?.Payload ?? new Data.RouteSheets.RouteSheetPayload();
     }
 
     private static CarrierDeliveryEvidenceDto Map(CarrierDeliveryEvidenceRow ev) =>

@@ -29,7 +29,7 @@ public interface IMessageHandlingService
 
     Task<ChatMessageDto?> PostAutomatedPaymentFeeReceiptAsync(
         string threadId,
-        ChatPaymentFeeReceiptPayload payload,
+        ChatPaymentFeeReceiptData payload,
         CancellationToken cancellationToken = default);
 
     Task<ChatMessageDto?> UpdateMessageStatusAsync(

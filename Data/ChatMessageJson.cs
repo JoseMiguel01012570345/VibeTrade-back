@@ -13,16 +13,16 @@ public static class ChatMessageJson
     public static ChatMessagePayload DeserializePayload(string json)
     {
         if (string.IsNullOrWhiteSpace(json))
-            return new ChatTextPayload { Text = "" };
+            return new ChatUnifiedMessagePayload { Text = "" };
 
         try
         {
             return JsonSerializer.Deserialize<ChatMessagePayload>(json, Options)
-                ?? new ChatTextPayload { Text = "" };
+                ?? new ChatUnifiedMessagePayload { Text = "" };
         }
         catch
         {
-            return new ChatTextPayload { Text = "" };
+            return new ChatUnifiedMessagePayload { Text = "" };
         }
     }
 }

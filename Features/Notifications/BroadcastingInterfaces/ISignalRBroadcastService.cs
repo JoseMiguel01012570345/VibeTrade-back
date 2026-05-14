@@ -1,4 +1,6 @@
-namespace VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Notifications.BroadcastingDtos;
+
+namespace VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
 
 /// <summary>Broadcasts SignalR para actualizaciones en tiempo real.</summary>
 public interface ISignalRBroadcastService

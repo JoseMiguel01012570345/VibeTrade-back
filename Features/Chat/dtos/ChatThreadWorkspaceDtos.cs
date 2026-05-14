@@ -34,9 +34,17 @@ public sealed class ChatThreadMessageView
     [JsonPropertyName("replyQuotes")]
     public IReadOnlyList<ChatReplyQuoteView>? ReplyQuotes { get; set; }
 
+    /// <summary>Ids de mensajes citados / a los que responde (mismo hilo).</summary>
+    [JsonPropertyName("replyToMessageIds")]
+    public IReadOnlyList<string>? ReplyToMessageIds { get; set; }
+
     /// <summary>Recibo post-pago con desglose y tarifa Stripe real (mensaje <c>payment_fee_receipt</c>).</summary>
     [JsonPropertyName("paymentFeeReceipt")]
     public ChatPaymentFeeReceiptView? PaymentFeeReceipt { get; set; }
+
+    /// <summary>Contenido contractual / recibo / aviso emitido en nombre de VibeTrade.</summary>
+    [JsonPropertyName("fromVibeTrade")]
+    public bool FromVibeTrade { get; set; }
 }
 
 public sealed class ChatPaymentFeeReceiptLineView
@@ -101,6 +109,10 @@ public sealed class ChatReplyQuoteView
     public string Id { get; set; } = "";
     public string Author { get; set; } = "";
     public string Preview { get; set; } = "";
+
+    /// <summary>Instante del mensaje citado (ms Unix); el hilo no se interpreta solo por <see cref="ChatThreadMessageView.At"/>.</summary>
+    [JsonPropertyName("at")]
+    public long At { get; set; }
 }
 
 /// <summary>Place-holder para <c>contracts[]</c> en hilo; actualmente no se pueblan entradas.</summary>

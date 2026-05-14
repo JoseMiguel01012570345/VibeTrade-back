@@ -4,13 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Stripe;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Auth.Interfaces;
-using VibeTrade.Backend.Features.Chat.Dtos;
-using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Payments.Interfaces;
 using VibeTrade.Backend.Features.Trust.Interfaces;
 
-namespace VibeTrade.Backend.Features.Chat.Party;
+namespace VibeTrade.Backend.Features.Policies;
 
 /// <summary>Penalización de confianza a la tienda al salir con pagos retenidos reembolsados (más agresiva que la salida normal).</summary>
 internal static class PartySoftLeaveTrust
@@ -173,8 +170,7 @@ public sealed class PartySoftLeaveCoordinator(
                 && x.RefundedAtUtc == null
                 && x.RefundEligibleReason == null
                 && x.State != RouteStopDeliveryStates.Unpaid
-                && x.State != RouteStopDeliveryStates.RefundedExpired
-                && x.State != RouteStopDeliveryStates.RefundedCarrierExit
+                && !RouteStopDeliveryStates.IsRefundedTerminal(x.State)
                 && x.State != RouteStopDeliveryStates.EvidenceAccepted)
             .Select(x => new { x.TradeAgreementId, x.State })
             .ToListAsync(cancellationToken)

@@ -51,20 +51,6 @@ public sealed record ChatThreadSummaryDto(
     bool IsSocialGroup = false,
     string? SocialGroupTitle = null);
 
-public sealed record ChatNotificationDto(
-    string Id,
-    string? ThreadId,
-    string? MessageId,
-    string? OfferId,
-    string MessagePreview,
-    string AuthorLabel,
-    int AuthorTrustScore,
-    string SenderUserId,
-    DateTimeOffset CreatedAtUtc,
-    DateTimeOffset? ReadAtUtc,
-    string? Kind = null,
-    string? MetaJson = null);
-
 public interface IChatService
 {
     /// <summary>True si <paramref name="userId"/> es el dueño de la tienda del producto/servicio <paramref name="offerId"/>.</summary>
@@ -250,7 +236,7 @@ public interface IChatService
     /// <summary>Recibo de pago con desglose y tarifa Stripe real (mensaje persistido + hub).</summary>
     Task<ChatMessageDto?> PostAutomatedPaymentFeeReceiptAsync(
         string threadId,
-        ChatPaymentFeeReceiptPayload payload,
+        ChatPaymentFeeReceiptData payload,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -296,11 +282,4 @@ public interface IChatService
 
     /// <summary>Borrado lógico del hilo y de sus mensajes (no se retornan en listados).</summary>
     Task<bool> DeleteThreadAsync(string userId, string threadId, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Comprador o vendedor con acuerdo aceptado: oculta el hilo solo para quien sale, guarda motivo para el resto y mantiene el hilo activo.
-    /// </summary>
-    Task<PartySoftLeaveResult> SoftLeaveThreadAsPartyAsync(
-        PartySoftLeaveArgs request,
-        CancellationToken cancellationToken = default);
 }

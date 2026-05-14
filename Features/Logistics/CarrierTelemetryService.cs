@@ -1,10 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Chat.Interfaces;
-using VibeTrade.Backend.Features.Logistics.Dtos;
-using VibeTrade.Backend.Features.Chat.Interfaces;
+
 
 namespace VibeTrade.Backend.Features.Logistics;
 
@@ -34,6 +31,25 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
         if (uid.Length < 2 || tid.Length < 4 || aid.Length < 8 || rsid.Length < 1 || sid.Length < 1 || client.Length < 2)
             return null;
 
+        var hasDelivery = await db.RouteStopDeliveries.AsNoTracking().AnyAsync(
+            x =>
+                x.ThreadId == tid
+                && x.TradeAgreementId == aid
+                && x.RouteSheetId == rsid
+                && x.RouteStopId == sid
+                && RouteStopDeliveryStateGraph.Active(x.State),
+            cancellationToken)
+            .ConfigureAwait(false);
+        if (!hasDelivery)
+            return new CarrierTelemetryIngestResultDto(
+                false,
+                "delivery_not_found", "Este tramo no tiene un paquete activo.",
+                null,
+                true,
+                null,
+                null
+            );
+
         var thread = await db.ChatThreads.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken)
             .ConfigureAwait(false);
@@ -58,7 +74,7 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
                 cancellationToken)
             .ConfigureAwait(false);
         if (!subOk)
-            return new CarrierTelemetryIngestResultDto(false, "not_confirmed_carrier", "No sos el transportista confirmado en este tramo.", null,
+            return new CarrierTelemetryIngestResultDto(false, "not_confirmed_carrier", "No eres transportista confirmado en este tramo.", null,
                 true, null, avatarUrl);
 
         var sheet = await db.ChatRouteSheets.AsNoTracking()
@@ -148,7 +164,7 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
         if (!string.Equals(delivery.CurrentOwnerUserId, uid, StringComparison.Ordinal))
         {
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            return new CarrierTelemetryIngestResultDto(false, "not_owner", "No tenés el paquete en este tramo (ownership).", null,
+            return new CarrierTelemetryIngestResultDto(false, "not_owner", "No tienes el paquete en este tramo.", null,
                 projection.OffRoute, resolvedSpeedKmh, avatarUrl);
         }
 
@@ -157,13 +173,6 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
 
         delivery.LastTelemetryProgressFraction = projection.Progress01;
         delivery.UpdatedAtUtc = now;
-
-        if (projection.Progress01 >= 0.995
-            && delivery.State is RouteStopDeliveryStates.InTransit or RouteStopDeliveryStates.Paid)
-        {
-            delivery.State = RouteStopDeliveryStates.DeliveredPendingEvidence;
-            delivery.EvidenceDeadlineAtUtc ??= now.AddHours(24);
-        }
 
         await TryProximityNotifyAsync(tid, aid, rsid, stops, sid, uid, projection.Progress01, delivery, cancellationToken)
             .ConfigureAwait(false);
@@ -249,7 +258,7 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
             return null;
 
         var deliveries = await db.RouteStopDeliveries.AsNoTracking()
-            .Where(x => x.ThreadId == tid && x.TradeAgreementId == aid && x.RouteSheetId == rsid)
+            .Where(x => x.ThreadId == tid && x.TradeAgreementId == aid && x.RouteSheetId == rsid && x.State != RouteStopDeliveryStates.EvidenceAccepted)
             .Select(x => new { x.RouteStopId, x.CurrentOwnerUserId })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

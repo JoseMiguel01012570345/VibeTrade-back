@@ -1,11 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Infrastructure.Email;
 using VibeTrade.Backend.Infrastructure.Email.Interfaces;
 using VibeTrade.Backend.Utils;
 
-namespace VibeTrade.Backend.Features.Chat.Payments;
+namespace VibeTrade.Backend.Features.Payments;
 
 public sealed class PaymentFeeReceiptEmailDispatcher(
     AppDbContext db,
@@ -16,7 +17,7 @@ public sealed class PaymentFeeReceiptEmailDispatcher(
 {
     public async Task TryDispatchToThreadParticipantsAsync(
         string threadId,
-        ChatPaymentFeeReceiptPayload payload,
+        ChatPaymentFeeReceiptData payload,
         CancellationToken cancellationToken = default)
     {
         var o = smtpOptions.Value;
