@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat;
-using VibeTrade.Backend.Features.Chat.Core;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 
 namespace VibeTrade.Backend.Features.Notifications;

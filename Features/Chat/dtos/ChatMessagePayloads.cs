@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
-using VibeTrade.Backend.Features.Chat.Messages;
 
 namespace VibeTrade.Backend.Features.Chat.Dtos;
 

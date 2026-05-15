@@ -95,10 +95,10 @@ public interface INotificationService
 
     /// <summary>
     /// Publica el aviso de sistema al salir con acuerdo aceptado.
-    /// Recibe <paramref name="messageHandling"/> desde el llamador para evitar ciclo DI con <see cref="ChatService"/>.
+    /// Recibe <paramref name="threadSystemMessages"/> desde el llamador para evitar ciclo DI con <see cref="ChatService"/>.
     /// </summary>
     Task<bool> TryPostPartySoftLeaveSystemThreadNoticeAsync(
-        IMessageHandlingService messageHandling,
+        IChatThreadSystemMessageService threadSystemMessages,
         string userId,
         string threadId,
         bool isSeller,

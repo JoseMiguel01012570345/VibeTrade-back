@@ -9,26 +9,6 @@ public interface IMessageHandlingService
         PostChatMessageArgs request,
         CancellationToken cancellationToken = default);
 
-    Task<ChatMessageDto?> PostAgreementAnnouncementAsync(
-        PostAgreementAnnouncementArgs request,
-        CancellationToken cancellationToken = default);
-
-    Task<ChatMessageDto?> PostSystemThreadNoticeAsync(
-        string actorUserId,
-        string threadId,
-        string text,
-        CancellationToken cancellationToken = default);
-
-    Task<ChatMessageDto?> PostAutomatedSystemThreadNoticeAsync(
-        string threadId,
-        string text,
-        CancellationToken cancellationToken = default);
-
-    Task<ChatMessageDto?> PostAutomatedPaymentFeeReceiptAsync(
-        string threadId,
-        ChatPaymentFeeReceiptData payload,
-        CancellationToken cancellationToken = default);
-
     Task<ChatMessageDto?> UpdateMessageStatusAsync(
         UpdateChatMessageStatusArgs request,
         CancellationToken cancellationToken = default);

@@ -2,9 +2,16 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 
+using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+
 namespace VibeTrade.Backend.Features.Logistics;
 
-public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbContext db) : ICarrierDeliveryEvidenceService
+public sealed class CarrierDeliveryEvidenceService(
+    IChatService chat,
+    IChatThreadSystemMessageService threadSystemMessages,
+    INotificationService notifications,
+    AppDbContext db) : ICarrierDeliveryEvidenceService
 {
     public async Task<(int StatusCode, string? Error, CarrierDeliveryEvidenceDto? Data)> UpsertAsync(
         string userId,
@@ -151,7 +158,7 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
         var notice = body.Submit
             ? "Evidencia de entrega enviada por el transportista para un tramo de la hoja de ruta."
             : "Evidencia de entrega guardada (borrador) por el transportista.";
-        await chat.PostAutomatedSystemThreadNoticeAsync(tid, notice, cancellationToken).ConfigureAwait(false);
+        await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(tid, notice, cancellationToken).ConfigureAwait(false);
 
         return (StatusCodes.Status200OK, null, Map(ev));
     }
@@ -232,7 +239,7 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        await chat.PostAutomatedSystemThreadNoticeAsync(
+        await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(
                 tid,
                 message,
                 cancellationToken)
@@ -259,7 +266,7 @@ public sealed class CarrierDeliveryEvidenceService(IChatService chat, AppDbConte
                     .ConfigureAwait(false);
                 await RouteLegHandoffNotifications.NotifyPaidStopsAsync(
                         db,
-                        chat,
+                        notifications,
                         tid,
                         aid,
                         rsid,

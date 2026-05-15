@@ -3,9 +3,17 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 
 
+using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+
 namespace VibeTrade.Backend.Features.Logistics;
 
-public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) : ICarrierTelemetryService
+public sealed class CarrierTelemetryService(
+    AppDbContext db,
+    IChatService chat,
+    INotificationService notifications,
+    IBroadcastingService broadcasting) : ICarrierTelemetryService
 {
     private const double ProximityThreshold = 0.80;
 
@@ -179,7 +187,7 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        await chat.BroadcastCarrierTelemetryUpdatedAsync(
+        await broadcasting.BroadcastCarrierTelemetryUpdatedAsync(
                 tid,
                 rsid,
                 aid,
@@ -359,7 +367,7 @@ public sealed class CarrierTelemetryService(AppDbContext db, IChatService chat) 
         var preview =
             "El transportista anterior está cerca del fin de tramo: podés coordinar el handoff cuando corresponda.";
 
-        await chat.NotifyRouteLegProximityAsync(
+        await notifications.NotifyRouteLegProximityAsync(
                 new RouteLegProximityNotificationArgs(
                     nc,
                     threadId,

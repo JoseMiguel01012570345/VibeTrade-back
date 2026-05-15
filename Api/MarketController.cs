@@ -10,6 +10,8 @@ using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
+using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations.Core;
 using VibeTrade.Backend.Features.Recommendations.Feed;
@@ -34,6 +36,8 @@ public sealed class MarketController(
     IRecommendationService recommendations,
     IMarketCatalogStoreSearchService catalogStoreSearch,
     IChatService chat,
+    INotificationService notifications,
+    IBroadcastingService broadcasting,
     IOfferEngagementService offerEngagement) : ControllerBase
 {
     public sealed record CatalogCategoriesResponse(IReadOnlyList<string> Categories);
@@ -483,7 +487,7 @@ public sealed class MarketController(
                 if (sellerId is not null
                     && !string.Equals(askedById, sellerId, StringComparison.Ordinal))
                 {
-                    await chat.NotifyOfferCommentAsync(
+                    await notifications.NotifyOfferCommentAsync(
                         new OfferCommentNotificationArgs(
                             sellerId,
                             offerOid,
@@ -500,7 +504,7 @@ public sealed class MarketController(
                 if (parentAuthor is not null
                     && !string.Equals(parentAuthor, askedById, StringComparison.Ordinal))
                 {
-                    await chat.NotifyOfferCommentAsync(
+                    await notifications.NotifyOfferCommentAsync(
                         new OfferCommentNotificationArgs(
                             parentAuthor,
                             offerOid,
@@ -512,7 +516,7 @@ public sealed class MarketController(
                 }
             }
 
-            await chat.BroadcastOfferCommentsUpdatedAsync(offerOid, cancellationToken);
+            await broadcasting.BroadcastOfferCommentsUpdatedAsync(offerOid, cancellationToken);
 
             return Ok(item);
         }
@@ -584,7 +588,7 @@ public sealed class MarketController(
                 var (likerSenderId, likerLabel, likerTrust) =
                     await ResolveEngagementLikerDisplayAsync(likerKey, cancellationToken);
                 if (!string.Equals(sellerId, likerSenderId, StringComparison.Ordinal))
-                    await chat.NotifyOfferLikeAsync(
+                    await notifications.NotifyOfferLikeAsync(
                         new OfferLikeNotificationArgs(sellerId, offerId, likerLabel, likerTrust, likerSenderId),
                         cancellationToken);
             }
@@ -628,7 +632,7 @@ public sealed class MarketController(
                     var (likerSenderId, likerLabel, likerTrust) =
                         await ResolveEngagementLikerDisplayAsync(likerKey, cancellationToken);
                     if (!string.Equals(aid, likerSenderId, StringComparison.Ordinal))
-                        await chat.NotifyQaCommentLikeAsync(
+                        await notifications.NotifyQaCommentLikeAsync(
                             new QaCommentLikeNotificationArgs(aid, offerId, likerLabel, likerTrust, likerSenderId),
                             cancellationToken);
                 }

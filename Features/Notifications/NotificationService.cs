@@ -894,7 +894,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
 
     /// <inheritdoc />
     public async Task<bool> TryPostPartySoftLeaveSystemThreadNoticeAsync(
-        IMessageHandlingService messageHandling,
+        IChatThreadSystemMessageService threadSystemMessages,
         string userId,
         string threadId,
         bool isSeller,
@@ -904,6 +904,6 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         var notice = isSeller
             ? $"El vendedor salió del chat con un acuerdo ya aceptado. Motivo declarado: {reasonTrim}"
             : $"El comprador salió del chat con un acuerdo ya aceptado. Motivo declarado: {reasonTrim}";
-        return await messageHandling.PostSystemThreadNoticeAsync(userId, threadId, notice, cancellationToken) is not null;
+        return await threadSystemMessages.PostSystemThreadNoticeAsync(userId, threadId, notice, cancellationToken) is not null;
     }
 }

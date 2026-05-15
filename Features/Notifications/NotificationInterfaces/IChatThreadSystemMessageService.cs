@@ -1,4 +1,3 @@
-using VibeTrade.Backend.Features.Chat.Core;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 
 namespace VibeTrade.Backend.Features.Notifications.NotificationInterfaces;

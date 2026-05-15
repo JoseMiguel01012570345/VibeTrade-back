@@ -2,9 +2,18 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 
+using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+
 namespace VibeTrade.Backend.Features.Logistics;
 
-public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) : ICarrierOwnershipService
+public sealed class CarrierOwnershipService(
+    AppDbContext db,
+    IChatService chat,
+    IChatThreadSystemMessageService threadSystemMessages,
+    INotificationService notifications,
+    IBroadcastingService broadcasting) : ICarrierOwnershipService
 {
     public async Task<CarrierOwnershipCedeResultDto?> CedeOwnershipAsync(
         string actorUserId,
@@ -135,13 +144,13 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
+        await broadcasting.BroadcastRouteTramoSubscriptionsChangedAsync(
                 new RouteTramoSubscriptionsBroadcastArgs(tid, rsid, "ownership_cede", uid),
                 cancellationToken)
             .ConfigureAwait(false);
 
         var tramoTxt = idx is > 0 ? $"tramo {idx}" : "este tramo";
-        await chat.PostAutomatedSystemThreadNoticeAsync(
+        await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(
                 tid,
                 $"Se cedió la titularidad del paquete ({tramoTxt}). El nuevo titular recibió un aviso en la app.",
                 cancellationToken)
@@ -150,7 +159,7 @@ public sealed class CarrierOwnershipService(AppDbContext db, IChatService chat) 
         var preview = idx is > 0
             ? $"Tienes la titularidad del paquete en el tramo {idx}. Revisa Rutas en el chat para coordinar el handoff."
             : "Tienes la titularidad del paquete en este tramo. Revisa Rutas en el chat para coordinar el handoff.";
-        await chat.NotifyRouteOwnershipGrantedAsync(
+        await notifications.NotifyRouteOwnershipGrantedAsync(
                 new RouteOwnershipGrantedNotificationArgs(target, tid, rsid, aid, sid, preview),
                 cancellationToken)
             .ConfigureAwait(false);

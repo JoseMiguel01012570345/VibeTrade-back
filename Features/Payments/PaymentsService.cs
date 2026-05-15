@@ -7,8 +7,8 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.Logistics.Interfaces;
 using VibeTrade.Backend.Features.Logistics;
 using Stripe;
@@ -19,6 +19,8 @@ namespace VibeTrade.Backend.Features.Payments;
 public sealed class PaymentsService(
     AppDbContext db,
     IChatService chat,
+    IChatThreadSystemMessageService threadSystemMessages,
+    INotificationService notifications,
     IPaymentFeeReceiptEmailDispatcher paymentFeeReceiptEmail,
     ILogger<PaymentsService> logger)
     : IPaymentsService, IStripeUserPaymentService, IStripePaymentIntentService, IAgreementPaymentService
@@ -859,7 +861,7 @@ public sealed class PaymentsService(
         {
             await RouteLegHandoffNotifications.NotifyPaidStopsAsync(
                     db,
-                    chat,
+                    notifications,
                     threadId.Trim(),
                     agr.Id.Trim(),
                     rsid,
@@ -920,7 +922,7 @@ public sealed class PaymentsService(
             InvoiceStoreName = storeDisplayName,
         };
 
-        await chat.PostAutomatedPaymentFeeReceiptAsync(
+        await threadSystemMessages.PostAutomatedPaymentFeeReceiptAsync(
             threadId,
             receiptPayload,
             cancellationToken).ConfigureAwait(false);

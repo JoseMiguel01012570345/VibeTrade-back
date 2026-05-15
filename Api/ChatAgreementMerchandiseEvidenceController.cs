@@ -3,8 +3,8 @@ using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Auth.Interfaces;
 using VibeTrade.Backend.Features.Chat;
-using VibeTrade.Backend.Features.Chat.Dtos;
-using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Agreements.Dtos;
+using VibeTrade.Backend.Features.Agreements.Interfaces;
 using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
@@ -12,7 +12,7 @@ namespace VibeTrade.Backend.Api;
 [ApiController]
 [Route("api/v1/chat/threads/{threadId}/agreements/{agreementId}/merchandise-line-payments")]
 [Produces("application/json")]
-[Tags("Chat")]
+[Tags("Chat", "Agreements")]
 public sealed class ChatAgreementMerchandiseEvidenceController(
     ICurrentUserAccessor currentUser,
     IAgreementMerchandiseEvidenceService svc) : ControllerBase

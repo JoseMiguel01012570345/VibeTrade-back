@@ -2,7 +2,8 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Chat.Dtos;
-using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Features.Market;
@@ -17,7 +18,8 @@ namespace VibeTrade.Backend.Features.EmergentOffers;
 
 public sealed class EmergentRouteTramoSubscriptionRequestService(
     AppDbContext db,
-    IChatService chat,
+    INotificationService notifications,
+    IBroadcastingService broadcasting,
     IRouteTramoSubscriptionService routeTramoSubscriptions) : IEmergentRouteTramoSubscriptionRequestService
 {
     public const string ErrInvalidEmergent = "invalid_emergent_offer";
@@ -137,14 +139,14 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
             : storeRow!.Name.Trim();
         var sellerTrustBadge = storeRow?.TrustScore ?? 0;
 
-        await chat.BroadcastRouteTramoSubscriptionsChangedAsync(
+        await broadcasting.BroadcastRouteTramoSubscriptionsChangedAsync(
             new RouteTramoSubscriptionsBroadcastArgs(em.ThreadId, em.RouteSheetId, "request", uid, eid),
             cancellationToken);
 
         // Solo vendedor (no comprador): nueva solicitud de tramo.
         if (sellerId.Length > 0 && !string.Equals(sellerId, uid, StringComparison.Ordinal))
         {
-            await chat.NotifyRouteTramoSubscriptionRequestAsync(
+            await notifications.NotifyRouteTramoSubscriptionRequestAsync(
                 new RouteTramoSubscriptionRequestNotificationArgs(
                     new List<string> { sellerId },
                     thread.Id,
@@ -159,7 +161,7 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
         // Suscriptor del tramo: constancia de envío (mismo hilo / meta para deep link).
         var carrierAck =
             $"Tu solicitud del tramo {orden} quedó registrada. {sellerOpLabel} puede confirmarla desde el chat de esta operación.";
-        await chat.NotifyRouteTramoSubscriptionRequestAsync(
+        await notifications.NotifyRouteTramoSubscriptionRequestAsync(
             new RouteTramoSubscriptionRequestNotificationArgs(
                 new List<string> { uid },
                 thread.Id,

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 
 namespace VibeTrade.Backend.Features.Logistics;
 
@@ -19,7 +20,7 @@ public sealed class CarrierEvidenceDeadlineWatcher(
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var chat = scope.ServiceProvider.GetRequiredService<IChatService>();
+                var notifications = scope.ServiceProvider.GetRequiredService<INotificationService>();
 
                 var now = DateTimeOffset.UtcNow;
                 var due = await db.RouteStopDeliveries
@@ -55,7 +56,7 @@ public sealed class CarrierEvidenceDeadlineWatcher(
                         "Venció el plazo de evidencia de entrega: el comprador/tienda puede solicitar reembolso del tramo.";
                     foreach (var rid in new[] { buyer, seller }.Where(x => x.Length >= 2).Distinct(StringComparer.Ordinal))
                     {
-                        await chat.NotifyRouteLegProximityAsync(
+                        await notifications.NotifyRouteLegProximityAsync(
                                 new RouteLegProximityNotificationArgs(
                                     rid,
                                     d.ThreadId,

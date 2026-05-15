@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.Logistics.Dtos;
 
 namespace VibeTrade.Backend.Features.Notifications;
@@ -10,7 +10,7 @@ public static class RouteLegHandoffNotifications
 {
     public static async Task NotifyPaidStopsAsync(
         AppDbContext db,
-        IChatService chat,
+        INotificationService notifications,
         string threadId,
         string agreementId,
         string routeSheetId,
@@ -29,7 +29,7 @@ public static class RouteLegHandoffNotifications
 
         await NotifyForOrderedStopsAsync(
                 db,
-                chat,
+                notifications,
                 threadId,
                 agreementId,
                 routeSheetId,
@@ -42,7 +42,7 @@ public static class RouteLegHandoffNotifications
 
     public static async Task NotifyAfterCarrierConfirmedAsync(
         AppDbContext db,
-        IChatService chat,
+        INotificationService notifications,
         string threadId,
         string routeSheetId,
         RouteSheetPayload payload,
@@ -89,7 +89,7 @@ public static class RouteLegHandoffNotifications
 
             await NotifyForOrderedStopsAsync(
                     db,
-                    chat,
+                    notifications,
                     tid,
                     agr,
                     rsid,
@@ -122,7 +122,7 @@ public static class RouteLegHandoffNotifications
 
     private static async Task NotifyForOrderedStopsAsync(
         AppDbContext db,
-        IChatService chat,
+        INotificationService notifications,
         string threadId,
         string agreementId,
         string routeSheetId,
@@ -159,7 +159,7 @@ public static class RouteLegHandoffNotifications
 
             var preview =
                 "Hay pagos en tu hoja de ruta: podrás iniciar tu tramo cuando corresponda.";
-            await chat.NotifyRouteLegHandoffReadyAsync(
+            await notifications.NotifyRouteLegHandoffReadyAsync(
                     new RouteLegHandoffReadyNotificationArgs(
                         nextCarrier,
                         threadId.Trim(),

@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
 using VibeTrade.Backend.Infrastructure.Email;
 using VibeTrade.Backend.Infrastructure.Email.Interfaces;
 using VibeTrade.Backend.Utils;
@@ -10,7 +10,7 @@ namespace VibeTrade.Backend.Features.Payments;
 
 public sealed class PaymentFeeReceiptEmailDispatcher(
     AppDbContext db,
-    IChatService chat,
+    IBroadcastingService broadcasting,
     IEmailSender emailSender,
     IOptionsSnapshot<EmailSmtpOptions> smtpOptions,
     ILogger<PaymentFeeReceiptEmailDispatcher> logger) : IPaymentFeeReceiptEmailDispatcher
@@ -38,7 +38,7 @@ public sealed class PaymentFeeReceiptEmailDispatcher(
             if (tid.Length < 4)
                 return;
 
-            var participantIds = await chat.GetThreadParticipantUserIdsAsync(tid, cancellationToken)
+            var participantIds = await broadcasting.GetThreadParticipantUserIdsAsync(tid, cancellationToken)
                 .ConfigureAwait(false);
             if (participantIds.Count == 0)
                 return;

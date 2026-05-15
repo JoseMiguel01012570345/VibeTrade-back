@@ -5,7 +5,10 @@ using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Logistics;
 
-public sealed class CarrierLegRefundService(IChatService chat, AppDbContext db) : ICarrierLegRefundService
+public sealed class CarrierLegRefundService(
+    IChatService chat,
+    IChatThreadSystemMessageService threadSystemMessages,
+    AppDbContext db) : ICarrierLegRefundService
 {
     public async Task<(bool Ok, string? ErrorCode)> TryRefundEligibleLegAsync(
         string actorUserId,
@@ -105,7 +108,7 @@ public sealed class CarrierLegRefundService(IChatService chat, AppDbContext db) 
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        await chat.PostAutomatedSystemThreadNoticeAsync(
+        await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(
                 tid,
                 $"Se inició un reembolso del tramo ({sid}) por motivo: {delivery.RefundEligibleReason}.",
                 cancellationToken)

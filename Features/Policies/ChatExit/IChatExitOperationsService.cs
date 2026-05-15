@@ -1,9 +1,8 @@
-using VibeTrade.Backend.Features.Chat.Core;
-using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 
 namespace VibeTrade.Backend.Features.Policies.ChatExit;
 
-/// <summary>Orquesta salida del chat (p. ej. soft-leave de parte) y retiros de transportista; mensajes vía <see cref="IMessageHandlingService"/>.</summary>
+/// <summary>Orquesta salida del chat (p. ej. soft-leave de parte) y retiros de transportista; avisos de sistema en el hilo vía <see cref="IChatThreadSystemMessageService"/>.</summary>
 public interface IChatExitOperationsService
 {
     Task<PartySoftLeaveResult> PartySoftLeaveAsync(

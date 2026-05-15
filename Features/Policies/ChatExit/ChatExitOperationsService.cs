@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Policies;
-using VibeTrade.Backend.Features.Chat.Core;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Logistics.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
@@ -16,7 +15,7 @@ public sealed class ChatExitOperationsService(
     IPartySoftLeaveCoordinator partySoftLeave,
     INotificationService notifications,
     IBroadcastingService broadcasting,
-    IMessageHandlingService messageHandling,
+    IChatThreadSystemMessageService threadSystemMessages,
     IRouteTramoSubscriptionService routeTramoSubscriptions) : IChatExitOperationsService
 {
     /// <inheritdoc />
@@ -53,7 +52,7 @@ public sealed class ChatExitOperationsService(
             return new PartySoftLeaveResult(false, paymentPrep.ErrorCode, false);
 
         if (!await notifications.TryPostPartySoftLeaveSystemThreadNoticeAsync(
-                messageHandling, uid, tid, isSeller, reasonTrim, cancellationToken))
+                threadSystemMessages, uid, tid, isSeller, reasonTrim, cancellationToken))
             return new PartySoftLeaveResult(false, "party_leave_notice_failed", false);
 
         var now = DateTimeOffset.UtcNow;
@@ -66,7 +65,7 @@ public sealed class ChatExitOperationsService(
             var refundBody = string.IsNullOrWhiteSpace(paymentPrep.RefundNoticeText)
                 ? defaultRefundNotice
                 : paymentPrep.RefundNoticeText.Trim();
-            await messageHandling.PostAutomatedSystemThreadNoticeAsync(tid, refundBody, cancellationToken)
+            await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(tid, refundBody, cancellationToken)
                 .ConfigureAwait(false);
         }
 

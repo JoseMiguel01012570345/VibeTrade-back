@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Auth.Interfaces;
-using VibeTrade.Backend.Features.Chat.Core;
+using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Policies.ChatExit;
 using VibeTrade.Backend.Features.Policies.Dtos;
