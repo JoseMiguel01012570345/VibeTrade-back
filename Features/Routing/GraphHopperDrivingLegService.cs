@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using VibeTrade.Backend.Utils;
 
@@ -189,25 +188,4 @@ public sealed class GraphHopperDrivingLegService(
     }
 
     private static string Invariant(double v) => v.ToString(CultureInfo.InvariantCulture);
-
-    private sealed class GhRouteEnvelope
-    {
-        [JsonPropertyName("paths")]
-        public List<GhPathDto>? Paths { get; set; }
-    }
-
-    private sealed class GhPathDto
-    {
-        [JsonPropertyName("distance")]
-        public double Distance { get; set; }
-
-        [JsonPropertyName("points")]
-        public GhGeoJsonDto? Points { get; set; }
-    }
-
-    private sealed class GhGeoJsonDto
-    {
-        [JsonPropertyName("coordinates")]
-        public List<List<double>>? Coordinates { get; set; }
-    }
 }

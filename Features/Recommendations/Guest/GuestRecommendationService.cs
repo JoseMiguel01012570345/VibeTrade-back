@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
-using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
@@ -16,7 +15,7 @@ namespace VibeTrade.Backend.Features.Recommendations.Guest;
 public sealed class GuestRecommendationService(
     AppDbContext db,
     IGuestInteractionStore guestStore,
-    IOfferEngagementService offerEngagement,
+    IOfferService offerService,
     RecommendationFeedV2 feedV2)
     : IGuestRecommendationService
 {
@@ -86,8 +85,8 @@ public sealed class GuestRecommendationService(
         if (filtered.Length == 0)
             return RecommendationBatchResponse.Empty(batchSize, RecommendationService.ScoreThreshold);
 
-        var offers = await RecommendationBatchOfferLoader.BuildOffersViewInOrderAsync(db, filtered, cancellationToken);
-        await offerEngagement.EnrichHomeOffersAsync(offers, "g:" + gid, cancellationToken);
+        var offers = await RecommendationBatchOfferLoader.BuildOffersViewInOrderAsync(db, offerService, filtered, cancellationToken);
+        await offerService.EnrichHomeOffersAsync(offers, "g:" + gid, cancellationToken);
         var storeBadges = await BuildStoreBadgesFromCandidatesAsync(filtered, candidates, cancellationToken);
         return new RecommendationBatchResponse(filtered, offers, storeBadges, batchSize, RecommendationService.ScoreThreshold);
     }

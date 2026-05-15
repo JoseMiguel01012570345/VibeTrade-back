@@ -182,7 +182,7 @@ public sealed class BroadcastingService(
             routeSheetId = rsid,
             change = ch,
             actorUserId = aid.Length > 0 ? aid : null,
-            emergentOfferId = eid.Length >= 4 && RecommendationBatchOfferLoader.IsEmergentPublicationId(eid) ? eid : null,
+            emergentOfferId = eid.Length >= 4 && OfferUtils.IsEmergentPublicationId(eid) ? eid : null,
         };
 
         var threadTask = hub.Clients.Group(ChatHubGroupNames.ForThread(tid)).SendAsync(

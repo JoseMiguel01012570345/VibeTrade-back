@@ -39,8 +39,6 @@ using VibeTrade.Backend.Features.SavedOffers;
 using VibeTrade.Backend.Features.SavedOffers.Interfaces;
 using VibeTrade.Backend.Features.Search.Catalog;
 using VibeTrade.Backend.Features.Search.Elasticsearch;
-using VibeTrade.Backend.Features.Search.Embeddings;
-using VibeTrade.Backend.Features.Search.Recommendations;
 using VibeTrade.Backend.Features.Search.Interfaces;
 using VibeTrade.Backend.Features.Trust;
 using VibeTrade.Backend.Features.Trust.Interfaces;
@@ -67,14 +65,12 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddVibeTradeFeatures(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddSingleton<IMarketWorkspaceIntegrity, MarketWorkspaceIntegrity>();
-        services.AddScoped<IMarketWorkspaceRepository, MarketWorkspaceRepository>();
-        services.AddScoped<IMarketCatalogSyncService, MarketCatalogSyncService>();
+        services.AddScoped<IMarketCatalogSyncService, CatalogService>();
         services.Configure<OfferPopularityWeightOptions>(
             configuration.GetSection(OfferPopularityWeightOptions.SectionName));
         services.AddScoped<IOfferPopularityWeightService, OfferPopularityWeightService>();
-        services.AddScoped<IOfferEngagementService, OfferEngagementService>();
-        services.AddScoped<IMarketWorkspaceService, MarketWorkspaceService>();
+        services.AddScoped<IOfferService, OfferService>();
+        services.AddScoped<IMarketWorkspaceService, MarketService>();
         services.AddScoped<IMarketCatalogStoreSearchService, MarketCatalogStoreSearchService>();
         services.AddScoped<IBootstrapService, BootstrapService>();
         services.AddScoped<IGuestBootstrapService, GuestBootstrapService>();

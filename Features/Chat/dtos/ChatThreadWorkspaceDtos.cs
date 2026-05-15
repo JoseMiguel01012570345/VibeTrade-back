@@ -1,6 +1,4 @@
 using System.Text.Json.Serialization;
-using VibeTrade.Backend.Features.Market;
-using VibeTrade.Backend.Features.Market.Interfaces;
 
 namespace VibeTrade.Backend.Features.Chat.Dtos;
 

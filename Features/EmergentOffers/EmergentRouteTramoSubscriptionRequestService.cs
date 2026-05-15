@@ -40,7 +40,7 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
             return (false, "unauthorized", "Sesión requerida.");
 
         var eid = (emergentOfferId ?? "").Trim();
-        if (eid.Length < 4 || !RecommendationBatchOfferLoader.IsEmergentPublicationId(eid))
+        if (eid.Length < 4 || !OfferUtils.IsEmergentPublicationId(eid))
             return (false, ErrInvalidEmergent, "Publicación emergente no válida.");
 
         var sid = (stopId ?? "").Trim();

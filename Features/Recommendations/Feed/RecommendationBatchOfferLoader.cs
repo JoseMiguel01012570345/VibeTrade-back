@@ -2,23 +2,16 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
-using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 
 namespace VibeTrade.Backend.Features.Recommendations.Feed;
 
 /// <summary>
 /// Carga candidatos y JSON de ofertas para lotes de recomendación. Las publicaciones emergentes de hoja de ruta
-/// usan <see cref="EmergentOfferRow.Id" /> (<c>emo_*</c>), no el id de producto/servicio del hilo.
+/// usan <see cref="EmergentOfferRow.Id" /> (prefijo <see cref="OfferUtils.EmergentPublicationIdPrefix" />), no el id de producto/servicio del hilo.
 /// </summary>
 internal static class RecommendationBatchOfferLoader
 {
-    public const string EmergentPublicationIdPrefix = "emo_";
-
-    public static bool IsEmergentPublicationId(string? id) =>
-        !string.IsNullOrWhiteSpace(id)
-        && id.StartsWith(EmergentPublicationIdPrefix, StringComparison.Ordinal);
-
     public static async Task<Dictionary<string, OfferCandidate>> LoadOfferCandidatesAsync(
         AppDbContext db,
         string viewerUserId,
@@ -30,8 +23,8 @@ internal static class RecommendationBatchOfferLoader
             return map;
 
         var idList = offerIds.ToList();
-        var catalogIds = idList.Where(id => !IsEmergentPublicationId(id)).ToList();
-        var emergentIds = idList.Where(IsEmergentPublicationId).ToList();
+        var catalogIds = idList.Where(id => !OfferUtils.IsEmergentPublicationId(id)).ToList();
+        var emergentIds = idList.Where(OfferUtils.IsEmergentPublicationId).ToList();
 
         if (catalogIds.Count > 0)
         {
@@ -142,6 +135,7 @@ internal static class RecommendationBatchOfferLoader
 
     public static async Task<Dictionary<string, HomeOfferViewDto>> BuildOffersViewInOrderAsync(
         AppDbContext db,
+        IOfferService offerService,
         IReadOnlyList<string> idsInOrder,
         CancellationToken cancellationToken)
     {
@@ -150,11 +144,11 @@ internal static class RecommendationBatchOfferLoader
 
         var offers = new Dictionary<string, HomeOfferViewDto>(StringComparer.Ordinal);
         var emergentIds = idsInOrder
-            .Where(IsEmergentPublicationId)
+            .Where(OfferUtils.IsEmergentPublicationId)
             .Distinct(StringComparer.Ordinal)
             .ToList();
         var catalogSet = idsInOrder
-            .Where(id => !IsEmergentPublicationId(id))
+            .Where(id => !OfferUtils.IsEmergentPublicationId(id))
             .ToHashSet(StringComparer.Ordinal);
 
         var byCatalog = new Dictionary<string, HomeOfferViewDto>(StringComparer.Ordinal);
@@ -167,9 +161,9 @@ internal static class RecommendationBatchOfferLoader
                 .Where(s => catalogSet.Contains(s.Id))
                 .ToListAsync(cancellationToken);
             foreach (var p in products)
-                byCatalog[p.Id] = HomeOfferViewFactory.FromProductRow(p);
+                byCatalog[p.Id] = offerService.FromProductRow(p);
             foreach (var s in services)
-                byCatalog[s.Id] = HomeOfferViewFactory.FromServiceRow(s);
+                byCatalog[s.Id] = offerService.FromServiceRow(s);
         }
 
         if (emergentIds.Count == 0)
@@ -213,13 +207,13 @@ internal static class RecommendationBatchOfferLoader
             {
                 HomeOfferViewDto emergentNode;
                 if (byP.TryGetValue(em.OfferId, out var p))
-                    emergentNode = EmergentRoutePublicationViewFactory.Create(em, p, null, null);
+                    emergentNode = offerService.CreateEmergentRoutePublication(em, p, null, null);
                 else if (byS.TryGetValue(em.OfferId, out var s))
-                    emergentNode = EmergentRoutePublicationViewFactory.Create(em, null, s, null);
+                    emergentNode = offerService.CreateEmergentRoutePublication(em, null, s, null);
                 else
                 {
                     var fallbackStoreId = await TryResolveStoreIdForEmergentOrphanAsync(db, em, cancellationToken);
-                    emergentNode = EmergentRoutePublicationViewFactory.Create(em, null, null, fallbackStoreId);
+                    emergentNode = offerService.CreateEmergentRoutePublication(em, null, null, fallbackStoreId);
                 }
 
                 await EnrichEmergentParadasViewFromLiveSheetAsync(db, em, emergentNode, cancellationToken);
@@ -252,7 +246,7 @@ internal static class RecommendationBatchOfferLoader
         if (sheetRow is null)
             return;
 
-        EmergentRoutePublicationViewFactory.ApplyLiveParadaStopIds(offer, sheetRow.Payload);
+        OfferUtils.ApplyLiveParadaStopIds(offer, sheetRow.Payload);
     }
 
     private static async Task<string?> TryResolveStoreIdForEmergentOrphanAsync(
@@ -271,7 +265,7 @@ internal static class RecommendationBatchOfferLoader
 
     /// <summary>Clave estable para emparejar filas de <see cref="ChatRouteSheetRow"/> con una publicación emergente.</summary>
     public static string EmergentOfferRouteSheetKey(string threadId, string routeSheetId) =>
-        string.Concat((threadId ?? "").Trim(), "\u001f", (routeSheetId ?? "").Trim());
+        OfferUtils.EmergentOfferRouteSheetKey(threadId, routeSheetId);
 
     /// <summary>Carga hojas de ruta vivas (chat) para enriquecer tramos en búsqueda / feed sin N consultas por oferta.</summary>
     public static async Task<Dictionary<string, RouteSheetPayload>> LoadLiveRouteSheetsForEmergentsAsync(
@@ -301,7 +295,7 @@ internal static class RecommendationBatchOfferLoader
             var sid = (r.RouteSheetId ?? "").Trim();
             if (!wanted.Contains((tid, sid)))
                 continue;
-            var k = EmergentOfferRouteSheetKey(tid, sid);
+            var k = OfferUtils.EmergentOfferRouteSheetKey(tid, sid);
             if (!map.ContainsKey(k))
                 map[k] = r.Payload;
         }

@@ -4,10 +4,15 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market.Dtos;
-using VibeTrade.Backend.Features.Market.Workspace;
-using VibeTrade.Backend.Features.Market.Catalog;
+using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Features.Market;
+
+/// <summary>Mensaje de conflicto por nombre de tienda duplicado (único normalizado en plataforma).</summary>
+public static class DuplicateStoreNameConflict
+{
+    public const string Message = "Ya existe una tienda con ese nombre en la plataforma.";
+}
 
 internal static class MarketCatalogConstants
 {
@@ -20,18 +25,21 @@ internal static class MarketCatalogCurrency
     public static void ThrowIfProductCurrencyInvalid(StoreProductPutRequest p, string id)
     {
         if (string.IsNullOrWhiteSpace(p.MonedaPrecio))
-            throw new CatalogCurrencyValidationException(
-                $"Producto \"{id}\": la moneda del precio es obligatoria.");
+            throw new ArgumentException(
+                $"Producto \"{id}\": la moneda del precio es obligatoria.",
+                CatalogArgumentParams.Currency);
         if (!CatalogItemHasAtLeastOneAcceptedMoneda(p))
-            throw new CatalogCurrencyValidationException(
-                $"Producto \"{id}\": indica al menos una moneda aceptada para el pago.");
+            throw new ArgumentException(
+                $"Producto \"{id}\": indica al menos una moneda aceptada para el pago.",
+                CatalogArgumentParams.Currency);
     }
 
     public static void ThrowIfServiceCurrencyInvalid(StoreServicePutRequest s, string id)
     {
         if (!CatalogItemHasAtLeastOneAcceptedMoneda(s))
-            throw new CatalogCurrencyValidationException(
-                $"Servicio \"{id}\": indica al menos una moneda aceptada para el pago.");
+            throw new ArgumentException(
+                $"Servicio \"{id}\": indica al menos una moneda aceptada para el pago.",
+                CatalogArgumentParams.Currency);
     }
 
     public static List<string> BuildMonedasList(StoreProductPutRequest p) =>
@@ -342,7 +350,7 @@ internal static class MarketCatalogStoreDuplicateGuard
             .GroupBy(x => x.NormalizedName!, StringComparer.Ordinal)
             .FirstOrDefault(g => g.Count() > 1);
         if (dup is not null)
-            throw new DuplicateStoreNameException(dup.Key);
+            throw new InvalidOperationException(DuplicateStoreNameConflict.Message);
     }
 }
 

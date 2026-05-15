@@ -6,8 +6,6 @@ using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Search.Catalog;
 using VibeTrade.Backend.Features.Search.Elasticsearch;
-using VibeTrade.Backend.Features.Search.Embeddings;
-using VibeTrade.Backend.Features.Search.Recommendations;
 using VibeTrade.Backend.Features.Search.Interfaces;
 
 namespace VibeTrade.Backend.Features.Recommendations.Feed;
@@ -528,8 +526,8 @@ public sealed class RecommendationFeedV2(
             return set;
 
         var idList = offerIds.Distinct(StringComparer.Ordinal).ToList();
-        var emergentIds = idList.Where(RecommendationBatchOfferLoader.IsEmergentPublicationId).ToList();
-        var catalogIds = idList.Where(id => !RecommendationBatchOfferLoader.IsEmergentPublicationId(id)).ToList();
+        var emergentIds = idList.Where(OfferUtils.IsEmergentPublicationId).ToList();
+        var catalogIds = idList.Where(id => !OfferUtils.IsEmergentPublicationId(id)).ToList();
 
         if (emergentIds.Count > 0)
         {

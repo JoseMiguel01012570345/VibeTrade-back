@@ -197,7 +197,7 @@ public sealed class RouteTramoSubscriptionService(
     {
         var uid = (carrierUserId ?? "").Trim();
         var eid = (emergentOfferId ?? "").Trim();
-        if (uid.Length < 2 || eid.Length < 4 || !RecommendationBatchOfferLoader.IsEmergentPublicationId(eid))
+        if (uid.Length < 2 || eid.Length < 4 || !OfferUtils.IsEmergentPublicationId(eid))
             return null;
 
         var em = await db.EmergentOffers.AsNoTracking()
@@ -354,7 +354,7 @@ public sealed class RouteTramoSubscriptionService(
             $"Confirmaste el servicio de transporte de {carrierLabel} en esta operación. Abrí el chat para coordinar la hoja de ruta.";
 
         var acceptedMeta =
-            RouteTramoSubscriptionAcceptMetaJson.Build(k.RouteSheetId, k.CarrierId, metaStops);
+            RouteTramoSubscriptionNotificationService.BuildAcceptMetaJson(k.RouteSheetId, k.CarrierId, metaStops);
 
         await tramoNotifications.NotifyTramoSubscriptionAcceptedAndBroadcastAsync(
             new RouteTramoSubscriptionAcceptedNotificationArgs(
@@ -1028,7 +1028,7 @@ public sealed class RouteTramoSubscriptionService(
             $"Confirmaste el servicio de transporte de {carrierLabel} en esta operación. Abrí el chat para coordinar la hoja de ruta.";
 
         var preselAcceptedMeta =
-            RouteTramoSubscriptionAcceptMetaJson.Build(rsid, uid, preselMetaStops);
+            RouteTramoSubscriptionNotificationService.BuildAcceptMetaJson(rsid, uid, preselMetaStops);
 
         await tramoNotifications.NotifyPreselAcceptAndBroadcastAsync(
             new RouteTramoSubscriptionAcceptedNotificationArgs(

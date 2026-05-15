@@ -25,7 +25,7 @@ public sealed class EmergentOfferCarrierSubscriptionService(AppDbContext db) : I
             return new EmergentCarrierSubscriptionStatus(true, null, null);
 
         var eid = emergentOfferId.Trim();
-        if (eid.Length < 4 || !RecommendationBatchOfferLoader.IsEmergentPublicationId(eid))
+        if (eid.Length < 4 || !OfferUtils.IsEmergentPublicationId(eid))
             return new EmergentCarrierSubscriptionStatus(true, null, null);
 
         var em = await db.EmergentOffers.AsNoTracking()

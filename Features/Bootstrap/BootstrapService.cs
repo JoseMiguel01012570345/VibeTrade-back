@@ -7,7 +7,6 @@ using VibeTrade.Backend.Features.Bootstrap.Dtos;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Market;
-using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Recommendations.Core;
 using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
@@ -25,7 +24,8 @@ public sealed class BootstrapService(
     ISavedOffersService savedOffers,
     IRecommendationService recommendations,
     IChatService chat,
-    IRouteSheetChatService routeSheets) : IBootstrapService
+    IRouteSheetChatService routeSheets,
+    IOfferService offerService) : IBootstrapService
 {
     public async Task<BootstrapResponseDto> GetBootstrapAsync(string viewerPhoneDigits, CancellationToken cancellationToken = default)
     {
@@ -153,13 +153,13 @@ public sealed class BootstrapService(
                 var product = await db.StoreProducts.AsNoTracking()
                     .FirstOrDefaultAsync(p => p.Id == summ.OfferId, cancellationToken);
                 if (product is not null)
-                    offers[summ.OfferId] = HomeOfferViewFactory.FromProductRow(product);
+                    offers[summ.OfferId] = offerService.FromProductRow(product);
                 else
                 {
                     var service = await db.StoreServices.AsNoTracking()
                         .FirstOrDefaultAsync(s => s.Id == summ.OfferId, cancellationToken);
                     if (service is not null)
-                        offers[summ.OfferId] = HomeOfferViewFactory.FromServiceRow(service);
+                        offers[summ.OfferId] = offerService.FromServiceRow(service);
                 }
             }
 

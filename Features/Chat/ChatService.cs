@@ -51,7 +51,7 @@ public sealed class ChatService(
         string offerId,
         CancellationToken cancellationToken)
     {
-        if (RecommendationBatchOfferLoader.IsEmergentPublicationId(offerId))
+        if (OfferUtils.IsEmergentPublicationId(offerId))
         {
             var em = await db.EmergentOffers.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == offerId && x.RetractedAtUtc == null, cancellationToken);
@@ -96,7 +96,7 @@ public sealed class ChatService(
         if (oid.Length < 2)
             return false;
 
-        if (RecommendationBatchOfferLoader.IsEmergentPublicationId(oid))
+        if (OfferUtils.IsEmergentPublicationId(oid))
         {
             var em = await db.EmergentOffers.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == oid && x.RetractedAtUtc == null, cancellationToken);

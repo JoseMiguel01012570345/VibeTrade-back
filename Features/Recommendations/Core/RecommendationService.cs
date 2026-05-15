@@ -2,14 +2,13 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
-using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 
 namespace VibeTrade.Backend.Features.Recommendations.Core;
 
 public sealed class RecommendationService(
     AppDbContext db,
-    IOfferEngagementService offerEngagement,
+    IOfferService offerService,
     IOfferPopularityWeightService popularityWeight,
     RecommendationFeedV2 feedV2) : IRecommendationService
 {
@@ -44,7 +43,7 @@ public sealed class RecommendationService(
             return RecommendationBatchResponse.Empty(batchSize, ScoreThreshold);
 
         var offers = await BuildOffersViewForIdsAsync(pageIds, cancellationToken);
-        await offerEngagement.EnrichHomeOffersAsync(offers, "u:" + userId, cancellationToken);
+        await offerService.EnrichHomeOffersAsync(offers, "u:" + userId, cancellationToken);
         var storeBadges = await BuildStoreBadgesViewAsync(pageIds, candidates, cancellationToken);
         return new RecommendationBatchResponse(pageIds, offers, storeBadges, batchSize, ScoreThreshold);
     }
@@ -72,7 +71,7 @@ public sealed class RecommendationService(
             CreatedAt = DateTimeOffset.UtcNow,
         });
         await db.SaveChangesAsync(cancellationToken);
-        if (!RecommendationBatchOfferLoader.IsEmergentPublicationId(pid))
+        if (!OfferUtils.IsEmergentPublicationId(pid))
             await popularityWeight.RecomputeAsync(pid, cancellationToken);
     }
 
@@ -166,7 +165,7 @@ public sealed class RecommendationService(
 
     private async Task<bool> OfferOrEmergentExistsAsync(string offerId, CancellationToken cancellationToken)
     {
-        if (RecommendationBatchOfferLoader.IsEmergentPublicationId(offerId))
+        if (OfferUtils.IsEmergentPublicationId(offerId))
         {
             return await db.EmergentOffers.AsNoTracking()
                 .AnyAsync(e =>
@@ -214,7 +213,7 @@ public sealed class RecommendationService(
     private Task<Dictionary<string, HomeOfferViewDto>> BuildOffersViewForIdsAsync(
         IReadOnlyList<string> idsInOrder,
         CancellationToken cancellationToken) =>
-        RecommendationBatchOfferLoader.BuildOffersViewInOrderAsync(db, idsInOrder, cancellationToken);
+        RecommendationBatchOfferLoader.BuildOffersViewInOrderAsync(db, offerService, idsInOrder, cancellationToken);
 
     private static string ToStorageValue(RecommendationInteractionType eventType) =>
         eventType switch

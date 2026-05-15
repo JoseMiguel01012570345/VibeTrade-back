@@ -12,7 +12,6 @@ using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
-using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations.Core;
 using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
@@ -38,7 +37,7 @@ public sealed class MarketController(
     IChatService chat,
     INotificationService notifications,
     IBroadcastingService broadcasting,
-    IOfferEngagementService offerEngagement) : ControllerBase
+    IOfferService offerService) : ControllerBase
 {
     public sealed record CatalogCategoriesResponse(IReadOnlyList<string> Categories);
 
@@ -118,7 +117,7 @@ public sealed class MarketController(
         // Misma forma que el cliente (`publishedTransportServicesApi`): ficha plana + storeName, no anidada en `service`.
         var list = services.Select(s =>
         {
-            var v = MarketCatalogRowViewFactory.ServiceFromRow(s);
+            var v = offerService.ServiceCatalogRowFromEntity(s);
             return new
             {
                 v.Id,
@@ -256,17 +255,17 @@ public sealed class MarketController(
         {
             await marketWorkspace.SaveStoreProfilesAsync(body, cancellationToken);
         }
+        catch (ArgumentException ex) when (string.Equals(ex.ParamName, CatalogArgumentParams.Currency, StringComparison.Ordinal))
+        {
+            return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
+        }
         catch (ArgumentException)
         {
             return BadRequest(new { error = "invalid_stores_body", message = "Indica la tienda con un campo \"id\" o usa la forma \"stores\".{...}." });
         }
-        catch (DuplicateStoreNameException)
+        catch (InvalidOperationException ex) when (ex.Message == DuplicateStoreNameConflict.Message)
         {
-            return Conflict(new { error = "duplicate_store_name", message = "Ya existe una tienda con ese nombre en la plataforma." });
-        }
-        catch (CatalogCurrencyValidationException ex)
-        {
-            return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
+            return Conflict(new { error = "duplicate_store_name", message = DuplicateStoreNameConflict.Message });
         }
 
         return Ok();
@@ -290,11 +289,11 @@ public sealed class MarketController(
         {
             await marketWorkspace.SaveStoreCatalogsAsync(body, cancellationToken);
         }
-        catch (DuplicateStoreNameException)
+        catch (InvalidOperationException ex) when (ex.Message == DuplicateStoreNameConflict.Message)
         {
-            return Conflict(new { error = "duplicate_store_name", message = "Ya existe una tienda con ese nombre en la plataforma." });
+            return Conflict(new { error = "duplicate_store_name", message = DuplicateStoreNameConflict.Message });
         }
-        catch (CatalogCurrencyValidationException ex)
+        catch (ArgumentException ex) when (string.Equals(ex.ParamName, CatalogArgumentParams.Currency, StringComparison.Ordinal))
         {
             return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
         }
@@ -353,7 +352,7 @@ public sealed class MarketController(
             var r = await catalog.UpsertStoreProductAsync(storeId, productId, userId, body, cancellationToken);
             return MapCatalogUpsert(r);
         }
-        catch (CatalogCurrencyValidationException ex)
+        catch (ArgumentException ex) when (string.Equals(ex.ParamName, CatalogArgumentParams.Currency, StringComparison.Ordinal))
         {
             return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
         }
@@ -404,11 +403,11 @@ public sealed class MarketController(
             var r = await catalog.UpsertStoreServiceAsync(storeId, serviceId, userId, body, cancellationToken);
             return MapCatalogUpsert(r);
         }
-        catch (CatalogCurrencyValidationException ex)
+        catch (ArgumentException ex) when (string.Equals(ex.ParamName, CatalogArgumentParams.Currency, StringComparison.Ordinal))
         {
             return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
         }
-        catch (CatalogValidationException ex)
+        catch (ArgumentException ex) when (string.Equals(ex.ParamName, CatalogArgumentParams.Validation, StringComparison.Ordinal))
         {
             return BadRequest(new { error = "catalog_validation", message = ex.Message });
         }
@@ -539,7 +538,7 @@ public sealed class MarketController(
         if (qa is null)
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
         var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
-        var enriched = await offerEngagement.EnrichOfferQaListAsync(offerId, qa, likerKey, cancellationToken);
+        var enriched = await offerService.EnrichOfferQaListAsync(offerId, qa, likerKey, cancellationToken);
         return Ok(enriched);
     }
 
@@ -556,7 +555,7 @@ public sealed class MarketController(
         var oid = offerId.Trim();
         var offers = new Dictionary<string, HomeOfferViewDto>(StringComparer.Ordinal) { [oid] = card.Value.Offer };
         var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
-        await offerEngagement.EnrichHomeOffersAsync(offers, likerKey, cancellationToken);
+        await offerService.EnrichHomeOffersAsync(offers, likerKey, cancellationToken);
         if (!offers.TryGetValue(oid, out var enriched))
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
         return Ok(new { offer = enriched, store = card.Value.Store });
@@ -577,9 +576,9 @@ public sealed class MarketController(
         var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
         if (likerKey is null)
             return Unauthorized(new { error = "auth_required", message = "Inicia sesión para dar me gusta." });
-        if (!await offerEngagement.OfferExistsAsync(offerId, cancellationToken))
+        if (!await offerService.OfferExistsAsync(offerId, cancellationToken))
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
-        var (liked, likeCount) = await offerEngagement.ToggleOfferLikeAsync(offerId, likerKey, cancellationToken);
+        var (liked, likeCount) = await offerService.ToggleOfferLikeAsync(offerId, likerKey, cancellationToken);
         if (liked)
         {
             var sellerId = await chat.GetSellerUserIdForOfferAsync(offerId, cancellationToken);
@@ -613,9 +612,9 @@ public sealed class MarketController(
         var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
         if (likerKey is null)
             return Unauthorized(new { error = "auth_required", message = "Inicia sesión para dar me gusta." });
-        if (!await offerEngagement.OfferExistsAsync(offerId, cancellationToken))
+        if (!await offerService.OfferExistsAsync(offerId, cancellationToken))
             return NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
-        var (liked, likeCount) = await offerEngagement.ToggleQaCommentLikeAsync(
+        var (liked, likeCount) = await offerService.ToggleQaCommentLikeAsync(
             offerId,
             qaCommentId,
             likerKey,
@@ -680,7 +679,7 @@ public sealed class MarketController(
         {
             await marketWorkspace.SaveOfferInquiriesAsync(body, cancellationToken);
         }
-        catch (CatalogCurrencyValidationException ex)
+        catch (ArgumentException ex) when (string.Equals(ex.ParamName, CatalogArgumentParams.Currency, StringComparison.Ordinal))
         {
             return BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
         }
@@ -732,7 +731,7 @@ public sealed class MarketController(
         }
 
         var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer();
-        await offerEngagement.EnrichStoreCatalogBlockEngagementAsync(
+        await offerService.EnrichStoreCatalogBlockEngagementAsync(
             root.Catalog.Products,
             root.Catalog.Services,
             likerKey,
