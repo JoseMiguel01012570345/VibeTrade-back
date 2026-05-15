@@ -1,19 +1,27 @@
-using VibeTrade.Backend.Data.Entities;
+namespace VibeTrade.Backend.Features.Policies.Dtos;
 
-namespace VibeTrade.Backend.Features.Policies;
+public sealed record PartySoftLeaveBody(string Reason);
 
-/// <summary>
-/// Reglas de pago al abandonar el chat con acuerdo: bloqueo por pagos <c>held</c>, reembolsos y penalización al vendedor.
-/// </summary>
-public interface IPartySoftLeaveCoordinator
-{
-    /// <returns>Si <see cref="PartySoftLeavePaymentPrep.AllowProceed"/> es false, no registrar la salida.</returns>
-    Task<PartySoftLeavePaymentPrep> ProcessPaymentRulesAsync(
-        ChatThreadRow thread,
-        bool isBuyer,
-        bool isSeller,
-        CancellationToken cancellationToken = default);
-}
+/// <summary>Respuesta 200 de <c>party-soft-leave</c> (campos en camelCase vía JSON).</summary>
+public sealed record PartySoftLeaveOkResponse(
+    bool SkipClientTrustPenalty,
+    int? OtherMemberCount,
+    bool OtherMemberPenaltyApplied,
+    int? TrustScoreAfterMemberPenalty);
+
+public sealed record PartySoftLeaveArgs(
+    string UserId,
+    string ThreadId,
+    string Reason);
+
+/// <summary>Resultado de <see cref="VibeTrade.Backend.Features.Policies.Interfaces.IChatExitOperationsService.PartySoftLeaveAsync"/>.</summary>
+public sealed record PartySoftLeaveResult(
+    bool Success,
+    string? ErrorCode,
+    bool SkipClientTrustPenalty,
+    int? OtherMemberCount = null,
+    bool OtherMemberPenaltyApplied = false,
+    int? TrustScoreAfterMemberPenalty = null);
 
 /// <param name="AllowProceed">True si puede continuar el soft-leave.</param>
 /// <param name="ErrorCode">

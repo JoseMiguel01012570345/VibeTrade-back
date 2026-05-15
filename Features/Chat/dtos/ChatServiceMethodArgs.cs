@@ -17,17 +17,3 @@ public sealed record UpdateChatMessageStatusArgs(
     string ThreadId,
     string MessageId,
     ChatMessageStatus Status);
-
-public sealed record PartySoftLeaveArgs(
-    string UserId,
-    string ThreadId,
-    string Reason);
-
-/// <summary>Resultado de <see cref="VibeTrade.Backend.Features.Policies.ChatExit.IChatExitOperationsService.PartySoftLeaveAsync"/>.</summary>
-public sealed record PartySoftLeaveResult(
-    bool Success,
-    string? ErrorCode,
-    bool SkipClientTrustPenalty,
-    int? OtherMemberCount = null,
-    bool OtherMemberPenaltyApplied = false,
-    int? TrustScoreAfterMemberPenalty = null);

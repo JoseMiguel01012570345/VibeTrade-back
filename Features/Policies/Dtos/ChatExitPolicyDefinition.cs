@@ -1,4 +1,4 @@
-namespace VibeTrade.Backend.Features.Policies.ChatExit;
+namespace VibeTrade.Backend.Features.Policies.Dtos;
 
 /// <summary>Fila del registro de políticas de bloqueo al salir del chat.</summary>
 public sealed record ChatExitPolicyDefinition(

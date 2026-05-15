@@ -1,10 +1,9 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Auth.Interfaces;
-using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Interfaces;
-using VibeTrade.Backend.Features.Policies.ChatExit;
 using VibeTrade.Backend.Features.Policies.Dtos;
+using VibeTrade.Backend.Features.Policies.Interfaces;
 
 namespace VibeTrade.Backend.Api;
 
@@ -16,7 +15,8 @@ namespace VibeTrade.Backend.Api;
 public sealed class PoliciesController(
     ICurrentUserAccessor currentUser,
     IChatExitPolicyRegistry chatExitPolicyRegistry,
-    IChatExitOperationsService chatExitOperations) : ControllerBase
+    IChatExitOperationsService chatExitOperations,
+    IRouteTramoSubscriptionService routeTramoSubscriptions) : ControllerBase
 {
     /// <summary>
     /// Comprador o vendedor con acuerdo aceptado: oculta el hilo en su lista, notifica al resto con el motivo; el hilo no se borra.
@@ -53,7 +53,7 @@ public sealed class PoliciesController(
 
         if (!result.Success)
         {
-            var (status, errBody) = ChatExitResponseFactory.PartySoftLeaveFailure(result.ErrorCode, chatExitPolicyRegistry);
+            var (status, errBody) = chatExitPolicyRegistry.PartySoftLeaveFailure(result.ErrorCode);
             return StatusCode(status, errBody);
         }
 
@@ -81,7 +81,7 @@ public sealed class PoliciesController(
         if (userId is null)
             return Unauthorized();
 
-        var result = await chatExitOperations.CarrierWithdrawAsync(userId, threadId, cancellationToken)
+        var result = await routeTramoSubscriptions.WithdrawCarrierFromThreadAsync(userId, threadId, cancellationToken)
             .ConfigureAwait(false);
         if (result is null)
             return NotFound(new { error = "not_found", message = "No hay suscripciones activas que retirar." });
