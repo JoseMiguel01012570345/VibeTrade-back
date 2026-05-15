@@ -552,7 +552,7 @@ public sealed class ChatController(
         var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
-        if (RouteSheetPayloadValidator.Validate(payload) is { } validationMessage)
+        if (RouteSheetUtils.ValidateEstimatedTimes(payload) is { } validationMessage)
             return BadRequest(new { error = "validation", message = validationMessage });
         var result = await routeSheets.UpsertAsync(userId, threadId, routeSheetId, payload, cancellationToken);
         return result switch

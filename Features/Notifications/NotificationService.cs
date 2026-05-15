@@ -19,7 +19,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         if (string.IsNullOrWhiteSpace(request.RecipientUserId))
             return;
 
-        var preview = request.TextPreview.Length > 500 ? request.TextPreview[..500] + "…" : request.TextPreview;
+        var preview = NotificationUtils.TruncatePreview(request.TextPreview);
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
         var rid = request.RecipientUserId.Trim();
         db.ChatNotifications.Add(new ChatNotificationRow
@@ -120,7 +120,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             return;
 
         var carrier = (request.CarrierUserId ?? "").Trim();
-        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
+        var preview = NotificationUtils.TruncatePreview(request.MessagePreview);
         var now = DateTimeOffset.UtcNow;
         var meta = string.IsNullOrWhiteSpace(request.MetaJson) ? null : request.MetaJson.Trim();
         if (meta is { Length: > 4000 })
@@ -193,7 +193,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         if (tid.Length < 4 || cid.Length < 2)
             return;
 
-        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
+        var preview = NotificationUtils.TruncatePreview(request.MessagePreview);
         var now = DateTimeOffset.UtcNow;
         var meta = string.IsNullOrWhiteSpace(request.MetaJson) ? null : request.MetaJson.Trim();
         await NotifyCarrierOfRouteTramoSubscriptionAcceptedCoreAsync(
@@ -273,7 +273,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             ThreadId = tid,
             MessageId = null,
             OfferId = null,
-            MessagePreview = spv.Length > 500 ? spv[..500] + "…" : spv,
+            MessagePreview = NotificationUtils.TruncatePreview(spv),
             AuthorStoreName = sl,
             AuthorTrustScore = sellerInboxSubjectTrust,
             SenderUserId = carrierId,
@@ -299,7 +299,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             return;
 
         var oid = (request.RouteOfferId ?? "").Trim();
-        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
+        var preview = NotificationUtils.TruncatePreview(request.MessagePreview);
         var now = DateTimeOffset.UtcNow;
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
         db.ChatNotifications.Add(new ChatNotificationRow
@@ -341,7 +341,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         if (tid.Length < 4 || cid.Length < 2)
             return;
 
-        var preview = request.MessagePreview.Length > 500 ? request.MessagePreview[..500] + "…" : request.MessagePreview;
+        var preview = NotificationUtils.TruncatePreview(request.MessagePreview);
         var r = (request.Reason ?? "").Trim();
         var meta = JsonSerializer.Serialize(new { reason = r });
         var oid = (request.RouteOfferId ?? "").Trim();
@@ -386,9 +386,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         if (rid.Length < 2 || tid.Length < 4 || oid.Length < 2 || rsid.Length < 1)
             return;
 
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
+        var preview = NotificationUtils.TruncatePreview(request.MessagePreview);
         var stopIds = request.StopIds?
             .Select(x => (x ?? "").Trim())
             .Where(x => x.Length > 0)
@@ -442,9 +440,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         if (sellerId.Length < 2 || tid.Length < 4 || oid.Length < 2 || rsid.Length < 1 || cid.Length < 2)
             return;
 
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
+        var preview = NotificationUtils.TruncatePreview(request.MessagePreview);
         var meta = JsonSerializer.Serialize(new { routeSheetId = rsid, carrierUserId = cid });
         var now = DateTimeOffset.UtcNow;
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
@@ -492,9 +488,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         if (rid.Length < 2 || tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1)
             return;
 
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
+        var preview = NotificationUtils.TruncatePreview(request.MessagePreview);
         var meta = JsonSerializer.Serialize(new
         {
             routeSheetId = rsid,
@@ -546,9 +540,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         if (rid.Length < 2 || tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1)
             return;
 
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
+        var preview = NotificationUtils.TruncatePreview(request.MessagePreview);
         var meta = JsonSerializer.Serialize(new
         {
             routeSheetId = rsid,
@@ -600,9 +592,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         if (rid.Length < 2 || tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1)
             return;
 
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
+        var preview = NotificationUtils.TruncatePreview(request.MessagePreview);
         var meta = JsonSerializer.Serialize(new
         {
             routeSheetId = rsid,
@@ -652,10 +642,8 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
 
         var tid = (request.ThreadId ?? "").Trim();
         var oid = (request.OfferId ?? "").Trim();
-        var preview = request.MessagePreview.Length > 500
-            ? request.MessagePreview[..500] + "…"
-            : request.MessagePreview;
-        var meta = JsonSerializer.Serialize(new
+        var preview = NotificationUtils.TruncatePreview(request.MessagePreview);
+        var meta = NotificationUtils.SerializeMeta(new
         {
             delta = request.Delta,
             balanceAfter = request.BalanceAfter,
@@ -721,7 +709,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             trust = senderAccount?.TrustScore ?? 0;
         }
 
-        var preview = textPreview.Length > 500 ? textPreview[..500] + "…" : textPreview;
+        var preview = NotificationUtils.TruncatePreview(textPreview);
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
         db.ChatNotifications.Add(new ChatNotificationRow
         {
@@ -832,8 +820,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         var body = leaverIsSeller
             ? $"El vendedor salió del chat con un acuerdo aceptado. Motivo: {reasonTrim}"
             : $"El comprador salió del chat con un acuerdo aceptado. Motivo: {reasonTrim}";
-        if (body.Length > 500)
-            body = body[..497] + "…";
+        body = NotificationUtils.TruncatePreview(body, maxLength: 497);
         await AddPeerPartyExitedInAppNotificationAndHubAsync(
             recipient, t, leaverUserId, body, authorLabel, trust, cancellationToken);
     }

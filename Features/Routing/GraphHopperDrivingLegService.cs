@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
@@ -15,8 +14,6 @@ public sealed class GraphHopperDrivingLegService(
     IOptions<RoutingOptions> options,
     ILogger<GraphHopperDrivingLegService> log) : IDrivingLegRoutingService
 {
-    private const int MaxLatLngPointsPerLeg = 4000;
-
     private static readonly TooManyRequestsRetryOptions GraphHopperTooManyRequestsRetry = new()
     {
         TotalBudget = TimeSpan.FromSeconds(60),
@@ -93,20 +90,20 @@ public sealed class GraphHopperDrivingLegService(
                 return null;
             }
 
-            latLngs = DrivingPolylineMerge.TrimDuplicateJoin(prevLast, latLngs);
+            latLngs = RoutingUtils.TrimPolylineDuplicateJoin(prevLast, latLngs);
             if (latLngs.Count < 2)
             {
                 log.LogWarning("GraphHopper: tramo {Leg} quedó sin puntos suficientes tras deduplicar.", i + 1);
                 return null;
             }
 
-            latLngs = DrivingPolylineMerge.SubsampleIfNeeded(latLngs, MaxLatLngPointsPerLeg);
+            latLngs = RoutingUtils.SubsamplePolylineIfNeeded(latLngs, RoutingUtils.DefaultMaxLatLngPointsPerLeg);
             prevLast = latLngs[^1];
             segmentPolylines.Add(latLngs);
             results.Add(new DrivingLegResult(km, latLngs));
         }
 
-        var mergedRoute = DrivingPolylineMerge.AppendSegmentsDedupe(segmentPolylines);
+        var mergedRoute = RoutingUtils.AppendPolylineSegmentsDedupe(segmentPolylines);
         if (mergedRoute.Count >= 2)
             log.LogTrace(
                 "GraphHopper: ruta concatenada {Segments} tramos → {Points} puntos (deduplicado).",
@@ -123,12 +120,7 @@ public sealed class GraphHopperDrivingLegService(
         string apiKey,
         CancellationToken cancellationToken)
     {
-        var q =
-            $"route?type=json&points_encoded=false&profile={Uri.EscapeDataString(profile)}"
-            + $"&point={Invariant(from.Lat)},{Invariant(from.Lng)}"
-            + $"&point={Invariant(to.Lat)},{Invariant(to.Lng)}";
-        if (apiKey.Length > 0)
-            q += $"&key={Uri.EscapeDataString(apiKey)}";
+        var q = RoutingUtils.BuildGraphHopperRouteQuery(from, to, profile, apiKey);
 
         using var response = await GeneralUtils.SendWithTooManyRequestsRetryAsync(
             () => http.GetAsync(q, cancellationToken),
@@ -158,34 +150,6 @@ public sealed class GraphHopperDrivingLegService(
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var data = await JsonSerializer.DeserializeAsync<GhRouteEnvelope>(stream, JsonOptions, cancellationToken);
-        return ParsePath(data);
+        return RoutingUtils.ParseGraphHopperLegPath(data);
     }
-
-    private static (double DistanceKm, List<List<double>> Coordinates)? ParsePath(GhRouteEnvelope? data)
-    {
-        if (data?.Paths is null || data.Paths.Count == 0)
-            return null;
-        var path = data.Paths[0];
-        var km = path.Distance / 1000d;
-        var coords = path.Points?.Coordinates;
-        if (coords is null || coords.Count < 2)
-            return null;
-
-        var latLng = new List<List<double>>();
-        foreach (var c in coords)
-        {
-            if (c.Count < 2)
-                continue;
-            var lng = c[0];
-            var lat = c[1];
-            var pair = new List<double> { lat, lng };
-            if (latLng.Count > 0 && DrivingPolylineMerge.SameLatLng(latLng[^1], pair))
-                continue;
-            latLng.Add(pair);
-        }
-
-        return latLng.Count >= 2 ? (km, latLng) : null;
-    }
-
-    private static string Invariant(double v) => v.ToString(CultureInfo.InvariantCulture);
 }

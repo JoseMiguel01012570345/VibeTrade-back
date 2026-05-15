@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using VibeTrade.Backend.Features.SavedOffers;
+using VibeTrade.Backend.Features.SavedOffers.Dtos;
 using VibeTrade.Backend.Features.SavedOffers.Interfaces;
 using VibeTrade.Backend.Infrastructure;
 

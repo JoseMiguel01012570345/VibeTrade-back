@@ -23,22 +23,16 @@ public sealed class RouteTramoSubscriptionService(
 
     private const int CarrierRouteExitTrustPenalty = 3;
 
-    /// <summary>Texto en hoja / suscripción cuando la invitación presel no liga una ficha de catálogo.</summary>
-    private const string PreselHojaServicioTransporte = "Servicio de transporte";
-
-    /// <summary>Marca en la hoja: el teléfono del tramo proviene de la invitación por contacto en la hoja.</summary>
-    private const string PreselHojaContactoIndicado = "Contacto indicado en la hoja";
-
     public async Task RecordSubscriptionRequestAsync(
         RecordRouteTramoSubscriptionRequestArgs request,
         CancellationToken cancellationToken = default)
     {
-        var (tid, rsid, sid, uid) = RouteTramoSubscriptionInputNormalize.TrimTramoRequestKeys(
+        var (tid, rsid, sid, uid) = SubscriptionsUtils.TrimTramoRequestKeys(
             request.ThreadId, request.RouteSheetId, request.StopId, request.CarrierUserId);
         if (tid.Length < 2 || rsid.Length < 1 || sid.Length < 1 || uid.Length < 2)
             return;
 
-        var (svcTrim, label, snap) = RouteTramoSubscriptionInputNormalize.NormalizeOptionalFields(
+        var (svcTrim, label, snap) = SubscriptionsUtils.NormalizeOptionalFields(
             request.StoreServiceId, request.TransportServiceLabel, request.CarrierContactPhone);
         var stopOrden = request.StopOrden;
 
@@ -186,7 +180,7 @@ public sealed class RouteTramoSubscriptionService(
 
         var list = await ToSubscriptionItemDtosAsync(rows, payloads, cancellationToken);
         if (narrowToCarrierOnly)
-            list = RouteTramoSubscriptionDtoFilter.NarrowForCarrierViewer(uid, list);
+            list = SubscriptionsUtils.NarrowItemsForCarrierViewer(uid, list);
         return list;
     }
 
@@ -228,7 +222,7 @@ public sealed class RouteTramoSubscriptionService(
             [em.RouteSheetId] = sheetRow.Payload,
         };
         var list = await ToSubscriptionItemDtosAsync(rows, payloads, cancellationToken);
-        return RouteTramoSubscriptionDtoFilter.NarrowForCarrierViewer(uid, list);
+        return SubscriptionsUtils.NarrowItemsForCarrierViewer(uid, list);
     }
 
     private async Task<List<RouteTramoSubscriptionItemDto>> ToSubscriptionItemDtosAsync(
@@ -256,7 +250,7 @@ public sealed class RouteTramoSubscriptionService(
 
         return rows
             .Select(r =>
-                RouteTramoSubscriptionItemMapper.MapRow(
+                SubscriptionsUtils.MapSubscriptionItem(
                     r,
                     payloads.GetValueOrDefault(r.RouteSheetId),
                     accounts,
@@ -294,7 +288,7 @@ public sealed class RouteTramoSubscriptionService(
 
         var carrierAcc = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == k.CarrierId, cancellationToken);
-        var accountPhone = RouteTramoUserContactUtil.BestPhoneForCarrier(
+        var accountPhone = SubscriptionsUtils.BestPhoneForCarrier(
             carrierAcc, null, null);
 
         var payload = sheetRow.Payload;
@@ -346,7 +340,7 @@ public sealed class RouteTramoSubscriptionService(
 
         var actorAcc = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == k.ActorId, cancellationToken);
-        var deciderLabel = RouteTramoUserContactUtil.ParticipanteOrDisplay(actorAcc?.DisplayName);
+        var deciderLabel = SubscriptionsUtils.ParticipanteOrDisplay(actorAcc?.DisplayName);
         var deciderTrust = actorAcc?.TrustScore ?? 0;
         var preview = $"{deciderLabel} confirmó tu servicio de transporte en esta operación. Abrí el chat para coordinar la hoja de ruta.";
 
@@ -393,7 +387,7 @@ public sealed class RouteTramoSubscriptionService(
         if (k.StopRestrict.Length > 0 && subs.Count == 0)
             return null;
 
-        var toConfirm = subs.Where(RouteTramoSubscriptionStatusUtil.IsPendingForSellerDecision).ToList();
+        var toConfirm = subs.Where(SubscriptionsUtils.IsPendingForSellerDecision).ToList();
         if (toConfirm.Count == 0)
             return (toConfirm, subs.Count);
 
@@ -443,7 +437,7 @@ public sealed class RouteTramoSubscriptionService(
         if (k.StopRestrict.Length > 0 && subs.Count == 0)
             return null;
 
-        var toReject = subs.Where(RouteTramoSubscriptionStatusUtil.IsPendingForSellerDecision).ToList();
+        var toReject = subs.Where(SubscriptionsUtils.IsPendingForSellerDecision).ToList();
         if (toReject.Count == 0)
             return subs.Count > 0 ? 0 : null;
 
@@ -460,7 +454,7 @@ public sealed class RouteTramoSubscriptionService(
             .FirstOrDefaultAsync(x => x.Id == thread.StoreId, cancellationToken);
         var actorAcc = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == k.ActorId, cancellationToken);
-        var (sellerLabel, sellerTrust) = RouteTramoSellerPresentation.LabelAndTrust(store, actorAcc);
+        var (sellerLabel, sellerTrust) = SubscriptionsUtils.SellerLabelAndTrust(store, actorAcc);
         var preview =
             $"{sellerLabel} rechazó tu solicitud de transporte en un tramo de la hoja de ruta publicada. Puedes revisar la oferta y los tramos disponibles.";
 
@@ -518,7 +512,7 @@ public sealed class RouteTramoSubscriptionService(
             .ConfigureAwait(false);
 
         await ClearCarrierPhoneOnSheetsForWithdrawAsync(ctx.ThreadId, ctx.Subs, now, cancellationToken);
-        MarkSubscriptionsWithdrawn(ctx.Subs, now);
+        SubscriptionsUtils.MarkSubscriptionsWithdrawn(ctx.Subs, now);
         int? storeTrustAfter = await ApplyStoreTrustPenaltyForSellerExpelIfNeededAsync(
             ctx.ApplyStoreTrustPenalty,
             ctx.ConfirmedStopsWithdrawnCount,
@@ -709,7 +703,7 @@ public sealed class RouteTramoSubscriptionService(
             .ConfigureAwait(false);
 
         await ClearCarrierPhoneOnSheetsForWithdrawAsync(tid, subs, now, cancellationToken);
-        MarkSubscriptionsWithdrawn(subs, now);
+        SubscriptionsUtils.MarkSubscriptionsWithdrawn(subs, now);
         int? trustScoreAfterPenalty = await ApplyTrustPenaltyIfNeededAsync(
             applyTrustPenalty, uid, confirmedStopCount, cancellationToken);
 
@@ -719,7 +713,7 @@ public sealed class RouteTramoSubscriptionService(
             .Where(x => x.Id == uid)
             .Select(x => x.DisplayName)
             .FirstOrDefaultAsync(cancellationToken);
-        var sys = RouteTramoWithdrawSystemText.BuildAutomatedNotice(
+        var sys = SubscriptionsUtils.BuildWithdrawAutomatedNotice(
             display ?? "",
             subs.Count,
             distinctSheetIds.Count,
@@ -802,7 +796,7 @@ public sealed class RouteTramoSubscriptionService(
         if (core is null)
             return false;
         var digits = (core.Carrier.PhoneDigits ?? "").Trim();
-        var stops = PreselMatchStops(core.Payload, digits, request.StopIdRestrict);
+        var stops = SubscriptionsUtils.PreselMatchStops(core.Payload, digits, request.StopIdRestrict);
 
         if (stops.Count == 0)
             return false;
@@ -846,26 +840,6 @@ public sealed class RouteTramoSubscriptionService(
         return new PreselCore(thread, carrier, payload, rsid);
     }
 
-    private static List<RouteStopPayload> PreselMatchStops(
-        RouteSheetPayload payload,
-        string carrierDigits,
-        string? stopIdRestrict)
-    {
-        var stopRestrict = (stopIdRestrict ?? "").Trim();
-        var list = new List<RouteStopPayload>();
-        foreach (var p in payload.Paradas ?? [])
-        {
-            var d = DigitsOnlyTel(p.TelefonoTransportista);
-            if (d.Length < 6 || !string.Equals(d, carrierDigits, StringComparison.Ordinal))
-                continue;
-            if (stopRestrict.Length > 0
-                && !string.Equals((p.Id ?? "").Trim(), stopRestrict, StringComparison.Ordinal))
-                continue;
-            list.Add(p);
-        }
-        return list;
-    }
-
     private async Task<(string? StoreServiceId, string TransportServiceLabel)> ResolvePreselInvitedStoreServiceAsync(
         string carrierUserId,
         RouteStopPayload? stop,
@@ -873,17 +847,17 @@ public sealed class RouteTramoSubscriptionService(
     {
         var reqId = (stop?.TransportInvitedStoreServiceId ?? "").Trim();
         if (reqId.Length < 2)
-            return (null, PreselHojaServicioTransporte);
+            return (null, SubscriptionsUtils.PreselDefaultTransportServiceLabel);
 
         var row = await db.StoreServices.AsNoTracking()
             .Include(s => s.Store)
             .FirstOrDefaultAsync(s => s.Id == reqId, cancellationToken);
         // Mismo criterio que el catálogo: null = publicado; solo false oculta.
         if (row is null || row.DeletedAtUtc is not null)
-            return (null, PreselHojaServicioTransporte);
+            return (null, SubscriptionsUtils.PreselDefaultTransportServiceLabel);
         var owner = (row.Store?.OwnerUserId ?? "").Trim();
         if (!ChatThreadAccess.UserIdsMatchLoose(carrierUserId, owner))
-            return (null, PreselHojaServicioTransporte);
+            return (null, SubscriptionsUtils.PreselDefaultTransportServiceLabel);
         
         var label = (stop?.TransportInvitedServiceSummary ?? "").Trim();
         if (label.Length == 0)
@@ -900,23 +874,6 @@ public sealed class RouteTramoSubscriptionService(
         if (label.Length == 0)
             label = "Servicio de catálogo";
         return (reqId, label);
-    }
-
-    private static void ApplyPreselAcceptedFieldsToParadaHoja(
-        RouteStopPayload parada,
-        string? invSvc,
-        string transportServiceLabel)
-    {
-        parada.TransportInvitedServiceSummary = transportServiceLabel;
-        if (string.IsNullOrWhiteSpace(invSvc))
-            parada.TransportInvitedStoreServiceId = null;
-
-        var notas = (parada.Notas ?? "").Trim();
-        if (notas.Contains(PreselHojaContactoIndicado, StringComparison.OrdinalIgnoreCase))
-            return;
-        parada.Notas = notas.Length == 0
-            ? PreselHojaContactoIndicado
-            : $"{PreselHojaContactoIndicado}. {notas}";
     }
 
     private async Task<bool> PreselExecuteAcceptAsync(
@@ -938,9 +895,9 @@ public sealed class RouteTramoSubscriptionService(
         if (sheetRow is null)
             return false;
 
-        var phoneSnapRaw = PhoneSnap40(core.Carrier);
+        var phoneSnapRaw = SubscriptionsUtils.PhoneSnapForCarrier(core.Carrier);
         var phoneSnap = phoneSnapRaw.Length > 0 ? phoneSnapRaw : null;
-        var accountPhone = RouteTramoUserContactUtil.BestPhoneForCarrier(core.Carrier, null, null);
+        var accountPhone = SubscriptionsUtils.BestPhoneForCarrier(core.Carrier, null, null);
 
         var payload = sheetRow.Payload;
         payload.Paradas ??= new List<RouteStopPayload>();
@@ -1011,7 +968,7 @@ public sealed class RouteTramoSubscriptionService(
             if (stop is not null && tel.Length > 0)
                 stop.TelefonoTransportista = tel;
             if (stop is not null)
-                ApplyPreselAcceptedFieldsToParadaHoja(stop, invSvc, invLabel);
+                SubscriptionsUtils.ApplyPreselAcceptedFieldsToParada(stop, invSvc, invLabel);
         }
 
         RouteSheetPayloadPersistence.ApplyPayloadAndTouch(sheetRow, payload, now);
@@ -1019,7 +976,7 @@ public sealed class RouteTramoSubscriptionService(
 
         var actorAcc = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == sellerId, cancellationToken);
-        var deciderLabel = RouteTramoUserContactUtil.ParticipanteOrDisplay(actorAcc?.DisplayName);
+        var deciderLabel = SubscriptionsUtils.ParticipanteOrDisplay(actorAcc?.DisplayName);
         var deciderTrust = actorAcc?.TrustScore ?? 0;
         var preview =
             $"{deciderLabel} confirmó tu servicio de transporte en esta operación. Abrí el chat para coordinar la hoja de ruta.";
@@ -1086,7 +1043,7 @@ public sealed class RouteTramoSubscriptionService(
                 var sid = (stop.Id ?? "").Trim();
                 if (sid.Length < 1)
                     continue;
-                var parada = RouteTramoParadaResolver.FindByStopIdOrOrden(
+                var parada = SubscriptionsUtils.FindParadaByStopIdOrOrden(
                     payload.Paradas,
                     sid,
                     stop.Orden);
@@ -1147,32 +1104,6 @@ public sealed class RouteTramoSubscriptionService(
                 preview),
             cancellationToken);
         return true;
-    }
-
-    private static string PhoneSnap40(UserAccount carrier)
-    {
-        var phoneSnap = (carrier.PhoneDisplay ?? "").Trim();
-        if (phoneSnap.Length == 0 && !string.IsNullOrWhiteSpace(carrier.PhoneDigits))
-            phoneSnap = carrier.PhoneDigits.Trim();
-        if (phoneSnap.Length > 40)
-            phoneSnap = phoneSnap[..40];
-        return phoneSnap;
-    }
-
-    private static string DigitsOnlyTel(string? raw)
-    {
-        if (string.IsNullOrEmpty(raw))
-            return "";
-        return string.Concat(raw.Where(char.IsDigit));
-    }
-
-    private static void MarkSubscriptionsWithdrawn(List<RouteTramoSubscriptionRow> subs, DateTimeOffset now)
-    {
-        foreach (var s in subs)
-        {
-            s.Status = "withdrawn";
-            s.UpdatedAtUtc = now;
-        }
     }
 
     /// <summary>
@@ -1309,19 +1240,12 @@ public sealed class RouteTramoSubscriptionService(
             if (states.Count == 0)
                 return false;
 
-            var allTerminal = states.TrueForAll(IsCarrierLegTrustTerminalState);
+            var allTerminal = states.TrueForAll(SubscriptionsUtils.IsCarrierLegTrustTerminalState);
             if (!allTerminal)
                 return false;
         }
 
         return true;
-    }
-
-    private static bool IsCarrierLegTrustTerminalState(string? stateRaw)
-    {
-        var s = (stateRaw ?? "").Trim().ToLowerInvariant();
-        return s is RouteStopDeliveryStates.EvidenceAccepted
-            || RouteStopDeliveryStates.IsRefundedTerminal(s);
     }
 
     private async Task<int?> ApplyTrustPenaltyIfNeededAsync(
@@ -1398,7 +1322,7 @@ public sealed class RouteTramoSubscriptionService(
             payload.Paradas ??= new List<RouteStopPayload>();
             foreach (var sub in grp)
             {
-                var parada = RouteTramoParadaResolver.FindByStopIdOrOrden(
+                var parada = SubscriptionsUtils.FindParadaByStopIdOrOrden(
                     payload.Paradas,
                     sub.StopId,
                     sub.StopOrden);

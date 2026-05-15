@@ -19,8 +19,7 @@ public sealed class EmergentOfferCarrierSubscriptionService(AppDbContext db) : I
         if (string.IsNullOrWhiteSpace(viewerUserId))
             return new EmergentCarrierSubscriptionStatus(true, null, null);
 
-        var eid = emergentOfferId.Trim();
-        if (eid.Length < 4 || !OfferUtils.IsEmergentPublicationId(eid))
+        if (!EmergentOfferUtils.TryNormalizeEmergentOfferId(emergentOfferId, out var eid))
             return new EmergentCarrierSubscriptionStatus(true, null, null);
 
         var em = await db.EmergentOffers.AsNoTracking()

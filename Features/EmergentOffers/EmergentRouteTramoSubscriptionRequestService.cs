@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Chat.Dtos;
@@ -32,8 +31,7 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
         if (uid.Length < 2)
             return (false, "unauthorized", "Sesión requerida.");
 
-        var eid = (emergentOfferId ?? "").Trim();
-        if (eid.Length < 4 || !OfferUtils.IsEmergentPublicationId(eid))
+        if (!EmergentOfferUtils.TryNormalizeEmergentOfferId(emergentOfferId, out var eid))
             return (false, ErrInvalidEmergent, "Publicación emergente no válida.");
 
         var sid = (stopId ?? "").Trim();
@@ -102,11 +100,9 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
         var preview =
             $"{authorLabel} solicitó el tramo {orden} con el servicio «{svcLabel}». Pendiente de validación.";
 
-        var phoneSnap = (carrierAccount?.PhoneDisplay ?? "").Trim();
-        if (phoneSnap.Length == 0 && !string.IsNullOrWhiteSpace(carrierAccount?.PhoneDigits))
-            phoneSnap = carrierAccount!.PhoneDigits!.Trim();
-        if (phoneSnap.Length > 40)
-            phoneSnap = phoneSnap[..40];
+        var phoneSnap = EmergentOfferUtils.NormalizePhoneSnapshot(
+            carrierAccount?.PhoneDisplay,
+            carrierAccount?.PhoneDigits);
 
         await routeTramoSubscriptions.RecordSubscriptionRequestAsync(
             new RecordRouteTramoSubscriptionRequestArgs(
@@ -120,9 +116,7 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
                 phoneSnap.Length > 0 ? phoneSnap : null),
             cancellationToken);
 
-        var meta = JsonSerializer.Serialize(
-            new RouteTramoSubscribeMeta(em.RouteSheetId, sid, uid),
-            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        var meta = EmergentOfferUtils.BuildRouteTramoSubscribeMetaJson(em.RouteSheetId, sid, uid);
 
         var sellerId = (thread.SellerUserId ?? "").Trim();
         var storeRow = await db.Stores.AsNoTracking()
@@ -168,5 +162,5 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
         return (true, null, null);
     }
 
-    private sealed record RouteTramoSubscribeMeta(string RouteSheetId, string StopId, string CarrierUserId);
+    
 }

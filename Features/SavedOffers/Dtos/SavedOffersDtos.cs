@@ -1,4 +1,4 @@
-namespace VibeTrade.Backend.Features.SavedOffers;
+namespace VibeTrade.Backend.Features.SavedOffers.Dtos;
 
 public sealed record SaveOfferBody(string ProductId);
 

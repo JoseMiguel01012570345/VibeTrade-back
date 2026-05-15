@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.RouteTramoSubscriptions;
 using VibeTrade.Backend.Features.RouteTramoSubscriptions.Dtos;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
@@ -143,7 +144,7 @@ public sealed class RouteTramoSubscriptionNotificationService(
             .FirstOrDefaultAsync(x => x.Id == ctx.Thread.StoreId, cancellationToken);
         var actorAcc = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == sid, cancellationToken);
-        var (sellerLabel, sellerTrust) = RouteTramoSellerPresentation.LabelAndTrust(store, actorAcc);
+        var (sellerLabel, sellerTrust) = SubscriptionsUtils.SellerLabelAndTrust(store, actorAcc);
         var carrierName = (await db.UserAccounts.AsNoTracking()
             .Where(x => x.Id == carrierId)
             .Select(x => x.DisplayName)

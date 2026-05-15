@@ -1,5 +1,8 @@
-using System.Globalization;
 using Microsoft.Extensions.Logging;
+using VibeTrade.Backend.Features.RouteSheets;
+using VibeTrade.Backend.Features.RouteSheets.Dtos;
+using VibeTrade.Backend.Features.Routing.Interfaces;
+
 namespace VibeTrade.Backend.Features.Routing;
 
 /// <summary>
@@ -14,18 +17,13 @@ public static class RouteSheetOsrmRoadKmPopulator
         ILogger logger,
         CancellationToken cancellationToken)
     {
-        payload.Paradas ??= new List<RouteStopPayload>();
-        foreach (var p in payload.Paradas)
-        {
-            p.OsrmRoadKm = null;
-            p.OsrmRouteLatLngs = null;
-        }
+        RoutingUtils.ClearOsrmFields(payload);
 
-        var paradas = payload.Paradas;
+        var paradas = payload.Paradas ?? [];
         if (paradas.Count == 0)
             return;
 
-        var chains = RouteSheetPayloadValidator.GetTramoChainsInParadasListOrder(paradas);
+        var chains = RouteSheetUtils.BuildTramoChainsByCoords(paradas);
         foreach (var chain in chains)
         {
             if (chain.Count == 0)
@@ -48,21 +46,7 @@ public static class RouteSheetOsrmRoadKmPopulator
         IDrivingLegRoutingService routing,
         CancellationToken cancellationToken)
     {
-        var positions = new List<(double Lat, double Lng)>();
-        var first = paradas[chain[0]];
-        if (!TryParseCoord(first.OrigenLat, first.OrigenLng, out var oLat, out var oLng))
-            return;
-        positions.Add((oLat, oLng));
-
-        foreach (var idx in chain)
-        {
-            var stop = paradas[idx];
-            if (!TryParseCoord(stop.DestinoLat, stop.DestinoLng, out var dLat, out var dLng))
-                return;
-            positions.Add((dLat, dLng));
-        }
-
-        if (positions.Count < 2)
+        if (!RoutingUtils.TryBuildPositionsForTramoChain(paradas, chain, out var positions))
             return;
 
         var legs = await routing.GetDrivingLegsAsync(positions, cancellationToken);
@@ -75,19 +59,5 @@ public static class RouteSheetOsrmRoadKmPopulator
             paradas[chain[i]].OsrmRoadKm = leg.DistanceKm;
             paradas[chain[i]].OsrmRouteLatLngs = leg.RouteLatLngs;
         }
-    }
-
-    private static bool TryParseCoord(string? latRaw, string? lngRaw, out double lat, out double lng)
-    {
-        lat = 0;
-        lng = 0;
-        var ls = (latRaw ?? "").Trim();
-        var gs = (lngRaw ?? "").Trim();
-        if (ls.Length == 0 || gs.Length == 0)
-            return false;
-        return double.TryParse(ls, CultureInfo.InvariantCulture, out lat)
-            && double.TryParse(gs, CultureInfo.InvariantCulture, out lng)
-            && lat is >= -90 and <= 90
-            && lng is >= -180 and <= 180;
     }
 }
