@@ -1,10 +1,9 @@
 using System.Text.Json.Serialization;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Interfaces;
-using VibeTrade.Backend.Features.Recommendations.Core;
+using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
-using VibeTrade.Backend.Features.Recommendations.Popularity;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
 namespace VibeTrade.Backend.Features.Bootstrap.Dtos;

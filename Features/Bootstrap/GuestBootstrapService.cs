@@ -6,10 +6,9 @@ using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Interfaces;
-using VibeTrade.Backend.Features.Recommendations.Core;
+using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
-using VibeTrade.Backend.Features.Recommendations.Popularity;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
@@ -28,7 +27,7 @@ public sealed class GuestBootstrapService(
 
         var recommendationFeed = await recommendations.GetBatchAsync(
             guestId,
-            RecommendationService.DefaultBootstrapTake,
+            RecommendationUtils.DefaultBootstrapTake,
             cancellationToken);
 
         var bootRecOfferIds = recommendationFeed.OfferIds.Length > 0

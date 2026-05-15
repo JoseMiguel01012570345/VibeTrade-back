@@ -28,10 +28,9 @@ using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Payments;
 using VibeTrade.Backend.Features.Payments.Interfaces;
 using VibeTrade.Backend.Features.Policies.ChatExit;
-using VibeTrade.Backend.Features.Recommendations.Core;
+using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
-using VibeTrade.Backend.Features.Recommendations.Popularity;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Features.Routing;
 using VibeTrade.Backend.Features.Routing.Interfaces;
@@ -66,9 +65,8 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddVibeTradeFeatures(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddScoped<IMarketCatalogSyncService, CatalogService>();
-        services.Configure<OfferPopularityWeightOptions>(
-            configuration.GetSection(OfferPopularityWeightOptions.SectionName));
-        services.AddScoped<IOfferPopularityWeightService, OfferPopularityWeightService>();
+        services.AddScoped<IOfferPopularityWeightService, RecommendationService.OfferPopularityWeightService>();
+        services.AddScoped<IRecommendationService, RecommendationService>();
         services.AddScoped<IOfferService, OfferService>();
         services.AddScoped<IMarketWorkspaceService, MarketService>();
         services.AddScoped<IMarketCatalogStoreSearchService, MarketCatalogStoreSearchService>();
@@ -77,12 +75,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISavedOffersService, SavedOffersService>();
         services.AddScoped<IEmergentOfferCarrierSubscriptionService, EmergentOfferCarrierSubscriptionService>();
         services.AddScoped<IEmergentRouteTramoSubscriptionRequestService, EmergentRouteTramoSubscriptionRequestService>();
-        services.AddScoped<IRecommendationService, RecommendationService>();
         services.AddScoped<IRecommendationElasticsearchQuery, RecommendationElasticsearchQuery>();
         services.AddScoped<RecommendationFeedV2>();
         services.AddSingleton<IGuestInteractionStore, GuestInteractionStore>();
         services.AddScoped<IGuestRecommendationService, GuestRecommendationService>();
-        services.AddHostedService<OfferPopularityWeightBackfillHostedService>();
         services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
         services.AddScoped<IUserContactsService, UserContactsService>();
         services.AddScoped<ITrustScoreLedgerService, TrustScoreLedgerService>();

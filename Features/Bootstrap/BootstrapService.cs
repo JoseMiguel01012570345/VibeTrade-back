@@ -7,10 +7,10 @@ using VibeTrade.Backend.Features.Bootstrap.Dtos;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Market;
-using VibeTrade.Backend.Features.Recommendations.Core;
+using VibeTrade.Backend.Features.Recommendations;
+using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
-using VibeTrade.Backend.Features.Recommendations.Popularity;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Features.SavedOffers;
@@ -78,10 +78,10 @@ public sealed class BootstrapService(
             ? Array.Empty<string>()
             : (await savedOffers.GetFilteredForBootstrapAsync(viewerUser.Id, cancellationToken)).ToArray();
         var recommendationFeed = viewerUser is null
-            ? RecommendationBatchResponse.Empty(RecommendationService.DefaultBatchSize, RecommendationService.ScoreThreshold)
+            ? RecommendationBatchResponse.Empty(RecommendationUtils.DefaultBatchSize, RecommendationUtils.ScoreThreshold)
             : await recommendations.GetBatchAsync(
                 viewerUser.Id,
-                RecommendationService.DefaultBootstrapTake,
+                RecommendationUtils.DefaultBootstrapTake,
                 cancellationToken);
 
         var bootRecOfferIds = recommendationFeed.OfferIds.Length > 0

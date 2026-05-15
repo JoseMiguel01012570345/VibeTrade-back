@@ -23,12 +23,7 @@ public sealed class GuestInteractionStore(IMemoryCache cache) : IGuestInteractio
         if (gid.Length == 0 || oid.Length == 0)
             return;
 
-        var ev = eventType switch
-        {
-            RecommendationInteractionType.ChatStart => "chat_start", // might happend in the future
-            RecommendationInteractionType.Inquiry => "inquiry", // might happend in the future
-            _ => "click", // user can only do this right now
-        };
+        var ev = RecommendationUtils.InteractionTypeToStorageValue(eventType);
 
         var key = BuildKey(gid);
         var list = cache.GetOrCreate(key, entry =>

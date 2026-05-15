@@ -1,4 +1,4 @@
-namespace VibeTrade.Backend.Features.Recommendations.Core;
+namespace VibeTrade.Backend.Features.Recommendations.Dtos;
 
 public enum RecommendationInteractionType
 {

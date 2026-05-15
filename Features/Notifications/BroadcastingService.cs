@@ -6,10 +6,7 @@ using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingDtos;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
-using VibeTrade.Backend.Features.Recommendations.Core;
 using VibeTrade.Backend.Utils;
-
-namespace VibeTrade.Backend.Features.Notifications;
 
 /// <summary>SignalR: grupos de hilo/usuario/oferta y envío a participantes.</summary>
 public sealed class BroadcastingService(

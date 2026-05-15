@@ -35,7 +35,7 @@ global using VibeTrade.Backend.Features.Market.Interfaces;
 global using VibeTrade.Backend.Features.Recommendations.Dtos;
 global using VibeTrade.Backend.Features.Recommendations.Interfaces;
 global using VibeTrade.Backend.Features.Recommendations.Feed;
-global using VibeTrade.Backend.Features.Recommendations.Core;
+global using VibeTrade.Backend.Features.Recommendations;
 global using VibeTrade.Backend.Features.Trust.Dtos;
 global using VibeTrade.Backend.Features.Trust.Interfaces;
 global using VibeTrade.Backend.Features.Trust;

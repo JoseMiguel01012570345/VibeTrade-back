@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
@@ -26,9 +27,9 @@ public sealed class GuestRecommendationService(
     {
         var gid = (guestId ?? "").Trim();
         if (gid.Length == 0)
-            return RecommendationBatchResponse.Empty(RecommendationService.DefaultBatchSize, RecommendationService.ScoreThreshold);
+            return RecommendationBatchResponse.Empty(RecommendationUtils.DefaultBatchSize, RecommendationUtils.ScoreThreshold);
 
-        var batchSize = RecommendationService.NormalizeClientTake(take);
+        var batchSize = RecommendationUtils.NormalizeClientTake(take);
         var now = DateTimeOffset.UtcNow;
 
         var guestEvents = guestStore.GetRecent(gid, max: 250);
@@ -50,7 +51,7 @@ public sealed class GuestRecommendationService(
             userEvents,
             contactEvents: [],
             now,
-            RecommendationService.ScoreThreshold,
+            RecommendationUtils.ScoreThreshold,
             batchSize,
             cancellationToken);
 
@@ -77,18 +78,18 @@ public sealed class GuestRecommendationService(
         }
 
         if (pageIds.Length == 0)
-            return RecommendationBatchResponse.Empty(batchSize, RecommendationService.ScoreThreshold);
+            return RecommendationBatchResponse.Empty(batchSize, RecommendationUtils.ScoreThreshold);
 
         var candidates = await RecommendationBatchOfferLoader.LoadOfferCandidatesAsync(
             db, gid, pageIds.ToHashSet(StringComparer.Ordinal), cancellationToken);
         var filtered = pageIds.Where(id => candidates.ContainsKey(id)).ToArray();
         if (filtered.Length == 0)
-            return RecommendationBatchResponse.Empty(batchSize, RecommendationService.ScoreThreshold);
+            return RecommendationBatchResponse.Empty(batchSize, RecommendationUtils.ScoreThreshold);
 
         var offers = await RecommendationBatchOfferLoader.BuildOffersViewInOrderAsync(db, offerService, filtered, cancellationToken);
         await offerService.EnrichHomeOffersAsync(offers, "g:" + gid, cancellationToken);
         var storeBadges = await BuildStoreBadgesFromCandidatesAsync(filtered, candidates, cancellationToken);
-        return new RecommendationBatchResponse(filtered, offers, storeBadges, batchSize, RecommendationService.ScoreThreshold);
+        return new RecommendationBatchResponse(filtered, offers, storeBadges, batchSize, RecommendationUtils.ScoreThreshold);
     }
 
     private async Task<Dictionary<string, StoreProfileWorkspaceData>> BuildStoreBadgesFromCandidatesAsync(

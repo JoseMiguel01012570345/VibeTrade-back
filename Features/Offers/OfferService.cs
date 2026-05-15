@@ -4,7 +4,7 @@ using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Offers.Interfaces;
-using VibeTrade.Backend.Features.Recommendations.Popularity;
+using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
 namespace VibeTrade.Backend.Features.Offers;
 

@@ -3,6 +3,7 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Interfaces;
+using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Search.Catalog;
 using VibeTrade.Backend.Features.Search.Elasticsearch;
@@ -90,8 +91,8 @@ public sealed class RecommendationFeedV2(
                 [..contactNonZero.Keys], viewerUserId, poolTarget, scoreThreshold, random, esTake, cancellationToken)
             : [];
 
-        var userQ = ToQueueByScoreOrder(userList);
-        var contactQ = ToQueueByScoreOrder(contactList);
+        var userQ = RecommendationUtils.ToQueueByScoreOrder(userList);
+        var contactQ = RecommendationUtils.ToQueueByScoreOrder(contactList);
         var seedIdSet = seed.Select(s => s.OfferId).ToHashSet(StringComparer.Ordinal);
         var emergentOrdered = new List<string>();
         foreach (var s in seed.Where(x => x.Kind == SeedKind.Emergent))
@@ -113,29 +114,11 @@ public sealed class RecommendationFeedV2(
             emergentOrdered.Add(id);
         }
 
-        var emergentQ = ToDistinctQueue(emergentOrdered);
+        var emergentQ = RecommendationUtils.ToDistinctQueue(emergentOrdered);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var merged = await BuildFeedFiftyTwentyFifteenFifteenAsync(
             viewerUserId, cap, userQ, contactQ, emergentQ, seen, poolTarget, cancellationToken);
         return merged.Count > 0 ? merged : null;
-    }
-
-    private static Queue<string> ToQueueByScoreOrder(IReadOnlyList<(string OfferId, double Score)> hits) =>
-        new(hits.Select(h => h.OfferId));
-
-    /// <summary>Quita duplicados conservando el primer orden.</summary>
-    private static Queue<string> ToDistinctQueue(IEnumerable<string> ids)
-    {
-        var se = new HashSet<string>(StringComparer.Ordinal);
-        var q = new Queue<string>();
-        foreach (var id in ids)
-        {
-            if (string.IsNullOrWhiteSpace(id) || !se.Add(id))
-                continue;
-            q.Enqueue(id);
-        }
-
-        return q;
     }
 
     private async Task<List<string>> BuildFeedFiftyTwentyFifteenFifteenAsync(
@@ -148,7 +131,7 @@ public sealed class RecommendationFeedV2(
         int poolTarget,
         CancellationToken cancellationToken)
     {
-        var (q1, q2, q3, q4) = QuotasFiftyTwentyFifteenFifteen(cap);
+        var (q1, q2, q3, q4) = RecommendationUtils.QuotasFiftyTwentyFifteenFifteen(cap);
         var all = new List<string>(cap);
         var randomQ = new Queue<string>();
 
@@ -171,17 +154,6 @@ public sealed class RecommendationFeedV2(
         await AppendSegmentDrainingOrderAsync(
             all, q4, seen, seg4, viewerUserId, randomQ, poolTarget, noEmergentInRandom: false, cancellationToken);
         return all;
-    }
-
-    private static (int Q1, int Q2, int Q3, int Q4) QuotasFiftyTwentyFifteenFifteen(int cap)
-    {
-        if (cap <= 0)
-            return (0, 0, 0, 0);
-        var q1 = (int)(cap * 0.5d);
-        var q2 = (int)(cap * 0.2d);
-        var q3 = (int)(cap * 0.15d);
-        var q4 = cap - q1 - q2 - q3;
-        return (q1, q2, q3, q4);
     }
 
     private async Task AppendSegmentDrainingOrderAsync(
@@ -401,7 +373,7 @@ public sealed class RecommendationFeedV2(
         if (offerIds.Count == 0)
             return map;
 
-        foreach (var chunk in Chunk(offerIds, IdChunkSize))
+        foreach (var chunk in RecommendationUtils.Chunk(offerIds, IdChunkSize))
         {
             var c = chunk.ToList();
             var fromP = await db.StoreProducts.AsNoTracking()
@@ -547,7 +519,7 @@ public sealed class RecommendationFeedV2(
                 set.Add(id);
         }
 
-        foreach (var chunk in Chunk(catalogIds, IdChunkSize))
+        foreach (var chunk in RecommendationUtils.Chunk(catalogIds, IdChunkSize))
         {
             var c = chunk.ToList();
             var pIds = await db.StoreProducts.AsNoTracking()
@@ -611,7 +583,7 @@ public sealed class RecommendationFeedV2(
         {
             if (!seedWeightByOffer.TryGetValue(p.Id, out var sw))
                 continue;
-            var mainText = ConcatOfferMainTextProduct(p);
+            var mainText = RecommendationUtils.ConcatOfferMainTextProduct(p);
             AddTokens(offerScores, mainText, sw * 1.0d);
             AddCommentTokens(p.Id, p.OfferQa, sw, likeCounts, commentScores);
         }
@@ -620,7 +592,7 @@ public sealed class RecommendationFeedV2(
         {
             if (!seedWeightByOffer.TryGetValue(s.Id, out var sw))
                 continue;
-            var mainText = ConcatOfferMainTextService(s);
+            var mainText = RecommendationUtils.ConcatOfferMainTextService(s);
             AddTokens(offerScores, mainText, sw * 1.0d);
             AddCommentTokens(s.Id, s.OfferQa, sw, likeCounts, commentScores);
         }
@@ -837,49 +809,6 @@ public sealed class RecommendationFeedV2(
         }
     }
 
-    private static string ConcatOfferMainTextProduct(StoreProductRow p)
-    {
-        var parts = new[]
-        {
-            p.Name, p.Category, p.Model, p.ShortDescription, p.MainBenefit, p.TechnicalSpecs,
-            p.Condition, p.Price, p.Availability, p.WarrantyReturn, p.ContentIncluded,
-            p.UsageConditions, CustomFieldsPlain(p.CustomFields),
-        };
-        return string.Join(' ', parts.Where(s => !string.IsNullOrWhiteSpace(s)));
-    }
-
-    private static string ConcatOfferMainTextService(StoreServiceRow s)
-    {
-        var parts = new[]
-        {
-            s.Category, s.TipoServicio, s.Descripcion, s.Incluye, s.NoIncluye, s.Entregables,
-            s.PropIntelectual, ServiceRiesgosPlain(s.Riesgos), ServiceDependenciasPlain(s.Dependencias),
-            ServiceGarantiasPlain(s.Garantias), CustomFieldsPlain(s.CustomFields),
-        };
-        return string.Join(' ', parts.Where(x => !string.IsNullOrWhiteSpace(x)));
-    }
-
-    private static string CustomFieldsPlain(IReadOnlyList<StoreCustomFieldBody>? list)
-    {
-        if (list is not { Count: > 0 })
-            return "";
-        return string.Join(' ', list.Select(f => string.Join(' ', f.Title, f.Body, f.AttachmentNote).Trim())
-            .Where(s => s.Length > 0));
-    }
-
-    private static string ServiceRiesgosPlain(ServiceRiesgosBody? r) =>
-        r is { Enabled: true, Items: { Count: > 0 } } ? string.Join(' ', r.Items) : "";
-
-    private static string ServiceDependenciasPlain(ServiceDependenciasBody? b) =>
-        b is { Enabled: true, Items: { Count: > 0 } } ? string.Join(' ', b.Items) : "";
-
-    private static string ServiceGarantiasPlain(ServiceGarantiasBody? g)
-    {
-        if (g is not { Enabled: true })
-            return "";
-        return (g.Texto ?? "").Trim();
-    }
-
     private static double EventWeight(string eventType) =>
         eventType switch
         {
@@ -905,26 +834,4 @@ public sealed class RecommendationFeedV2(
             > 100 => 1d,
             _ => trustScore / 100d,
         };
-
-    private static IEnumerable<IEnumerable<T>> Chunk<T>(IEnumerable<T> source, int size)
-    {
-        using var e = source.GetEnumerator();
-        while (e.MoveNext())
-        {
-            var chunk = new List<T>(size) { e.Current };
-            for (var i = 1; i < size && e.MoveNext(); i++)
-                chunk.Add(e.Current);
-            yield return chunk;
-        }
-    }
-
-    private sealed record SeedOffer(string OfferId, SeedKind Kind, double Weight);
-
-    private enum SeedKind
-    {
-        User,
-        Contact,
-        Random,
-        Emergent,
-    }
 }

@@ -1,8 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
-using VibeTrade.Backend.Features.Recommendations.Core;
+using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
-using VibeTrade.Backend.Features.Recommendations.Popularity;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Infrastructure;
@@ -36,7 +35,7 @@ public sealed class RecommendationsController(
 
         var batch = await recommendations.GetBatchAsync(
             userId,
-            take ?? RecommendationService.DefaultBatchSize,
+            take ?? RecommendationUtils.DefaultBatchSize,
             cancellationToken);
         return Ok(batch);
     }
@@ -56,7 +55,7 @@ public sealed class RecommendationsController(
             return Unauthorized();
         if (string.IsNullOrWhiteSpace(body.OfferId))
             return BadRequest(new { error = "invalid_offer_id", message = "Indica la oferta." });
-        if (!TryParseEventType(body.EventType, out var eventType))
+        if (!RecommendationUtils.TryParseInteractionEventType(body.EventType, out var eventType))
             return BadRequest(new { error = "invalid_event_type", message = "Usa click, inquiry o chat_start." });
 
         await recommendations.RecordInteractionAsync(
@@ -84,7 +83,7 @@ public sealed class RecommendationsController(
 
         var batch = await guestRecommendations.GetBatchAsync(
             gid,
-            take ?? RecommendationService.DefaultBatchSize,
+            take ?? RecommendationUtils.DefaultBatchSize,
             cancellationToken);
         return Ok(batch);
     }
@@ -101,29 +100,10 @@ public sealed class RecommendationsController(
             return BadRequest(new { error = "invalid_guest_id", message = "guestId requerido." });
         if (string.IsNullOrWhiteSpace(body.OfferId))
             return BadRequest(new { error = "invalid_offer_id", message = "Indica la oferta." });
-        if (!TryParseEventType(body.EventType, out var eventType))
+        if (!RecommendationUtils.TryParseInteractionEventType(body.EventType, out var eventType))
             return BadRequest(new { error = "invalid_event_type", message = "Usa click, inquiry o chat_start." });
 
         guestInteractions.Record(gid, body.OfferId.Trim(), eventType);
         return NoContent();
-    }
-
-    private static bool TryParseEventType(string? raw, out RecommendationInteractionType eventType)
-    {
-        switch ((raw ?? "").Trim().ToLowerInvariant())
-        {
-            case "click":
-                eventType = RecommendationInteractionType.Click;
-                return true;
-            case "inquiry":
-                eventType = RecommendationInteractionType.Inquiry;
-                return true;
-            case "chat_start":
-                eventType = RecommendationInteractionType.ChatStart;
-                return true;
-            default:
-                eventType = RecommendationInteractionType.Click;
-                return false;
-        }
     }
 }

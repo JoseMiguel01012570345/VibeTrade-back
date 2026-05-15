@@ -8,8 +8,4 @@ public interface IOfferPopularityWeightService
 {
     Task RecomputeAsync(string offerId, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Recalcula todas las ofertas publicadas (una agregación global + actualización por filas). Pensado para arranque o jobs.
-    /// </summary>
-    Task RecomputeAllPublishedAsync(CancellationToken cancellationToken = default);
 }

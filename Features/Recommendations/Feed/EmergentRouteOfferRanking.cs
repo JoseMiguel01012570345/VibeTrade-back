@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Features.Recommendations;
 
 namespace VibeTrade.Backend.Features.Recommendations.Feed;
 
@@ -43,7 +44,7 @@ public static class EmergentRouteOfferRanking
        if (emergentOrdered.Count == 0)
             return [];
 
-        Shuffle(emergentOrdered, Random.Shared);
+        RecommendationUtils.Shuffle(emergentOrdered, Random.Shared);
         var chosen = new HashSet<string>(exclude, StringComparer.Ordinal);
         var result = new List<string>(Math.Min(take, emergentOrdered.Count));
         foreach (var id in emergentOrdered)
@@ -55,14 +56,5 @@ public static class EmergentRouteOfferRanking
             result.Add(id);
         }
         return result;
-    }
-
-    private static void Shuffle<T>(IList<T> list, Random rng)
-    {
-        for (var i = list.Count - 1; i > 0; i--)
-        {
-            var j = rng.Next(i + 1);
-            (list[i], list[j]) = (list[j], list[i]);
-        }
     }
 }
