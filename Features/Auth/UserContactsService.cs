@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Auth.Dtos;
+using VibeTrade.Backend.Features.Auth.Interfaces;
 
 namespace VibeTrade.Backend.Features.Auth;
 
@@ -40,7 +42,7 @@ public sealed class UserContactsService(AppDbContext db) : IUserContactsService
         string phoneRaw,
         CancellationToken cancellationToken = default)
     {
-        var digits = DigitsOnly(phoneRaw);
+        var digits = AuthUtils.DigitsOnly(phoneRaw);
         if (string.IsNullOrEmpty(digits))
             throw new InvalidOperationException("Indica un número de teléfono.");
 
@@ -85,7 +87,7 @@ public sealed class UserContactsService(AppDbContext db) : IUserContactsService
         string phoneRaw,
         CancellationToken cancellationToken = default)
     {
-        var digits = DigitsOnly(phoneRaw);
+        var digits = AuthUtils.DigitsOnly(phoneRaw);
         if (string.IsNullOrEmpty(digits))
             throw new InvalidOperationException("Indica un número de teléfono.");
 
@@ -130,11 +132,4 @@ public sealed class UserContactsService(AppDbContext db) : IUserContactsService
             u.PhoneDisplay,
             u.PhoneDigits,
             createdAt);
-
-    private static string DigitsOnly(string? raw)
-    {
-        if (string.IsNullOrEmpty(raw))
-            return "";
-        return string.Concat(raw.Where(char.IsDigit));
-    }
 }

@@ -1,4 +1,4 @@
-using System.Text.Json;
+using VibeTrade.Backend.Features.Auth.Dtos;
 
 namespace VibeTrade.Backend.Features.Auth.Interfaces;
 
@@ -25,7 +25,6 @@ public interface IUserAccountSyncService
         CancellationToken cancellationToken = default);
 
     /// <summary>Lee perfil persistido para fusionar en <c>GET session</c>.</summary>
-    /// <param name="phoneDigits">Si no hay fila con <paramref name="userId"/>, busca por <c>PhoneDigits</c>.</param>
     Task<UserProfileSnapshot?> GetProfileSnapshotAsync(string? phoneDigits = null, CancellationToken cancellationToken = default);
 
     Task<UserProfileSnapshot?> GetProfileSnapshotByUserIdAsync(string userId, CancellationToken cancellationToken = default);

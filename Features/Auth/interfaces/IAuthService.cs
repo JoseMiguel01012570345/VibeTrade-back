@@ -1,8 +1,6 @@
+using VibeTrade.Backend.Features.Auth.Dtos;
+
 namespace VibeTrade.Backend.Features.Auth.Interfaces;
-
-public sealed record RequestCodeResult(int CodeLength, int ExpiresInSeconds, string? DevMockCode);
-
-public sealed record VerifyResult(string SessionToken, SessionUser User);
 
 public interface IAuthService
 {

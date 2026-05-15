@@ -1,7 +1,6 @@
-namespace VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Auth.Dtos;
 
-/// <summary>País habilitado para registro / inicio de sesión por SMS (selector de prefijo).</summary>
-public sealed record SignInCountryDto(string Name, string Code, string Dial, string Flag);
+namespace VibeTrade.Backend.Features.Auth;
 
 /// <summary>Lista autoritativa de países expuesta al cliente web.</summary>
 public static class SignInCountryCatalog

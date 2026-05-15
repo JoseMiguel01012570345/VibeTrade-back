@@ -1,4 +1,4 @@
-using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Auth.Dtos;
 
 namespace VibeTrade.Backend.Data.Entities;
 

@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Auth.Dtos;
+using VibeTrade.Backend.Features.Auth.Interfaces;
 
 namespace VibeTrade.Backend.Features.Auth;
 
@@ -14,7 +16,7 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
         var now = DateTimeOffset.UtcNow;
 
         var phoneDisplay = user.Phone;
-        var digits = DigitsOnly(phoneDisplay);
+        var digits = AuthUtils.DigitsOnly(phoneDisplay);
 
         // Primary key is the session user id. However, our dev auth generates ids in-memory and may change across restarts,
         // while PhoneDigits is stable and unique. To avoid unique constraint violations, fall back to matching by PhoneDigits.
@@ -134,7 +136,7 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
     {
         if (string.IsNullOrWhiteSpace(phoneDigits))
             return null;
-        var digits = DigitsOnly(phoneDigits);
+        var digits = AuthUtils.DigitsOnly(phoneDigits);
         if (string.IsNullOrEmpty(digits))
             return null;
         var row = await db.UserAccounts.AsNoTracking()
@@ -142,15 +144,7 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
 
         if (row is null)
             return null;
-        return new UserProfileSnapshot(
-            row.Id,
-            row.DisplayName,
-            row.Email,
-            row.AvatarUrl,
-            row.Instagram,
-            row.Telegram,
-            row.XAccount,
-            row.TrustScore);
+        return ToSnapshot(row);
     }
 
     public async Task<UserProfileSnapshot?> GetProfileSnapshotByUserIdAsync(
@@ -163,22 +157,14 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
             .FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
         if (row is null)
             return null;
-        return new UserProfileSnapshot(
-            row.Id,
-            row.DisplayName,
-            row.Email,
-            row.AvatarUrl,
-            row.Instagram,
-            row.Telegram,
-            row.XAccount,
-            row.TrustScore);
+        return ToSnapshot(row);
     }
 
     public async Task<bool> PhoneHasRegisteredAccountAsync(
         string? phoneRaw,
         CancellationToken cancellationToken = default)
     {
-        var digits = DigitsOnly(phoneRaw);
+        var digits = AuthUtils.DigitsOnly(phoneRaw);
         if (string.IsNullOrEmpty(digits))
             return false;
         return await db.UserAccounts.AsNoTracking()
@@ -194,10 +180,14 @@ public sealed class UserAccountSyncService(AppDbContext db) : IUserAccountSyncSe
         return string.IsNullOrWhiteSpace(url) ? null : url;
     }
 
-    private static string DigitsOnly(string? raw)
-    {
-        if (string.IsNullOrEmpty(raw))
-            return "";
-        return string.Concat(raw.Where(char.IsDigit));
-    }
+    private static UserProfileSnapshot ToSnapshot(UserAccount row) =>
+        new(
+            row.Id,
+            row.DisplayName,
+            row.Email,
+            row.AvatarUrl,
+            row.Instagram,
+            row.Telegram,
+            row.XAccount,
+            row.TrustScore);
 }

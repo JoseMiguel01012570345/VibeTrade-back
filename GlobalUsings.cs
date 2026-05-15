@@ -1,5 +1,6 @@
 // Centralized global usings to keep feature folders lean.
 global using VibeTrade.Backend.Features.Bootstrap.Dtos;
+global using VibeTrade.Backend.Features.Auth.Dtos;
 global using VibeTrade.Backend.Features.Auth.Interfaces;
 global using VibeTrade.Backend.Features.Bootstrap.Interfaces;
 global using VibeTrade.Backend.Features.Chat;

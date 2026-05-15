@@ -60,8 +60,8 @@ public sealed class CarrierOwnershipService(
                 x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
                 cancellationToken)
             .ConfigureAwait(false);
-        var ordered = RouteLegOwnershipChain.OrderedStopIds(sheetRow?.Payload);
-        var idx = RouteLegOwnershipChain.StopIndex(ordered, sid);
+        var ordered = LogisticsUtils.OrderedStopIds(sheetRow?.Payload);
+        var idx = LogisticsUtils.StopIndex(ordered, sid);
         var nextStopId = idx + 1 < ordered.Count ? ordered[idx + 1] : null;
         var now = DateTimeOffset.UtcNow;
 
@@ -222,7 +222,7 @@ public sealed class CarrierOwnershipService(
         if (tid.Length < 4 || rsid.Length < 1 || sid.Length < 1 || actor.Length < 2)
             return null;
 
-        var idx = RouteLegOwnershipChain.StopIndex(ordered, sid);
+        var idx = LogisticsUtils.StopIndex(ordered, sid);
         if (idx < 0)
             return null;
 

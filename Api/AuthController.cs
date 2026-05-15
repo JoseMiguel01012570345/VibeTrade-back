@@ -20,13 +20,6 @@ public sealed class AuthController(
     IUserAccountSyncService userAccountSync,
     IUserContactsService contacts) : ControllerBase
 {
-    private static string? PhoneDigitsFromSessionUser(SessionUser? user)
-    {
-        if (string.IsNullOrEmpty(user?.Phone))
-            return null;
-        return new string(user.Phone.Where(char.IsDigit).ToArray());
-    }
-
     public sealed record RequestCodeBody(string Phone, string? Mode = null);
 
     public sealed record RequestCodeResponse(int CodeLength, int ExpiresInSeconds, string? DevMockCode);
@@ -210,7 +203,7 @@ public sealed class AuthController(
 
         var userId = user.Id!;
 
-        var phoneDigits = PhoneDigitsFromSessionUser(user);
+        var phoneDigits = AuthUtils.PhoneDigitsFromSessionUser(user);
         await userAccountSync.PatchProfileAsync(
             userId,
             body.Name?.Trim(),
@@ -315,7 +308,7 @@ public sealed class AuthController(
             var id = userOut.Id;
             var snapshot =
                 await userAccountSync.GetProfileSnapshotByUserIdAsync(id, cancellationToken)
-                ?? await userAccountSync.GetProfileSnapshotAsync(PhoneDigitsFromSessionUser(userOut), cancellationToken);
+                ?? await userAccountSync.GetProfileSnapshotAsync(AuthUtils.PhoneDigitsFromSessionUser(userOut), cancellationToken);
             if (snapshot is not null &&
                 auth.TrySyncSessionFromSnapshot("Bearer " + result.SessionToken, snapshot, out var merged) &&
                 merged is not null)
@@ -339,7 +332,7 @@ public sealed class AuthController(
             var id = user.Id;
             var snapshot =
                 await userAccountSync.GetProfileSnapshotByUserIdAsync(id, cancellationToken)
-                ?? await userAccountSync.GetProfileSnapshotAsync(PhoneDigitsFromSessionUser(user), cancellationToken);
+                ?? await userAccountSync.GetProfileSnapshotAsync(AuthUtils.PhoneDigitsFromSessionUser(user), cancellationToken);
             if (snapshot is not null &&
                 auth.TrySyncSessionFromSnapshot(Request.Headers.Authorization, snapshot, out var merged) &&
                 merged is not null)

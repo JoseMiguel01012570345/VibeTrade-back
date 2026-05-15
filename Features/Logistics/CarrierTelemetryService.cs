@@ -101,8 +101,8 @@ public sealed class CarrierTelemetryService(
         if (poly.Count < 2)
         {
             // Fallback recto O→D si no hay OSRM persistido.
-            if (TryParseLatLng(stop.OrigenLat, stop.OrigenLng, out var oLat, out var oLng)
-                && TryParseLatLng(stop.DestinoLat, stop.DestinoLng, out var dLat, out var dLng))
+            if (LogisticsUtils.TryParseLatLng(stop.OrigenLat, stop.OrigenLng, out var oLat, out var oLng)
+                && LogisticsUtils.TryParseLatLng(stop.DestinoLat, stop.DestinoLng, out var dLat, out var dLng))
             {
                 poly =
                 [
@@ -117,8 +117,8 @@ public sealed class CarrierTelemetryService(
                 null, true, null, avatarUrl);
 
         var routeLen = PolylineLengthMeters(poly);
-        var tol = PolylineProjection.AdaptiveToleranceMeters(routeLen);
-        var projection = PolylineProjection.ProjectToPolyline(lat, lng, poly, tol);
+        var tol = AdaptiveToleranceMeters(routeLen);
+        var projection = ProjectToPolyline(lat, lng, poly, tol);
 
         var last = await db.CarrierTelemetrySamples.AsNoTracking()
             .Where(x =>
@@ -393,7 +393,7 @@ public sealed class CarrierTelemetryService(
         var dt = reportedAtUtc - prev.ReportedAtUtc;
         if (dt <= TimeSpan.Zero || dt.TotalSeconds < 0.5)
             return clientSpeedKmh;
-        var distM = HaversineMeters(prev.Lat, prev.Lng, lat, lng);
+        var distM = LogisticsUtils.HaversineMeters(prev.Lat, prev.Lng, lat, lng);
         var hours = dt.TotalHours;
         if (hours <= 0)
             return clientSpeedKmh;
@@ -408,33 +408,78 @@ public sealed class CarrierTelemetryService(
             var a = poly[i - 1];
             var b = poly[i];
             if (a.Count < 2 || b.Count < 2) continue;
-            sum += HaversineMeters(a[0], a[1], b[0], b[1]);
+            sum += LogisticsUtils.HaversineMeters(a[0], a[1], b[0], b[1]);
         }
 
         return sum;
     }
 
-    private static double HaversineMeters(double lat1, double lng1, double lat2, double lng2)
+    private readonly record struct ProjectionResult(
+        double DistanceToPolylineMeters,
+        double DistanceAlongMeters,
+        double TotalLengthMeters,
+        double Progress01,
+        bool OffRoute);
+
+    private static ProjectionResult ProjectToPolyline(
+        double lat,
+        double lng,
+        IReadOnlyList<List<double>> latLngPoints,
+        double offRouteToleranceMeters)
     {
-        const double R = 6371000.0;
-        var dLat = (lat2 - lat1) * Math.PI / 180;
-        var dLon = (lng2 - lng1) * Math.PI / 180;
-        var rLat1 = lat1 * Math.PI / 180;
-        var rLat2 = lat2 * Math.PI / 180;
-        var h =
-            Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
-            + Math.Cos(rLat1) * Math.Cos(rLat2) * (Math.Sin(dLon / 2) * Math.Sin(dLon / 2));
-        var c = 2 * Math.Atan2(Math.Sqrt(h), Math.Sqrt(1 - h));
-        return R * c;
+        if (latLngPoints.Count < 2)
+            return new ProjectionResult(double.NaN, 0, 0, 0, true);
+
+        var pts = new List<(double Lat, double Lng)>(latLngPoints.Count);
+        foreach (var p in latLngPoints)
+        {
+            if (p.Count < 2) continue;
+            pts.Add((p[0], p[1]));
+        }
+
+        if (pts.Count < 2)
+            return new ProjectionResult(double.NaN, 0, 0, 0, true);
+
+        double bestDist = double.PositiveInfinity;
+        var cumulative = new double[pts.Count];
+        cumulative[0] = 0;
+        for (var i = 1; i < pts.Count; i++)
+        {
+            cumulative[i] = cumulative[i - 1]
+                + LogisticsUtils.HaversineMeters(pts[i - 1].Lat, pts[i - 1].Lng, pts[i].Lat, pts[i].Lng);
+        }
+
+        var total = cumulative[^1];
+        if (total <= 1e-6)
+            return new ProjectionResult(0, 0, 0, 0, false);
+
+        double alongBest = 0;
+        for (var i = 1; i < pts.Count; i++)
+        {
+            var a = pts[i - 1];
+            var b = pts[i];
+            var segLen = cumulative[i] - cumulative[i - 1];
+            if (segLen <= 1e-9)
+                continue;
+
+            var (d, t) = LogisticsUtils.DistancePointToSegmentMeters(lat, lng, a, b);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                alongBest = cumulative[i - 1] + t * segLen;
+            }
+        }
+
+        var progress = LogisticsUtils.Clamp01(alongBest / total);
+        var off = bestDist > offRouteToleranceMeters;
+        return new ProjectionResult(bestDist, alongBest, total, progress, off);
     }
 
-    private static bool TryParseLatLng(string? latRaw, string? lngRaw, out double lat, out double lng)
+    private static double AdaptiveToleranceMeters(double totalRouteMeters)
     {
-        lat = 0;
-        lng = 0;
-        var lt = (latRaw ?? "").Trim().Replace(",", ".", StringComparison.Ordinal);
-        var lg = (lngRaw ?? "").Trim().Replace(",", ".", StringComparison.Ordinal);
-        return double.TryParse(lt, System.Globalization.CultureInfo.InvariantCulture, out lat)
-               && double.TryParse(lg, System.Globalization.CultureInfo.InvariantCulture, out lng);
+        if (double.IsNaN(totalRouteMeters) || totalRouteMeters <= 0)
+            return 45;
+        var baseTol = 25 + Math.Sqrt(totalRouteMeters) * 0.35;
+        return LogisticsUtils.Clamp(baseTol, 35, 220);
     }
 }

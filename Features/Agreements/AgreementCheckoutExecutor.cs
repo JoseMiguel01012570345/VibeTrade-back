@@ -52,7 +52,7 @@ internal static class AgreementCheckoutExecutor
         catch (StripeException sx)
         {
             return new StripeCustomerPaymentMethodResolve(
-                false, null, StripeErrorUserMessage(sx), "stripe_pm_error",
+                false, null, AgreementUtils.StripeErrorUserMessage(sx), "stripe_pm_error",
                 Accepted: true);
         }
 
@@ -265,7 +265,7 @@ internal static class AgreementCheckoutExecutor
         catch (StripeException sx)
         {
             pay.Status = AgreementPaymentStatuses.Failed;
-            pay.StripeErrorMessage = StripeErrorUserMessage(sx);
+            pay.StripeErrorMessage = AgreementUtils.StripeErrorUserMessage(sx);
             pay.CompletedAtUtc = DateTimeOffset.UtcNow;
             db.AgreementCurrencyPayments.Add(pay);
             var chargeFailDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
@@ -341,7 +341,4 @@ internal static class AgreementCheckoutExecutor
 
     private static AgreementExecutePaymentResultDto Err(string msg, bool accepted, string code) =>
         new("", false, null, msg, accepted, code, null);
-
-    internal static string StripeErrorUserMessage(StripeException sx) =>
-        string.IsNullOrWhiteSpace(sx.StripeError?.Message) ? sx.Message : sx.StripeError!.Message;
 }

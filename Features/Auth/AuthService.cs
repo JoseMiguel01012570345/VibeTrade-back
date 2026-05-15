@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Auth.Dtos;
+using VibeTrade.Backend.Features.Auth.Interfaces;
 
 namespace VibeTrade.Backend.Features.Auth;
 
@@ -15,10 +17,10 @@ public sealed class AuthService(
 
     public RequestCodeResult RequestCode(string phoneRaw)
     {
-        var digits = DigitsOnly(phoneRaw);
+        var digits = AuthUtils.DigitsOnly(phoneRaw);
         var code = Random.Shared.Next(1_000_000, 9_999_999).ToString();
         Console.WriteLine("\u001b[31mRequestCode: " + digits + " " + code + "\u001b[0m");
-   
+
         var now = DateTimeOffset.UtcNow;
         var expiresAt = now.Add(PendingTtl);
 
@@ -51,7 +53,7 @@ public sealed class AuthService(
 
     public async Task<VerifyResult?> Verify(string phoneRaw, string code, CancellationToken cancellationToken)
     {
-        var digits = DigitsOnly(phoneRaw);
+        var digits = AuthUtils.DigitsOnly(phoneRaw);
         var pending = await db.AuthPendingOtps
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.PhoneDigits == digits, cancellationToken);
@@ -67,7 +69,7 @@ public sealed class AuthService(
             return null;
         }
 
-        var normalizedCode = DigitsOnly(code);
+        var normalizedCode = AuthUtils.DigitsOnly(code);
         if (normalizedCode != pending.Code)
             return null;
 
@@ -75,24 +77,7 @@ public sealed class AuthService(
             .ExecuteDeleteAsync(cancellationToken);
 
         var profile = await userAccountSync.GetProfileSnapshotAsync(digits, cancellationToken);
-        SessionUser sessionUser = profile is null
-            ? new SessionUser
-            {
-                Id = digits,
-                Phone = digits,
-                Name = "Usuario sin nombre",
-            }
-            : new SessionUser
-            {
-                Id = digits,
-                Phone = digits,
-                Name = profile.DisplayName,
-                Email = profile.Email,
-                AvatarUrl = profile.AvatarUrl,
-                Instagram = profile.Instagram,
-                Telegram = profile.Telegram,
-                XAccount = profile.XAccount,
-            };
+        var sessionUser = AuthUtils.CreateSessionUserForVerifiedPhone(digits, profile);
 
         var token = Guid.NewGuid().ToString("N");
         var sessionNow = DateTimeOffset.UtcNow;
@@ -115,7 +100,7 @@ public sealed class AuthService(
     public bool TryGetUserByToken(string? bearerToken, out SessionUser? user)
     {
         user = null;
-        var token = ParseBearer(bearerToken);
+        var token = AuthUtils.TryParseBearerToken(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
 
@@ -134,7 +119,7 @@ public sealed class AuthService(
 
     public bool RevokeSession(string? bearerToken)
     {
-        var token = ParseBearer(bearerToken);
+        var token = AuthUtils.TryParseBearerToken(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
         return db.AuthSessions.Where(s => s.Token == token).ExecuteDelete() > 0;
@@ -154,7 +139,7 @@ public sealed class AuthService(
         out SessionUser? updatedUser)
     {
         updatedUser = null;
-        var token = ParseBearer(bearerToken);
+        var token = AuthUtils.TryParseBearerToken(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
 
@@ -186,7 +171,7 @@ public sealed class AuthService(
     public bool TrySyncSessionFromSnapshot(string? bearerToken, UserProfileSnapshot snapshot, out SessionUser? updatedUser)
     {
         updatedUser = null;
-        var token = ParseBearer(bearerToken);
+        var token = AuthUtils.TryParseBearerToken(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
 
@@ -212,7 +197,7 @@ public sealed class AuthService(
     public bool TrySetSessionUserId(string? bearerToken, string userId, out SessionUser? updatedUser)
     {
         updatedUser = null;
-        var token = ParseBearer(bearerToken);
+        var token = AuthUtils.TryParseBearerToken(bearerToken);
         if (string.IsNullOrEmpty(token))
             return false;
 
@@ -245,22 +230,5 @@ public sealed class AuthService(
     {
         var now = DateTimeOffset.UtcNow;
         db.AuthPendingOtps.Where(p => p.ExpiresAt < now).ExecuteDelete();
-    }
-
-    private static string DigitsOnly(string? raw)
-    {
-        if (string.IsNullOrEmpty(raw))
-            return "";
-        return string.Concat(raw.Where(char.IsDigit));
-    }
-
-    private static string? ParseBearer(string? authorization)
-    {
-        if (string.IsNullOrWhiteSpace(authorization))
-            return null;
-        const string p = "Bearer ";
-        if (!authorization.StartsWith(p, StringComparison.OrdinalIgnoreCase))
-            return null;
-        return authorization[p.Length..].Trim();
     }
 }

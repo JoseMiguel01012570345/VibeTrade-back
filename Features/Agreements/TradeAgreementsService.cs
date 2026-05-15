@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
@@ -70,7 +69,7 @@ public sealed class TradeAgreementService(
         TradeAgreementDraftRequest draft,
         CancellationToken cancellationToken = default)
     {
-        if (!ValidateDraft(draft))
+        if (!AgreementUtils.ValidateDraft(draft))
             return (null, null);
 
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
@@ -90,7 +89,7 @@ public sealed class TradeAgreementService(
                 .ConfigureAwait(false))
             return (null, TradeAgreementWriteErrors.DuplicateAgreementTitle);
 
-        var id = NewAgrId();
+        var id = AgreementUtils.NewAgreementRowId();
         var now = DateTimeOffset.UtcNow;
         var ag = new TradeAgreementRow
         {
@@ -127,7 +126,7 @@ public sealed class TradeAgreementService(
         TradeAgreementDraftRequest draft,
         CancellationToken cancellationToken = default)
     {
-        if (!ValidateDraft(draft))
+        if (!AgreementUtils.ValidateDraft(draft))
             return (null, null);
 
         var t = await db.ChatThreads.AsNoTracking()
@@ -383,7 +382,7 @@ public sealed class TradeAgreementService(
         }
         else
         {
-            if (!AgreementHasMerchandiseForRouteLink(ag))
+            if (!AgreementUtils.AgreementHasMerchandiseForRouteLink(ag))
                 return Fail(400, noMerchMsg);
 
             var okRow = await db.ChatRouteSheets.AsNoTracking()
@@ -452,7 +451,7 @@ public sealed class TradeAgreementService(
         CancellationToken cancellationToken)
     {
         var tid = (threadId ?? "").Trim();
-        var wanted = NormalizeAgreementTitle(title);
+        var wanted = AgreementUtils.NormalizeAgreementTitle(title);
         if (wanted.Length == 0)
             return false;
 
@@ -465,112 +464,11 @@ public sealed class TradeAgreementService(
 
         foreach (var existing in titles)
         {
-            if (NormalizeAgreementTitle(existing) == wanted)
+            if (AgreementUtils.NormalizeAgreementTitle(existing) == wanted)
                 return true;
         }
 
         return false;
-    }
-
-    private static string NormalizeAgreementTitle(string title) => (title ?? "").Trim().ToLowerInvariant();
-
-    private static bool ValidateDraft(TradeAgreementDraftRequest d)
-    {
-        if (string.IsNullOrWhiteSpace(d.Title) || d.Title.Trim().Length > 512)
-            return false;
-        // XOR: debe elegir exactamente uno (mercancía o servicio).
-        if (d.IncludeMerchandise == d.IncludeService)
-            return false;
-        return ValidateExtraFields(d);
-    }
-
-    private static bool ValidateExtraFields(TradeAgreementDraftRequest d)
-    {
-        var list = d.ExtraFields;
-        if (list is null || list.Count == 0)
-            return true;
-        if (list.Count > 48)
-            return false;
-
-        foreach (var x in list)
-        {
-            if (IsSkippableEmptyExtraDraftApiRow(x))
-                continue;
-
-            var title = (x.Title ?? "").Trim();
-            if (title.Length < 1 || title.Length > 256)
-                return false;
-
-            var rawKind = (x.ValueKind ?? "text").Trim().ToLowerInvariant();
-            var kind = rawKind is "image" or "document" ? rawKind : "text";
-
-            if (kind == "text")
-            {
-                var txt = (x.TextValue ?? "").Trim();
-                if (txt.Length < 1 || txt.Length > 8000)
-                    return false;
-            }
-            else
-            {
-                var url = (x.MediaUrl ?? "").Trim();
-                if (url.Length < 24 || url.Length > 2048)
-                    return false;
-                if (!url.StartsWith("/api/v1/media/", StringComparison.Ordinal))
-                    return false;
-            }
-
-            var fn = (x.FileName ?? "").Trim();
-            if (fn.Length > 512)
-                return false;
-        }
-
-        return true;
-    }
-
-    private static bool IsSkippableEmptyExtraDraftApiRow(TradeAgreementExtraFieldRequest x)
-    {
-        var title = (x.Title ?? "").Trim();
-        if (title.Length > 0)
-            return false;
-
-        var rawKind = (x.ValueKind ?? "text").Trim().ToLowerInvariant();
-        var kind = rawKind is "image" or "document" ? rawKind : "text";
-        if (kind is "image" or "document")
-            return string.IsNullOrWhiteSpace(x.MediaUrl);
-
-        return string.IsNullOrWhiteSpace(x.TextValue);
-    }
-
-    private static string NewAgrId() => "agr_" + Guid.NewGuid().ToString("N")[..16];
-
-    private static bool AgreementHasMerchandiseForRouteLink(TradeAgreementRow ag)
-    {
-        if (!ag.IncludeMerchandise)
-            return false;
-        foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
-        {
-            if (!TryParsePositiveDecimal(m.Cantidad, out _))
-                continue;
-            if (!TryParsePositiveDecimal(m.ValorUnitario, out _))
-                continue;
-            var mon = PaymentCheckoutComputation.NormalizeCurrencyFirst(m.Moneda ?? ag.MerchandiseMeta?.Moneda);
-            if (string.IsNullOrEmpty(mon))
-                continue;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryParsePositiveDecimal(string? raw, out decimal value)
-    {
-        value = 0;
-        var t = (raw ?? "").Trim().Replace(",", ".", StringComparison.Ordinal)
-            .Replace('\u00a0', ' ');
-        if (!decimal.TryParse(t, NumberStyles.Number, CultureInfo.InvariantCulture, out var d))
-            return false;
-        value = d;
-        return d > 0;
     }
 
 }

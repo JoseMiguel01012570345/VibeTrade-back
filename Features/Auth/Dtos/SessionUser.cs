@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace VibeTrade.Backend.Features.Auth;
+namespace VibeTrade.Backend.Features.Auth.Dtos;
 
 /// <summary>Usuario de sesión (<c>auth_sessions.userJson</c>): mismo shape que expone la API de auth.</summary>
 public sealed class SessionUser

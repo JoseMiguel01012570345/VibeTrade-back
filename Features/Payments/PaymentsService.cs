@@ -778,7 +778,7 @@ public sealed class PaymentsService(
         var byStop = existing.ToDictionary(x => x.RouteStopId.Trim(), StringComparer.Ordinal);
 
         var now = DateTimeOffset.UtcNow;
-        var firstPaidStopId = RouteLegOwnershipChain.FirstPaidStopId(orderedStopIds, paidInThisCharge);
+        var firstPaidStopId = LogisticsUtils.FirstPaidStopId(orderedStopIds, paidInThisCharge);
 
         foreach (var stopId in orderedStopIds.Where(paidInThisCharge.Contains))
         {

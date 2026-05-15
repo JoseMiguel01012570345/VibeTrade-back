@@ -1,17 +1,9 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Agreements;
 
 public static class TradeAgreementDraftToEntityMapper
 {
-    private static readonly JsonSerializerOptions CondicionesExtrasJsonOpts = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
-
     public static void ReplaceContentFromDraft(TradeAgreementRow ag, TradeAgreementDraftRequest draft)
     {
         ag.MerchandiseLines.Clear();
@@ -41,14 +33,14 @@ public static class TradeAgreementDraftToEntityMapper
         var order = 0;
         foreach (var x in draft.ExtraFields)
         {
-            if (IsSkippableEmptyExtraDraftRow(x))
+            if (AgreementUtils.IsSkippableEmptyExtraDraftRow(x))
                 continue;
 
             var title = (x.Title ?? "").Trim();
-            var kind = NormalizeExtraValueKind(x.ValueKind);
+            var kind = AgreementUtils.NormalizeExtraValueKind(x.ValueKind);
             ag.ExtraFields.Add(new TradeAgreementExtraFieldRow
             {
-                Id = TradeAgreementEntityIdFactory.NewId("xfe"),
+                Id = AgreementUtils.NewEntityId("xfe"),
                 TradeAgreementId = ag.Id,
                 SortOrder = order++,
                 Title = title,
@@ -64,25 +56,6 @@ public static class TradeAgreementDraftToEntityMapper
         }
     }
 
-    private static bool IsSkippableEmptyExtraDraftRow(TradeAgreementExtraFieldRequest x)
-    {
-        var title = (x.Title ?? "").Trim();
-        if (title.Length > 0)
-            return false;
-
-        var kind = NormalizeExtraValueKind(x.ValueKind);
-        if (kind is "image" or "document")
-            return string.IsNullOrWhiteSpace(x.MediaUrl);
-
-        return string.IsNullOrWhiteSpace(x.TextValue);
-    }
-
-    private static string NormalizeExtraValueKind(string? raw)
-    {
-        var k = (raw ?? "").Trim().ToLowerInvariant();
-        return k is "image" or "document" ? k : "text";
-    }
-
     private static void AddMerchandiseLines(TradeAgreementRow ag, TradeAgreementDraftRequest draft)
     {
         var order = 0;
@@ -90,7 +63,7 @@ public static class TradeAgreementDraftToEntityMapper
         {
             ag.MerchandiseLines.Add(new TradeAgreementMerchandiseLineRow
             {
-                Id = TradeAgreementEntityIdFactory.NewId("aml"),
+                Id = AgreementUtils.NewEntityId("aml"),
                 TradeAgreementId = ag.Id,
                 SortOrder = order++,
                 LinkedStoreProductId = string.IsNullOrWhiteSpace(line.LinkedStoreProductId)
@@ -118,8 +91,8 @@ public static class TradeAgreementDraftToEntityMapper
         foreach (var s in draft.Services)
         {
             var serviceItemId = string.IsNullOrWhiteSpace(s.Id)
-                ? TradeAgreementEntityIdFactory.NewId("svi")
-                : TradeAgreementEntityIdFactory.TrimId(s.Id!, 80);
+                ? AgreementUtils.NewEntityId("svi")
+                : AgreementUtils.TrimEntityId(s.Id!, 80);
 
             var row = CreateServiceItemRow(ag.Id, serviceItemId, sortOrder++, s);
             AppendScheduleCollections(row, serviceItemId, s);
@@ -172,16 +145,8 @@ public static class TradeAgreementDraftToEntityMapper
             PenalAtrasoTexto = s.PenalAtraso?.Texto ?? "",
             TerminacionEnabled = s.Terminacion?.Enabled ?? false,
             TerminacionAvisoDias = s.Terminacion?.AvisoDias ?? "",
-            CondicionesExtrasJson = SerializeCondicionesExtrasJson(s.CondicionesExtras),
+            CondicionesExtrasJson = AgreementUtils.SerializeCondicionesExtrasJson(s.CondicionesExtras),
         };
-    }
-
-    private static string? SerializeCondicionesExtrasJson(
-        List<TradeAgreementExtraFieldRequest>? list)
-    {
-        if (list is null || list.Count == 0)
-            return null;
-        return JsonSerializer.Serialize(list, CondicionesExtrasJsonOpts);
     }
 
     private static void AppendScheduleCollections(
@@ -263,7 +228,7 @@ public static class TradeAgreementDraftToEntityMapper
             {
                 row.PaymentEntries.Add(new TradeAgreementServicePaymentEntryRow
                 {
-                    Id = TradeAgreementEntityIdFactory.NewId("pay"),
+                    Id = AgreementUtils.NewEntityId("pay"),
                     ServiceItemId = serviceItemId,
                     SortOrder = entryOrder++,
                     Month = e.Month,
@@ -287,7 +252,7 @@ public static class TradeAgreementDraftToEntityMapper
         {
             row.RiesgoItems.Add(new TradeAgreementServiceRiesgoRow
             {
-                Id = TradeAgreementEntityIdFactory.NewId("rie"),
+                Id = AgreementUtils.NewEntityId("rie"),
                 ServiceItemId = serviceItemId,
                 SortOrder = i++,
                 Text = t.Trim(),
@@ -307,7 +272,7 @@ public static class TradeAgreementDraftToEntityMapper
         {
             row.DependenciaItems.Add(new TradeAgreementServiceDependenciaRow
             {
-                Id = TradeAgreementEntityIdFactory.NewId("dep"),
+                Id = AgreementUtils.NewEntityId("dep"),
                 ServiceItemId = serviceItemId,
                 SortOrder = i++,
                 Text = t.Trim(),
@@ -327,7 +292,7 @@ public static class TradeAgreementDraftToEntityMapper
         {
             row.TerminacionCausas.Add(new TradeAgreementServiceTerminacionCausaRow
             {
-                Id = TradeAgreementEntityIdFactory.NewId("tc"),
+                Id = AgreementUtils.NewEntityId("tc"),
                 ServiceItemId = serviceItemId,
                 SortOrder = i++,
                 Text = t.Trim(),
@@ -347,7 +312,7 @@ public static class TradeAgreementDraftToEntityMapper
         {
             row.MonedasAceptadas.Add(new TradeAgreementServiceMonedaRow
             {
-                Id = TradeAgreementEntityIdFactory.NewId("mon"),
+                Id = AgreementUtils.NewEntityId("mon"),
                 ServiceItemId = serviceItemId,
                 SortOrder = i++,
                 Code = c.Trim(),

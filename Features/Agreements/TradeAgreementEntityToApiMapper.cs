@@ -1,15 +1,9 @@
-using System.Text.Json;
 using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Agreements;
 
 public static class TradeAgreementEntityToApiMapper
 {
-    private static readonly JsonSerializerOptions CondicionesExtrasReadOpts = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
     public static TradeAgreementApiResponse ToApiResponse(
         TradeAgreementRow ag,
         bool hasSucceededPayments = false)
@@ -150,25 +144,8 @@ public static class TradeAgreementEntityToApiMapper
             PenalIncumplimiento = s.PenalIncumplimiento,
             NivelResponsabilidad = s.NivelResponsabilidad,
             PropIntelectual = s.PropIntelectual,
-            CondicionesExtras = DeserializeCondicionesExtrasApi(s.CondicionesExtrasJson),
+            CondicionesExtras = AgreementUtils.DeserializeCondicionesExtrasApi(s.CondicionesExtrasJson),
         };
-    }
-
-    private static List<TradeAgreementExtraFieldApi> DeserializeCondicionesExtrasApi(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-            return [];
-
-        try
-        {
-            var list = JsonSerializer.Deserialize<List<TradeAgreementExtraFieldApi>>(raw.Trim(),
-                CondicionesExtrasReadOpts);
-            return list ?? [];
-        }
-        catch
-        {
-            return [];
-        }
     }
 
     private static HorariosApi MapHorarios(TradeAgreementServiceItemRow s)

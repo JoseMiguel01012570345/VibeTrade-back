@@ -1,11 +1,6 @@
-namespace VibeTrade.Backend.Features.Auth.Interfaces;
+using VibeTrade.Backend.Features.Auth.Dtos;
 
-public sealed record UserContactDto(
-    string UserId,
-    string DisplayName,
-    string? PhoneDisplay,
-    string? PhoneDigits,
-    DateTimeOffset CreatedAt);
+namespace VibeTrade.Backend.Features.Auth.Interfaces;
 
 public interface IUserContactsService
 {
@@ -26,10 +21,3 @@ public interface IUserContactsService
 
     Task<bool> RemoveAsync(string ownerUserId, string contactUserId, CancellationToken cancellationToken = default);
 }
-
-/// <summary>Usuario registrado resuelto por teléfono (sin fila de agenda).</summary>
-public sealed record PlatformUserByPhoneDto(
-    string UserId,
-    string DisplayName,
-    string? PhoneDisplay,
-    string? PhoneDigits);

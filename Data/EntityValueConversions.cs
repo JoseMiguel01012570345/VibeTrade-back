@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth;
-using VibeTrade.Backend.Features.Auth.Interfaces;
+using VibeTrade.Backend.Features.Auth.Dtos;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
@@ -191,10 +191,10 @@ internal static class EntityValueConversions
 
     public static ValueConverter<SessionUser, string> SessionUser() =>
         new(
-            to => JsonSerializer.Serialize(to, AuthSessionJson.Options),
+            to => JsonSerializer.Serialize(to, AuthUtils.SessionJsonOptions),
             from => string.IsNullOrWhiteSpace(from)
                 ? new SessionUser()
-                : JsonSerializer.Deserialize<SessionUser>(from, AuthSessionJson.Options) ?? new SessionUser());
+                : JsonSerializer.Deserialize<SessionUser>(from, AuthUtils.SessionJsonOptions) ?? new SessionUser());
 
     public static ValueComparer<SessionUser> SessionUserComparer() =>
         new(
@@ -210,15 +210,15 @@ internal static class EntityValueConversions
         JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(c, MarketJsonDefaults.Options), MarketJsonDefaults.Options) ?? new T();
 
     private static bool SerEqSession(SessionUser? a, SessionUser? b) =>
-        JsonSerializer.Serialize(a, AuthSessionJson.Options) == JsonSerializer.Serialize(b, AuthSessionJson.Options);
+        JsonSerializer.Serialize(a, AuthUtils.SessionJsonOptions) == JsonSerializer.Serialize(b, AuthUtils.SessionJsonOptions);
 
     private static int SerHashSession(SessionUser? c) =>
-        JsonSerializer.Serialize(c, AuthSessionJson.Options).GetHashCode(StringComparison.Ordinal);
+        JsonSerializer.Serialize(c, AuthUtils.SessionJsonOptions).GetHashCode(StringComparison.Ordinal);
 
     private static List<StoreCustomFieldBody> JCloneList(List<StoreCustomFieldBody> c) =>
         JsonSerializer.Deserialize<List<StoreCustomFieldBody>>(
             JsonSerializer.Serialize(c, MarketJsonDefaults.Options), MarketJsonDefaults.Options) ?? new List<StoreCustomFieldBody>();
 
     private static SessionUser JCloneSession(SessionUser c) =>
-        JsonSerializer.Deserialize<SessionUser>(JsonSerializer.Serialize(c, AuthSessionJson.Options), AuthSessionJson.Options) ?? new();
+        JsonSerializer.Deserialize<SessionUser>(JsonSerializer.Serialize(c, AuthUtils.SessionJsonOptions), AuthUtils.SessionJsonOptions) ?? new();
 }

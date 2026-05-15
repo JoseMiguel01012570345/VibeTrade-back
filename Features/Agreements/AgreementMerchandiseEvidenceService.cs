@@ -111,7 +111,7 @@ public sealed class AgreementMerchandiseEvidenceService(
             return (StatusCodes.Status400BadRequest, "Evidencia ya aceptada: no se puede editar.", null);
 
         var nextStatus = body.Submit ? MerchandiseEvidenceStatuses.Submitted : MerchandiseEvidenceStatuses.Draft;
-        var norm = NormalizeEvidence(body.Text, body.Attachments);
+        var norm = AgreementUtils.NormalizeEvidence(body.Text, body.Attachments);
 
         if (ev is null)
         {
@@ -138,8 +138,8 @@ public sealed class AgreementMerchandiseEvidenceService(
         {
             if (body.Submit)
             {
-                var lastNorm = NormalizeEvidence(ev.LastSubmittedText, ev.LastSubmittedAttachments);
-                if (EvidenceEquals(lastNorm, norm))
+                var lastNorm = AgreementUtils.NormalizeEvidence(ev.LastSubmittedText, ev.LastSubmittedAttachments);
+                if (AgreementUtils.EvidenceEquals(lastNorm, norm))
                     return (StatusCodes.Status400BadRequest, "No hay cambios desde la última evidencia enviada.", null);
                 ev.LastSubmittedText = norm.Text;
                 ev.LastSubmittedAttachments = norm.Atts.ToList();
@@ -235,41 +235,5 @@ public sealed class AgreementMerchandiseEvidenceService(
         await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(tid, notice, cancellationToken).ConfigureAwait(false);
 
         return (StatusCodes.Status200OK, null);
-    }
-
-    private sealed record NormalizedEvidence(string Text, List<ServiceEvidenceAttachmentBody> Atts);
-
-    private static NormalizedEvidence NormalizeEvidence(
-        string? text,
-        IReadOnlyList<ServiceEvidenceAttachmentBody>? atts)
-    {
-        var t = (text ?? "").Trim();
-        var a = (atts ?? Array.Empty<ServiceEvidenceAttachmentBody>())
-            .Select(x => new ServiceEvidenceAttachmentBody(
-                (x.Id ?? "").Trim(),
-                (x.Url ?? "").Trim(),
-                (x.FileName ?? "").Trim(),
-                (x.Kind ?? "").Trim()))
-            .OrderBy(x => x.Url, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(x => x.FileName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(x => x.Kind, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        return new NormalizedEvidence(t, a);
-    }
-
-    private static bool EvidenceEquals(NormalizedEvidence a, NormalizedEvidence b)
-    {
-        if (!string.Equals(a.Text, b.Text, StringComparison.Ordinal)) return false;
-        if (a.Atts.Count != b.Atts.Count) return false;
-        for (var i = 0; i < a.Atts.Count; i++)
-        {
-            var x = a.Atts[i];
-            var y = b.Atts[i];
-            if (!string.Equals(x.Url, y.Url, StringComparison.OrdinalIgnoreCase)) return false;
-            if (!string.Equals(x.FileName, y.FileName, StringComparison.OrdinalIgnoreCase)) return false;
-            if (!string.Equals(x.Kind, y.Kind, StringComparison.OrdinalIgnoreCase)) return false;
-        }
-        return true;
     }
 }
