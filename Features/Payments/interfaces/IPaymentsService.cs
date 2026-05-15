@@ -1,5 +1,3 @@
-using VibeTrade.Backend.Features.Chat;
-
 namespace VibeTrade.Backend.Features.Payments.Interfaces;
 
 /// <summary>Pagos: Stripe (config, tarjetas, intents) y checkout/cobro de acuerdos en chat.</summary>
@@ -20,11 +18,11 @@ public interface IPaymentsService
         CreatePaymentIntentBody body,
         CancellationToken cancellationToken = default);
 
-    Task<PaymentCheckoutComputation.BreakdownDto?> GetCheckoutBreakdownAsync(
+    Task<BreakdownDto?> GetCheckoutBreakdownAsync(
         string buyerUserId,
         string threadId,
         string agreementId,
-        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRouteStopIds,
         IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default);
@@ -42,7 +40,7 @@ public interface IPaymentsService
         string currencyLower,
         string paymentMethodStripeId,
         string? idempotencyKey,
-        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRouteStopIds,
         IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default);

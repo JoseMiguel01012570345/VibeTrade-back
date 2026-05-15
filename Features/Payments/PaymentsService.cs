@@ -12,7 +12,7 @@ using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.Logistics.Interfaces;
 using VibeTrade.Backend.Features.Logistics;
 using Stripe;
-using VibeTrade.Backend.Features.Payments;
+using static VibeTrade.Backend.Features.Payments.PaymentUtils;
 
 namespace VibeTrade.Backend.Features.Payments;
 
@@ -30,7 +30,7 @@ public sealed class PaymentsService(
         string AgreementId,
         string CurrencyLower,
         string PaymentMethodId,
-        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? ServicePicks,
+        IReadOnlyList<ServicePaymentPickDto>? ServicePicks,
         IReadOnlyList<string>? RouteStopPicks,
         IReadOnlyList<string>? MerchLinePicks);
 
@@ -212,11 +212,11 @@ public sealed class PaymentsService(
             .ConfigureAwait(false);
     }
 
-    public async Task<PaymentCheckoutComputation.BreakdownDto?> GetCheckoutBreakdownAsync(
+    public async Task<BreakdownDto?> GetCheckoutBreakdownAsync(
         string buyerUserId,
         string threadId,
         string agreementId,
-        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRouteStopIds,
         IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default)
@@ -307,7 +307,7 @@ public sealed class PaymentsService(
     public async Task<AgreementExecutePaymentResultDto?> ExecuteCurrencyPaymentAsync(
         string buyerUserId, string threadId, string agreementId, string currencyLower,
         string paymentMethodStripeId, string? idempotencyKey,
-        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRouteStopIds,
         IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default)
@@ -390,18 +390,13 @@ public sealed class PaymentsService(
         }
         catch (Exception ex)
         {
-            LogExecuteCurrencyPaymentFailure(ex, buyerUserId, threadId, agreementId, currencyLower, routeStopSummary);
+            LogExecuteCurrencyPaymentFailure(ex);
             throw;
         }
     }
 
     private void LogExecuteCurrencyPaymentFailure(
-        Exception ex,
-        string buyerUserId,
-        string threadId,
-        string agreementId,
-        string currencyLower,
-        string routeStopSummary)
+        Exception ex)
     {
         var sb = new StringBuilder();
         sb.Append("ExecuteCurrencyPaymentAsync threw. ");
@@ -443,7 +438,7 @@ public sealed class PaymentsService(
         string idempotencyKeyTrimmed,
         string agreementId,
         string currencyLower,
-        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRouteStopIds,
         IReadOnlyList<string>? selectedMerchandiseLineIds,
         CancellationToken cancellationToken)
@@ -469,7 +464,7 @@ public sealed class PaymentsService(
     private async Task<AgreementExecutePaymentResultDto?> TryRejectDuplicateAgreementChargeAsync(
         string agreementId,
         string currencyLower,
-        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRouteStopIds,
         IReadOnlyList<string>? selectedMerchandiseLineIds,
         CancellationToken cancellationToken)
@@ -595,9 +590,9 @@ public sealed class PaymentsService(
         string buyerUserId,
         string currencyLower,
         RouteSheetPayload? rp,
-        PaymentCheckoutComputation.CurrencyTotalsDto qb,
+        CurrencyTotalsDto qb,
         string agreementCurrencyPaymentId,
-        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRouteStopIds,
         CancellationToken cancellationToken)
     {
@@ -654,7 +649,7 @@ public sealed class PaymentsService(
         string buyerUserId,
         string currencyLower,
         string agreementCurrencyPaymentId,
-        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto> picks)
+        IReadOnlyList<ServicePaymentPickDto> picks)
     {
         var now = DateTimeOffset.UtcNow;
         var outList = new List<AgreementServicePaymentRow>();
@@ -726,7 +721,7 @@ public sealed class PaymentsService(
         string threadId,
         TradeAgreementRow agr,
         RouteSheetPayload? rp,
-        PaymentCheckoutComputation.CurrencyTotalsDto qb,
+        CurrencyTotalsDto qb,
         CancellationToken cancellationToken)
     {
         var rsid = (agr.RouteSheetId ?? "").Trim();
@@ -877,7 +872,7 @@ public sealed class PaymentsService(
         TradeAgreementRow agr,
         RouteSheetPayload? routePayload,
         string currencyLower,
-        PaymentCheckoutComputation.CurrencyTotalsDto qb,
+        CurrencyTotalsDto qb,
         string paymentId,
         CancellationToken cancellationToken)
     {
@@ -916,7 +911,7 @@ public sealed class PaymentsService(
             StripeFeeMinorActual = payRow.StripeFeeAmountMinor,
             StripeFeeMinorEstimated = estimated,
             TotalChargedMinor = payRow.TotalAmountMinor,
-            StripePricingUrl = StripePricingLinks.PricingPage,
+            StripePricingUrl = StripePricing.PricingPage,
             Lines = lines,
             InvoiceIssuerPlatform = "VibeTrade",
             InvoiceStoreName = storeDisplayName,
@@ -932,16 +927,6 @@ public sealed class PaymentsService(
             receiptPayload,
             cancellationToken).ConfigureAwait(false);
     }
-
-    private static (int StatusCode, object? Problem, CreatePaymentIntentResult? Data) Err(
-        int status,
-        string code,
-        string message) =>
-        (status, new { error = code, message }, null);
-
-    private static (int StatusCode, object? Problem, CreatePaymentIntentResult? Data) Ok(
-        CreatePaymentIntentResult data) =>
-        (StatusCodes.Status200OK, null, data);
 
     private static bool TryParseAgreementCheckoutTarget(
         CreatePaymentIntentBody body,
@@ -987,7 +972,7 @@ public sealed class PaymentsService(
     }
 
     private async Task<(
-        PaymentCheckoutComputation.CurrencyTotalsDto? Qb,
+        CurrencyTotalsDto? Qb,
         (int StatusCode, object? Problem, CreatePaymentIntentResult? Data)? Error)> ResolveAgreementCurrencyTotalsAsync(
         string buyerUserId,
         AgreementCheckoutTarget t,
@@ -1025,7 +1010,7 @@ public sealed class PaymentsService(
         CreateAgreementStripePaymentIntentAsync(
             string buyerUserId,
             AgreementCheckoutTarget t,
-            PaymentCheckoutComputation.CurrencyTotalsDto qb,
+            CurrencyTotalsDto qb,
             CancellationToken cancellationToken)
     {
         var serverKey = PaymentStripeEnv.StripeServerApiKey();
@@ -1099,16 +1084,16 @@ public sealed class PaymentsService(
         return Ok(new CreatePaymentIntentResult(pi.ClientSecret, false, qb.TotalMinor, t.CurrencyLower));
     }
 
-    private static IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? MapServicePicks(
+    private static IReadOnlyList<ServicePaymentPickDto>? MapServicePicks(
         IReadOnlyList<AgreementCheckoutPaymentIntentItemDto>? items)
     {
         if (items is not { Count: > 0 }) return null;
-        var list = new List<PaymentCheckoutComputation.ServicePaymentPickDto>();
+        var list = new List<ServicePaymentPickDto>();
         foreach (var x in items)
         {
             var sid = (x.ServiceItemId ?? "").Trim();
             if (sid.Length == 0 || x.EntryMonth <= 0 || x.EntryDay <= 0) continue;
-            list.Add(new PaymentCheckoutComputation.ServicePaymentPickDto(sid, x.EntryMonth, x.EntryDay));
+            list.Add(new ServicePaymentPickDto(sid, x.EntryMonth, x.EntryDay));
         }
 
         return list.Count > 0 ? list : null;

@@ -45,6 +45,7 @@ global using VibeTrade.Backend.Features.Search;
 global using VibeTrade.Backend.Features.Search.Elasticsearch;
 global using VibeTrade.Backend.Features.Search.Catalog;
 global using VibeTrade.Backend.Features.Payments;
+global using VibeTrade.Backend.Features.Payments.Dtos;
 global using VibeTrade.Backend.Features.Payments.Interfaces;
 global using VibeTrade.Backend.Features.Routing.Interfaces;
 global using VibeTrade.Backend.Features.Routing.Dtos;

@@ -1,15 +1,13 @@
-using VibeTrade.Backend.Features.Chat;
-
 namespace VibeTrade.Backend.Features.Payments.Interfaces;
 
 /// <summary>Pagos de acuerdos: cálculo de checkout, estado de pagos y ejecución de cobros.</summary>
 public interface IAgreementPaymentService
 {
-    Task<PaymentCheckoutComputation.BreakdownDto?> GetCheckoutBreakdownAsync(
+    Task<BreakdownDto?> GetCheckoutBreakdownAsync(
         string buyerUserId,
         string threadId,
         string agreementId,
-        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRouteStopIds,
         IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default);
@@ -27,7 +25,7 @@ public interface IAgreementPaymentService
         string currencyLower,
         string paymentMethodStripeId,
         string? idempotencyKey,
-        IReadOnlyList<PaymentCheckoutComputation.ServicePaymentPickDto>? selectedServicePayments,
+        IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRouteStopIds,
         IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default);

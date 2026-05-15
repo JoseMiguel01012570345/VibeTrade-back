@@ -79,7 +79,7 @@ public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymen
     }
 
     [HttpGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/checkout")]
-    [ProducesResponseType(typeof(PaymentCheckoutComputation.BreakdownDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(BreakdownDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetAgreementCheckout(
@@ -147,7 +147,7 @@ public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymen
 
     [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/checkout-breakdown")]
     [Consumes("application/json")]
-    [ProducesResponseType(typeof(PaymentCheckoutComputation.BreakdownDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(BreakdownDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> PostAgreementCheckoutBreakdown(
@@ -162,7 +162,7 @@ public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymen
 
         var picks = body.SelectedServicePayments?
             .Where(x => !string.IsNullOrWhiteSpace(x.ServiceItemId))
-            .Select(x => new PaymentCheckoutComputation.ServicePaymentPickDto(
+            .Select(x => new ServicePaymentPickDto(
                 x.ServiceItemId.Trim(),
                 x.EntryMonth,
                 x.EntryDay))
@@ -228,7 +228,7 @@ public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymen
             idem.Length >= 8 ? idem : null,
             body.SelectedServicePayments?
                 .Where(x => !string.IsNullOrWhiteSpace(x.ServiceItemId))
-                .Select(x => new PaymentCheckoutComputation.ServicePaymentPickDto(
+                .Select(x => new ServicePaymentPickDto(
                     x.ServiceItemId.Trim(),
                     x.EntryMonth,
                     x.EntryDay))

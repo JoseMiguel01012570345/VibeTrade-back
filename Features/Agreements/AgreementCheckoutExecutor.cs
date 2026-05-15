@@ -101,7 +101,7 @@ internal static class AgreementCheckoutExecutor
         string agreementId,
         string buyerUserId,
         string currencyLower,
-        PaymentCheckoutComputation.CurrencyTotalsDto qb,
+        CurrencyTotalsDto qb,
         string paymentMethodStripeId,
         string? idempotencyKey)
         => new()
@@ -126,7 +126,7 @@ internal static class AgreementCheckoutExecutor
         };
 
     internal static void AttachSplits(AgreementCurrencyPaymentRow payment,
-        PaymentCheckoutComputation.CurrencyTotalsDto qb)
+        CurrencyTotalsDto qb)
     {
         foreach (var ln in qb.Lines)
         {
@@ -150,7 +150,7 @@ internal static class AgreementCheckoutExecutor
     }
 
     internal static void AttachMerchandiseLineSplits(AgreementCurrencyPaymentRow payment,
-        PaymentCheckoutComputation.CurrencyTotalsDto qb)
+        CurrencyTotalsDto qb)
     {
         foreach (var ln in qb.Lines)
         {
@@ -218,7 +218,7 @@ internal static class AgreementCheckoutExecutor
     internal static async Task<AgreementExecutePaymentResultDto> PersistAndChargeAsync(
         AppDbContext db,
         AgreementCurrencyPaymentRow pay,
-        PaymentCheckoutComputation.CurrencyTotalsDto qb,
+        CurrencyTotalsDto qb,
         string paymentMethodId,
         string stripeCustomerId,
         CancellationToken ct)

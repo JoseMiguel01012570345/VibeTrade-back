@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Globalization;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Payments.Dtos;
+
 namespace VibeTrade.Backend.Features.Payments;
 
 /// <summary>
@@ -14,33 +16,6 @@ public static class PaymentCheckoutComputation
     {
         "bif", "clp", "djf", "gnf", "jpy", "kmf", "krw", "mga", "pyg", "rwf", "ugx", "vnd", "vuv", "xaf", "xof", "xpf",
     }.ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-    public sealed record BasisLineDto(
-        string Category,
-        string Label,
-        string CurrencyLower,
-        long AmountMinor,
-        string? RouteSheetId,
-        string? RouteStopId,
-        string? MerchandiseLineId = null);
-
-    public sealed record CurrencyTotalsDto(
-        string CurrencyLower,
-        long SubtotalMinor,
-        long ClimateMinor,
-        long StripeFeeMinor,
-        long TotalMinor,
-        IReadOnlyList<BasisLineDto> Lines);
-
-    public sealed record BreakdownDto(
-        bool Ok,
-        IReadOnlyList<string> Errors,
-        IReadOnlyList<CurrencyTotalsDto> ByCurrency);
-
-    public sealed record ServicePaymentPickDto(
-        string ServiceItemId,
-        int EntryMonth,
-        int EntryDay);
 
     /// <exception cref="ArgumentException"></exception>
     private static decimal ParseDecimal(string? raw)
@@ -532,17 +507,6 @@ public static class PaymentCheckoutComputation
         return null;
     }
 
-    private static DateTime? ParseIsoUtc(string s)
-    {
-        if (string.IsNullOrWhiteSpace(s)) return null;
-        var t = s.Trim();
-        var m = System.Text.RegularExpressions.Regex.Match(t, "^([0-9]{4})-([0-9]{2})-([0-9]{2})$");
-        if (!m.Success) return null;
-        var y = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
-        var mo = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
-        var d = int.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture);
-        return new DateTime(y, mo, d, 0, 0, 0, DateTimeKind.Utc);
-    }
 
     public static string? NormalizeCurrencyFirst(string? s)
     {

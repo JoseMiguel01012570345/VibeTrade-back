@@ -1,4 +1,4 @@
-namespace VibeTrade.Backend.Features.Payments;
+namespace VibeTrade.Backend.Features.Payments.Dtos;
 
 public static class PaymentsStripePaymentKinds
 {
