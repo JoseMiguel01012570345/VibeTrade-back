@@ -84,12 +84,7 @@ public sealed class CarrierOwnershipService(
 
         var target = await ResolveAutomaticCedeTargetAsync(tid, rsid, sid, uid, ordered, cancellationToken)
             .ConfigureAwait(false);
-        if (target is null || target.Length < 2)
-            return new CarrierOwnershipCedeResultDto(
-                false,
-                "target_unresolved",
-                "No se pudo determinar automáticamente el destino. Indica un transportista confirmado en este tramo o en el siguiente.");
-        
+
         var delivery = await db.RouteStopDeliveries.FirstOrDefaultAsync(
                 x =>
                     x.ThreadId == tid
@@ -115,11 +110,48 @@ public sealed class CarrierOwnershipService(
                     x.ThreadId == tid
                     && x.TradeAgreementId == aid
                     && x.RouteSheetId == rsid
-                    && x.RouteStopId == nextStopId && x.State == RouteStopDeliveryStates.AwaitingCarrierForHandoff && x.CurrentOwnerUserId == null,
+                    && x.RouteStopId == nextStopId,
                 cancellationToken)
             .ConfigureAwait(false);
         if (nextDelivery is null)
             return new CarrierOwnershipCedeResultDto(false, "next_delivery_missing", "No hay estado de entrega para el tramo siguiente.");
+
+        if (!string.Equals(
+                nextDelivery.State,
+                RouteStopDeliveryStates.AwaitingCarrierForHandoff,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return new CarrierOwnershipCedeResultDto(
+                false,
+                "next_delivery_missing",
+                "No hay estado de entrega para el tramo siguiente.");
+        }
+
+        var nextOwner = (nextDelivery.CurrentOwnerUserId ?? "").Trim();
+        if (nextOwner.Length >= 2 && !string.Equals(nextOwner, uid, StringComparison.Ordinal))
+        {
+            if (target is null || target.Length < 2)
+                target = nextOwner;
+            if (!string.Equals(target, nextOwner, StringComparison.Ordinal))
+            {
+                return new CarrierOwnershipCedeResultDto(
+                    false,
+                    "next_delivery_missing",
+                    "No hay estado de entrega para el tramo siguiente.");
+            }
+        }
+        else if (target is null || target.Length < 2)
+        {
+            if (nextOwner.Length >= 2 && string.Equals(nextOwner, uid, StringComparison.Ordinal))
+                target = uid;
+            else
+            {
+                return new CarrierOwnershipCedeResultDto(
+                    false,
+                    "target_unresolved",
+                    "No se pudo determinar automáticamente el destino. Indica un transportista confirmado en este tramo o en el siguiente.");
+            }
+        }
 
         db.CarrierOwnershipEvents.Add(new CarrierOwnershipEventRow
         {
@@ -132,21 +164,29 @@ public sealed class CarrierOwnershipService(
             AtUtc = now,
             Reason = "carrier_cede",
         });
-        db.CarrierOwnershipEvents.Add(new CarrierOwnershipEventRow
-        {
-            Id = "coe_" + Guid.NewGuid().ToString("N"),
-            ThreadId = tid,
-            RouteSheetId = rsid,
-            RouteStopId = nextStopId,
-            CarrierUserId = target,
-            Action = CarrierOwnershipActions.Granted,
-            AtUtc = now,
-            Reason = "carrier_cede",
-        });
 
-        nextDelivery.CurrentOwnerUserId = target;
-        nextDelivery.OwnershipGrantedAtUtc = now;
-        nextDelivery.UpdatedAtUtc = now;
+        var grantOnNext = nextOwner.Length < 2;
+        if (grantOnNext)
+        {
+            db.CarrierOwnershipEvents.Add(new CarrierOwnershipEventRow
+            {
+                Id = "coe_" + Guid.NewGuid().ToString("N"),
+                ThreadId = tid,
+                RouteSheetId = rsid,
+                RouteStopId = nextStopId,
+                CarrierUserId = target,
+                Action = CarrierOwnershipActions.Granted,
+                AtUtc = now,
+                Reason = "carrier_cede",
+            });
+            nextDelivery.CurrentOwnerUserId = target;
+            nextDelivery.OwnershipGrantedAtUtc = now;
+            nextDelivery.UpdatedAtUtc = now;
+        }
+        else
+        {
+            nextDelivery.UpdatedAtUtc = now;
+        }
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
@@ -162,13 +202,16 @@ public sealed class CarrierOwnershipService(
                 cancellationToken)
             .ConfigureAwait(false);
 
-        var preview = idx is > 0
-            ? $"Tienes la titularidad del paquete en el tramo {idx}. Revisa Rutas en el chat para coordinar el handoff."
-            : "Tienes la titularidad del paquete en este tramo. Revisa Rutas en el chat para coordinar el handoff.";
-        await notifications.NotifyRouteOwnershipGrantedAsync(
-                new RouteOwnershipGrantedNotificationArgs(target, tid, rsid, aid, sid, preview),
-                cancellationToken)
-            .ConfigureAwait(false);
+        if (!string.Equals(target, uid, StringComparison.Ordinal))
+        {
+            var preview = idx is > 0
+                ? $"Tienes la titularidad del paquete en el tramo {idx}. Revisa Rutas en el chat para coordinar el handoff."
+                : "Tienes la titularidad del paquete en este tramo. Revisa Rutas en el chat para coordinar el handoff.";
+            await notifications.NotifyRouteOwnershipGrantedAsync(
+                    new RouteOwnershipGrantedNotificationArgs(target, tid, rsid, aid, sid, preview),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return new CarrierOwnershipCedeResultDto(true, null, null);
     }
@@ -247,9 +290,21 @@ public sealed class CarrierOwnershipService(
                 .FirstOrDefaultAsync(cancellationToken)
                 .ConfigureAwait(false);
             var nextUid = (nc ?? "").Trim();
-            if (nextUid.Length >= 2)
+            if (nextUid.Length >= 2 && !string.Equals(nextUid, actor, StringComparison.Ordinal))
                 return nextUid;
         }
-        return null;
+
+        var sameStop = await db.RouteTramoSubscriptions.AsNoTracking()
+            .Where(x =>
+                x.ThreadId == tid
+                && x.RouteSheetId == rsid
+                && x.StopId == sid
+                && x.Status == "confirmed"
+                && x.CarrierUserId != actor)
+            .Select(x => x.CarrierUserId)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var alt = (sameStop ?? "").Trim();
+        return alt.Length >= 2 ? alt : null;
     }
 }

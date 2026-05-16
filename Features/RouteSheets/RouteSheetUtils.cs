@@ -231,26 +231,8 @@ public static class RouteSheetUtils
         return null;
     }
 
-    public static List<List<int>> BuildTramoChainsByCoords(IReadOnlyList<RouteStopPayload> paradas)
-    {
-        var chains = new List<List<int>>();
-        if (paradas.Count == 0)
-            return chains;
-        var current = new List<int> { 0 };
-        for (var i = 1; i < paradas.Count; i++)
-        {
-            if (OrigenCoincideConDestinoAnterior(paradas[i - 1], paradas[i]))
-                current.Add(i);
-            else
-            {
-                chains.Add(current);
-                current = [i];
-            }
-        }
-
-        chains.Add(current);
-        return chains;
-    }
+    public static List<List<int>> BuildTramoChainsByCoords(IReadOnlyList<RouteStopPayload> paradas) =>
+        RoutePathComputation.BuildTramoChainIndices(paradas);
 
     public static bool OrigenCoincideConDestinoAnterior(RouteStopPayload anterior, RouteStopPayload siguiente)
     {

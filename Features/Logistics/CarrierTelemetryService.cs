@@ -45,7 +45,11 @@ public sealed class CarrierTelemetryService(
                 && x.TradeAgreementId == aid
                 && x.RouteSheetId == rsid
                 && x.RouteStopId == sid
-                && RouteStopDeliveryStateGraph.Active(x.State),
+                && x.State != RouteStopDeliveryStates.Unpaid
+                && x.State != RouteStopDeliveryStates.EvidenceAccepted
+                && x.State != RouteStopDeliveryStates.IdleStoreCustody
+                && x.State != RouteStopDeliveryStates.Refunded
+                && x.State != RouteStopDeliveryStates.EvidenceSubmitExpired,
             cancellationToken)
             .ConfigureAwait(false);
         if (!hasDelivery)

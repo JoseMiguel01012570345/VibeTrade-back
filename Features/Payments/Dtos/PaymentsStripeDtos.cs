@@ -33,7 +33,7 @@ public sealed record CreatePaymentIntentBody(
     string? Currency,
     string? PaymentMethodId,
     IReadOnlyList<AgreementCheckoutPaymentIntentItemDto>? SelectedServicePayments,
-    IReadOnlyList<string>? SelectedRouteStopIds,
+    IReadOnlyList<string>? SelectedRoutePathIds,
     IReadOnlyList<string>? SelectedMerchandiseLineIds);
 
 public sealed record CreatePaymentIntentResult(

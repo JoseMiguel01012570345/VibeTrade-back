@@ -8,7 +8,7 @@ public interface IAgreementPaymentService
         string threadId,
         string agreementId,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
-        IReadOnlyList<string>? selectedRouteStopIds,
+        IReadOnlyList<string>? selectedRoutePathIds,
         IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default);
 
@@ -26,7 +26,7 @@ public interface IAgreementPaymentService
         string paymentMethodStripeId,
         string? idempotencyKey,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
-        IReadOnlyList<string>? selectedRouteStopIds,
+        IReadOnlyList<string>? selectedRoutePathIds,
         IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default);
 }

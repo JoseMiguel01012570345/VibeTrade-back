@@ -4,6 +4,7 @@ using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Payments;
 using VibeTrade.Backend.Features.Payments.Interfaces;
+using VibeTrade.Backend.Features.RouteSheets.Dtos;
 using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
@@ -12,7 +13,10 @@ namespace VibeTrade.Backend.Api;
 [ApiController]
 [Produces("application/json")]
 [Tags("Payments")]
-public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymentsService payments) : ControllerBase
+public sealed class PaymentsController(
+    ICurrentUserAccessor currentUser,
+    IPaymentsService payments,
+    IRoutePathCheckoutQueryService routePathCheckout) : ControllerBase
 {
     [HttpGet("/api/v1/payments/stripe/config")]
     [ProducesResponseType(typeof(StripeConfigDto), StatusCodes.Status200OK)]
@@ -85,21 +89,20 @@ public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymen
     public async Task<IActionResult> GetAgreementCheckout(
         string threadId,
         string agreementId,
-        [FromQuery] string[]? routeStopId,
+        [FromQuery] string? routePathId,
         CancellationToken cancellationToken)
     {
         var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
-        var routeStops = routeStopId?
-            .Select(x => (x ?? "").Trim())
-            .Where(x => x.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        IReadOnlyList<string>? routePaths = null;
+        var pathFilter = (routePathId ?? "").Trim();
+        if (pathFilter.Length > 0)
+            routePaths = [pathFilter];
 
         var bd = await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null,
-                routeStops is { Count: > 0 } ? routeStops : null, null, cancellationToken)
+                routePaths, null, cancellationToken)
             .ConfigureAwait(false);
         if (bd is null)
             return NotFound();
@@ -137,13 +140,39 @@ public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymen
         string PaymentMethodId,
         string? IdempotencyKey,
         IReadOnlyList<ServicePaymentPickBody>? SelectedServicePayments,
-        IReadOnlyList<string>? SelectedRouteStopIds,
+        IReadOnlyList<string>? SelectedRoutePathIds,
         IReadOnlyList<string>? SelectedMerchandiseLineIds);
 
     public sealed record CheckoutBreakdownBody(
         IReadOnlyList<ServicePaymentPickBody>? SelectedServicePayments,
-        IReadOnlyList<string>? SelectedRouteStopIds,
+        IReadOnlyList<string>? SelectedRoutePathIds,
         IReadOnlyList<string>? SelectedMerchandiseLineIds);
+
+    [HttpGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/route-paths")]
+    [ProducesResponseType(typeof(AgreementRoutePathsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetAgreementRoutePaths(
+        string threadId,
+        string agreementId,
+        [FromQuery] string routeSheetId,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
+            return Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(routeSheetId))
+            return BadRequest(new { error = "missing_route_sheet_id", message = "Indica routeSheetId." });
+
+        var dto = await routePathCheckout
+            .GetAgreementRoutePathsAsync(userId, threadId, agreementId, routeSheetId.Trim(), cancellationToken)
+            .ConfigureAwait(false);
+        if (dto is null)
+            return NotFound();
+        return Ok(dto);
+    }
 
     [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/checkout-breakdown")]
     [Consumes("application/json")]
@@ -168,7 +197,7 @@ public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymen
                 x.EntryDay))
             .ToList();
 
-        var routeStops = body.SelectedRouteStopIds is null ? null : body.SelectedRouteStopIds
+        var routePaths = body.SelectedRoutePathIds is null ? null : body.SelectedRoutePathIds
             .Select(x => (x ?? "").Trim())
             .Where(x => x.Length > 0)
             .Distinct(StringComparer.Ordinal)
@@ -181,7 +210,7 @@ public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymen
             .ToList();
 
         var bd = await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, picks,
-                routeStops, merchLines, cancellationToken)
+                routePaths, merchLines, cancellationToken)
             .ConfigureAwait(false);
         if (bd is null)
             return NotFound();
@@ -207,7 +236,7 @@ public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymen
         var headerKey = (Request.Headers["Idempotency-Key"].FirstOrDefault() ?? "").Trim();
         var idem = string.IsNullOrWhiteSpace(body.IdempotencyKey) ? headerKey : body.IdempotencyKey!.Trim();
 
-        var routeStopsExec = body.SelectedRouteStopIds is null ? null : body.SelectedRouteStopIds
+        var routePathsExec = body.SelectedRoutePathIds is null ? null : body.SelectedRoutePathIds
             .Select(x => (x ?? "").Trim())
             .Where(x => x.Length > 0)
             .Distinct(StringComparer.Ordinal)
@@ -233,7 +262,7 @@ public sealed class PaymentsController(ICurrentUserAccessor currentUser, IPaymen
                     x.EntryMonth,
                     x.EntryDay))
                 .ToList(),
-            routeStopsExec,
+            routePathsExec,
             merchExec,
             cancellationToken).ConfigureAwait(false);
 

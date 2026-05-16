@@ -663,7 +663,7 @@ public sealed class RouteTramoSubscriptionService(
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
             if (rows.Count == 0)
-                return "carrier_route_delivery_missing";
+                continue;
 
             if (!rows.TrueForAll(DeliveryStateAllowsCarrierWithdraw))
                 return "carrier_route_active";
@@ -726,6 +726,17 @@ public sealed class RouteTramoSubscriptionService(
         if (await HasPostCedeNonterminalRouteDeliveriesAsync(tid, uid, subs, cancellationToken).ConfigureAwait(false))
             return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_route_post_cede_pending" };
 
+        var holdsOperationalOwnership = await db.RouteStopDeliveries.AsNoTracking()
+            .AnyAsync(
+                x =>
+                    x.ThreadId == tid
+                    && x.CurrentOwnerUserId == uid
+                    && x.State != RouteStopDeliveryStates.EvidenceAccepted
+                    && x.State != RouteStopDeliveryStates.Refunded,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (holdsOperationalOwnership)
+            return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_holds_ownership" };
 
         var gateErr = await TryGetCarrierWithdrawConfirmedStopsDeliveryGateErrorAsync(tid, subs, cancellationToken)
             .ConfigureAwait(false);

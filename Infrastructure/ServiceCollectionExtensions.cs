@@ -114,6 +114,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRouteTramoSubscriptionService, RouteTramoSubscriptionService>();
         services.AddScoped<ITradeAgreementService, TradeAgreementService>();
         services.AddScoped<IPaymentsService, PaymentsService>();
+        services.AddScoped<IRoutePathCheckoutQueryService, RoutePathCheckoutQueryService>();
         services.AddScoped<IStripeUserPaymentService, PaymentsService>();
         services.AddScoped<IStripePaymentIntentService, PaymentsService>();
         services.AddScoped<IAgreementPaymentService, PaymentsService>();

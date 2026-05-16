@@ -431,7 +431,7 @@ public sealed class PartySoftLeaveCoordinator(
                 && x.RefundedAtUtc == null
                 && x.RefundEligibleReason == null
                 && x.State != RouteStopDeliveryStates.Unpaid
-                && !RouteStopDeliveryStates.IsRefundedTerminal(x.State)
+                && x.State != RouteStopDeliveryStates.Refunded
                 && x.State != RouteStopDeliveryStates.EvidenceAccepted)
             .Select(x => new { x.TradeAgreementId, x.State })
             .ToListAsync(cancellationToken)
