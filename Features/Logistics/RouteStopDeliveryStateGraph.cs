@@ -21,7 +21,12 @@ public static class RouteStopDeliveryStateGraph
                 RouteStopDeliveryStates.InTransit,
             ],
             RouteStopDeliveryStates.AwaitingCarrierForHandoff => [RouteStopDeliveryStates.InTransit],
-            RouteStopDeliveryStates.InTransit => [RouteStopDeliveryStates.DeliveredPendingEvidence],
+            RouteStopDeliveryStates.InTransit =>
+            [
+                RouteStopDeliveryStates.DeliveredPendingEvidence,
+                RouteStopDeliveryStates.IdleStoreCustody,
+            ],
+            RouteStopDeliveryStates.IdleStoreCustody => [RouteStopDeliveryStates.InTransit],
             RouteStopDeliveryStates.DeliveredPendingEvidence =>
             [
                 RouteStopDeliveryStates.EvidenceSubmitExpired,
@@ -62,6 +67,7 @@ public static class RouteStopDeliveryStateGraph
             return false;
         return s != RouteStopDeliveryStates.Unpaid
             && s != RouteStopDeliveryStates.EvidenceAccepted
+            && s != RouteStopDeliveryStates.IdleStoreCustody
             && !RouteStopDeliveryStates.IsRefundedTerminal(s)
             && s != RouteStopDeliveryStates.EvidenceSubmitExpired;
     }

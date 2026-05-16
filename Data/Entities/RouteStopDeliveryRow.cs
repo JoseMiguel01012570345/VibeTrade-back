@@ -20,6 +20,9 @@ public static class RouteStopDeliveryStates
 
     public const string AwaitingCarrierForHandoff = "awaiting_carrier_for_handoff";
 
+    /// <summary>Excepción en ruta: custodia tienda en un solo tramo; sin titular carrier hasta reanudación.</summary>
+    public const string IdleStoreCustody = "idle_store_custody";
+
     public static bool IsRefundedTerminal(string? stateRaw) =>
         string.Equals((stateRaw ?? "").Trim(), Refunded, StringComparison.OrdinalIgnoreCase);
 }

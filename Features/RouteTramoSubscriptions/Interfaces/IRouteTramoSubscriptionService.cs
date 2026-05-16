@@ -46,6 +46,7 @@ public interface IRouteTramoSubscriptionService
     Task<CarrierWithdrawFromThreadResult?> WithdrawCarrierFromThreadAsync(
         string carrierUserId,
         string threadId,
+        string withdrawReason,
         CancellationToken cancellationToken = default);
 
     /// <summary>

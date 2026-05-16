@@ -91,6 +91,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRouteSheetThreadNotificationService, RouteSheetThreadNotificationService>();
         services.AddScoped<IBroadcastingService, BroadcastingService>();
         services.AddScoped<ISignalRBroadcastService>(sp => sp.GetRequiredService<IBroadcastingService>());
+        services.AddScoped<ChatService>();
         services.AddScoped<IChatMessageInserter>(sp => sp.GetRequiredService<ChatService>());
         services.AddScoped<IChatThreadSystemMessageService>(sp =>
         {
@@ -100,11 +101,11 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IThreadAccessControlService>(),
                 lazyInserter);
         });
-        services.AddScoped<IChatService, ChatService>();
-        services.AddScoped<IThreadManagementService, ChatService>();
-        services.AddScoped<IMessageHandlingService, ChatService>();
-        services.AddScoped<IParticipantManagementService, ChatService>();
-        services.AddScoped<IOfferRelationService, ChatService>();
+        services.AddScoped<IChatService>(sp => sp.GetRequiredService<ChatService>());
+        services.AddScoped<IThreadManagementService>(sp => sp.GetRequiredService<ChatService>());
+        services.AddScoped<IMessageHandlingService>(sp => sp.GetRequiredService<ChatService>());
+        services.AddScoped<IParticipantManagementService>(sp => sp.GetRequiredService<ChatService>());
+        services.AddScoped<IOfferRelationService>(sp => sp.GetRequiredService<ChatService>());
         services.AddScoped<PartySoftLeaveCoordinator>();
         services.AddScoped<IChatExitOperationsService>(sp => sp.GetRequiredService<PartySoftLeaveCoordinator>());
         services.AddScoped<IChatExitPolicyRegistry>(sp => sp.GetRequiredService<PartySoftLeaveCoordinator>());
@@ -120,6 +121,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICarrierOwnershipService, CarrierOwnershipService>();
         services.AddScoped<ICarrierDeliveryEvidenceService, CarrierDeliveryEvidenceService>();
         services.AddScoped<ICarrierLegRefundService, CarrierLegRefundService>();
+        services.AddScoped<ISellerRouteStopDeliveryCustodyService, SellerRouteStopDeliveryCustodyService>();
         services.AddHostedService<CarrierEvidenceDeadlineWatcher>();
         services.AddScoped<IAgreementServiceEvidenceService, AgreementServiceEvidenceService>();
         services.AddScoped<IAgreementMerchandiseEvidenceService, AgreementMerchandiseEvidenceService>();

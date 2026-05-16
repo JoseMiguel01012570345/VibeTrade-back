@@ -627,15 +627,66 @@ public sealed class RouteTramoSubscriptionService(
             distinctSheetIds);
     }
 
+    private static bool DeliveryStateAllowsCarrierWithdraw(string? stateRaw)
+    {
+        var s = (stateRaw ?? "").Trim();
+        if (string.Equals(s, RouteStopDeliveryStates.IdleStoreCustody, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.Equals(s, RouteStopDeliveryStates.EvidenceAccepted, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return string.Equals(s, RouteStopDeliveryStates.AwaitingCarrierForHandoff, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<string?> TryGetCarrierWithdrawConfirmedStopsDeliveryGateErrorAsync(
+        string threadId,
+        List<RouteTramoSubscriptionRow> subs,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var keys = subs
+            .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+            .Select(x => ((x.RouteSheetId ?? "").Trim(), (x.StopId ?? "").Trim()))
+            .Where(t => t.Item1.Length > 0 && t.Item2.Length > 0)
+            .Distinct()
+            .ToList();
+        if (keys.Count == 0)
+            return null;
+
+        foreach (var (rsid, stopId) in keys)
+        {
+            var rows = await db.RouteStopDeliveries.AsNoTracking()
+                .Where(x =>
+                    x.ThreadId == tid
+                    && x.RouteSheetId == rsid
+                    && x.RouteStopId == stopId)
+                .Select(x => x.State)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (rows.Count == 0)
+                return "carrier_route_delivery_missing";
+
+            if (!rows.TrueForAll(DeliveryStateAllowsCarrierWithdraw))
+                return "carrier_route_active";
+        }
+
+        return null;
+    }
+
     public async Task<CarrierWithdrawFromThreadResult?> WithdrawCarrierFromThreadAsync(
         string carrierUserId,
         string threadId,
+        string withdrawReason,
         CancellationToken cancellationToken = default)
     {
         var uid = (carrierUserId ?? "").Trim();
         var tid = (threadId ?? "").Trim();
+        var reasonTrim = (withdrawReason ?? "").Trim();
         if (uid.Length < 2 || tid.Length < 4)
             return null;
+        if (reasonTrim.Length < 1)
+            return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_withdraw_reason_required" };
+        if (reasonTrim.Length > 2000)
+            reasonTrim = reasonTrim[..2000];
 
         var thread = await db.ChatThreads.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == tid, cancellationToken);
@@ -674,6 +725,12 @@ public sealed class RouteTramoSubscriptionService(
 
         if (await HasPostCedeNonterminalRouteDeliveriesAsync(tid, uid, subs, cancellationToken).ConfigureAwait(false))
             return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_route_post_cede_pending" };
+
+
+        var gateErr = await TryGetCarrierWithdrawConfirmedStopsDeliveryGateErrorAsync(tid, subs, cancellationToken)
+            .ConfigureAwait(false);
+        if (gateErr is not null)
+            return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = gateErr };
 
         var hadConfirmed = confirmedStopCount > 0;
 
@@ -718,7 +775,8 @@ public sealed class RouteTramoSubscriptionService(
             subs.Count,
             distinctSheetIds.Count,
             applyTrustPenalty,
-            noPenaltyBecauseSheetsDelivered: hadConfirmed && !applyTrustPenalty && !expelledParty && carrierLeaveWithoutTrustPenalty);
+            noPenaltyBecauseSheetsDelivered: hadConfirmed && !applyTrustPenalty && !expelledParty && carrierLeaveWithoutTrustPenalty,
+            reasonTrim);
         await tramoNotifications.PostCarrierWithdrawSystemNoticeAndBroadcastsAsync(
             tid,
             sys,
@@ -1182,7 +1240,7 @@ public sealed class RouteTramoSubscriptionService(
                     cancellationToken)
                 .ConfigureAwait(false);
             if (!cededHere)
-                return true;
+                continue;
 
             var stillOpen = await db.RouteStopDeliveries.AsNoTracking()
                 .AnyAsync(
@@ -1193,7 +1251,7 @@ public sealed class RouteTramoSubscriptionService(
                         && d.RefundedAtUtc == null
                         && d.State != RouteStopDeliveryStates.Unpaid
                         && d.State != RouteStopDeliveryStates.EvidenceAccepted
-                        && !RouteStopDeliveryStates.IsRefundedTerminal(d.State),
+                        && d.State != RouteStopDeliveryStates.Refunded,
                     cancellationToken)
                 .ConfigureAwait(false);
             if (stillOpen)
@@ -1384,6 +1442,18 @@ public sealed class RouteTramoSubscriptionService(
             .Where(x => x.Length >= 8)
             .Distinct(StringComparer.Ordinal)
             .ToList();
+        var sheetHasIdleCustody = await db.RouteStopDeliveries.AsNoTracking()
+            .AnyAsync(
+                x =>
+                    x.ThreadId == tid
+                    && x.RouteSheetId == rsid
+                    && x.State == RouteStopDeliveryStates.IdleStoreCustody
+                    && x.RefundedAtUtc == null,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (sheetHasIdleCustody)
+            return;
+
         var siblingRows = agreementIds.Count == 0
             ? []
             : await db.RouteStopDeliveries

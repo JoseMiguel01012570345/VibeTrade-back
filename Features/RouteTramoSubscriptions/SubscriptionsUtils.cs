@@ -229,7 +229,8 @@ public static class SubscriptionsUtils
         int nTramos,
         int nSheets,
         bool applyTrustPenalty,
-        bool noPenaltyBecauseSheetsDelivered = false)
+        bool noPenaltyBecauseSheetsDelivered = false,
+        string? withdrawReason = null)
     {
         var who = (whoDisplay ?? "").Trim();
         if (who.Length == 0)
@@ -243,6 +244,14 @@ public static class SubscriptionsUtils
             sys += " Se aplicó un ajuste de confianza por retirarse como transportista con tramos confirmados (demo).";
         else if (noPenaltyBecauseSheetsDelivered)
             sys += " No aplica ajuste de confianza: los tramos confirmados estaban cerrados (hoja entregada o logística liquidada/vencida).";
+        var r = (withdrawReason ?? "").Trim();
+        if (r.Length > 0)
+        {
+            if (r.Length > 400)
+                r = r[..400] + "…";
+            sys += $" Motivo declarado: {r}";
+        }
+
         return sys;
     }
 
@@ -250,6 +259,7 @@ public static class SubscriptionsUtils
     {
         var s = (stateRaw ?? "").Trim().ToLowerInvariant();
         return s is RouteStopDeliveryStates.EvidenceAccepted
-            || RouteStopDeliveryStates.IsRefundedTerminal(s);
+            || RouteStopDeliveryStates.IsRefundedTerminal(s)
+            || s == RouteStopDeliveryStates.IdleStoreCustody;
     }
 }

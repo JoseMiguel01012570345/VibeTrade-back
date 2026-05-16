@@ -101,6 +101,12 @@ public sealed class CarrierOwnershipService(
         if (delivery is null)
             return new CarrierOwnershipCedeResultDto(false, "delivery_missing", "No hay estado de entrega para este tramo.");
 
+        if (string.Equals(delivery.State, RouteStopDeliveryStates.IdleStoreCustody, StringComparison.OrdinalIgnoreCase))
+            return new CarrierOwnershipCedeResultDto(
+                false,
+                "route_stop_idle",
+                "El tramo está en pausa (custodia tienda). La tienda debe reanudar antes de ceder.");
+
         if (!string.Equals(delivery.CurrentOwnerUserId, uid, StringComparison.Ordinal))
             return new CarrierOwnershipCedeResultDto(false, "not_owner", "No tienes el paquete en este tramo.");
 

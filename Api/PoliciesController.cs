@@ -68,20 +68,29 @@ public sealed class PoliciesController(
     /// <summary>
     /// Transportista (no comprador/vendedor del hilo): abandona la operación, des-suscribe tramos y limpia teléfonos en hoja.
     /// </summary>
+    public sealed record CarrierWithdrawBody(string Reason);
+
     [HttpPost("threads/{threadId}/route-tramo-subscriptions/carrier-withdraw")]
+    [Consumes("application/json")]
     [ProducesResponseType(typeof(CarrierWithdrawFromThreadResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> PostCarrierWithdrawFromRouteSubscriptions(
         string threadId,
+        [FromBody] CarrierWithdrawBody? body,
         CancellationToken cancellationToken)
     {
         var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
 
-        var result = await routeTramoSubscriptions.WithdrawCarrierFromThreadAsync(userId, threadId, cancellationToken)
+        var result = await routeTramoSubscriptions.WithdrawCarrierFromThreadAsync(
+                userId,
+                threadId,
+                body?.Reason ?? "",
+                cancellationToken)
             .ConfigureAwait(false);
         if (result is null)
             return NotFound(new { error = "not_found", message = "No hay suscripciones activas que retirar." });

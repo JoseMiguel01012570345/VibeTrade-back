@@ -146,6 +146,7 @@ public sealed class ChatController(
     /// <c>participantLeft</c> en SignalR al resto de participantes conectados. Sin acuerdo aceptado,
     /// se usa al «Salir» de la lista; con acuerdo, el flujo es <c>party-soft-leave</c> bajo <c>/api/v1/policies/chat</c> y no hace falta.
     /// </summary>
+    [HttpPost("threads/{threadId}/notify-participant-left")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

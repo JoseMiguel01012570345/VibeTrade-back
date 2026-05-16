@@ -15,7 +15,8 @@ public sealed class RouteLogisticsController(
     ICarrierTelemetryService telemetry,
     ICarrierOwnershipService ownership,
     ICarrierDeliveryEvidenceService carrierEvidence,
-    ICarrierLegRefundService carrierLegRefund) : ControllerBase
+    ICarrierLegRefundService carrierLegRefund,
+    ISellerRouteStopDeliveryCustodyService sellerRouteCustody) : ControllerBase
 {
     /// <summary>Cuerpo POST telemetría: coordenadas y metadatos; la velocidad la calcula el servidor entre muestras.</summary>
     public sealed record PostTelemetryBody(
@@ -318,6 +319,74 @@ public sealed class RouteLogisticsController(
 
         if (!ok)
             return BadRequest(new { error = code ?? "refund_failed" });
+
+        return Ok(new { ok = true });
+    }
+
+    public sealed record SellerPauseDeliveryBody(string RouteSheetId, string RouteStopId, string Reason);
+
+    [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/deliveries/seller-pause")]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SellerPauseDeliveryForStoreCustody(
+        string threadId,
+        string agreementId,
+        [FromBody] SellerPauseDeliveryBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
+            return Unauthorized();
+
+        var r = await sellerRouteCustody.PauseForStoreCustodyAsync(
+                userId.Trim(),
+                threadId.Trim(),
+                agreementId.Trim(),
+                body.RouteSheetId.Trim(),
+                body.RouteStopId.Trim(),
+                body.Reason,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!r.Ok)
+            return BadRequest(new { error = r.ErrorCode, message = r.Message });
+
+        return Ok(new { ok = true });
+    }
+
+    public sealed record SellerResumeFromIdleBody(string RouteSheetId, string RouteStopId, string TargetCarrierUserId);
+
+    [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/deliveries/seller-resume-from-idle")]
+    [Consumes("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SellerResumeDeliveryFromIdle(
+        string threadId,
+        string agreementId,
+        [FromBody] SellerResumeFromIdleBody body,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
+            return Unauthorized();
+
+        var r = await sellerRouteCustody.ResumeFromIdleAsync(
+                userId.Trim(),
+                threadId.Trim(),
+                agreementId.Trim(),
+                body.RouteSheetId.Trim(),
+                body.RouteStopId.Trim(),
+                body.TargetCarrierUserId.Trim(),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!r.Ok)
+            return BadRequest(new { error = r.ErrorCode, message = r.Message });
 
         return Ok(new { ok = true });
     }
