@@ -226,6 +226,24 @@ public sealed class RouteSheetChatService(
             oldSnapshot = RouteSheetUtils.ClonePayload(row.Payload);
         }
 
+        if (!wasExistingSheet)
+        {
+            var unpaidCount = await db.TradeAgreements.AsNoTracking()
+                .Where(a => a.ThreadId == threadId
+                            && a.DeletedAtUtc == null
+                            && a.Status == "accepted")
+                .CountAsync(
+                    a => !db.AgreementCurrencyPayments.AsNoTracking().Any(
+                        p => p.TradeAgreementId == a.Id && p.Status == AgreementPaymentStatuses.Succeeded),
+                    cancellationToken);
+
+            var activeSheetCount = await db.ChatRouteSheets.AsNoTracking()
+                .CountAsync(x => x.ThreadId == threadId && x.DeletedAtUtc == null, cancellationToken);
+
+            if (activeSheetCount >= unpaidCount)
+                return new UpsertLoadResult(RouteSheetMutationResult.ExceedsUnpaidAgreementLimit, null);
+        }
+
         return new UpsertLoadResult(
             null,
             new UpsertLoadState(t, rsId, row, oldSnapshot, wasExistingSheet));

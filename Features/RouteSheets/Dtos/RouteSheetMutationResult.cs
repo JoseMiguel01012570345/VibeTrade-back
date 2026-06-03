@@ -9,4 +9,6 @@ public enum RouteSheetMutationResult
     LockedByPaidAgreement,
     /// <summary>No se puede publicar hasta que un acuerdo del hilo tenga <c>RouteSheetId</c> apuntando a esta hoja.</summary>
     PublishRequiresAgreementLink,
+    /// <summary>Ya existen tantas hojas activas como acuerdos aceptados sin cobro exitoso; no se puede crear una más.</summary>
+    ExceedsUnpaidAgreementLimit,
 }

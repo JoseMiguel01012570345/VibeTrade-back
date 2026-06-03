@@ -353,12 +353,11 @@ public sealed class ChatController(
             .Where(a => a.ThreadId == tid
                         && a.DeletedAtUtc == null
                         && a.Status == "accepted"
-                        && a.RouteSheetId != null)
+                        )
             .AnyAsync(
-                a => !db.AgreementCurrencyPayments.AsNoTracking().Any(
+                a => !db.AgreementCurrencyPayments.AsNoTracking().Any(  
                     p => p.TradeAgreementId == a.Id && p.Status == AgreementPaymentStatuses.Succeeded),
                 cancellationToken);
-
         return Ok(hasUnpaid);
     }
 
@@ -569,6 +568,11 @@ public sealed class ChatController(
                 error = "publish_requires_agreement_link",
                 message =
                     "Publica la hoja solo después de vincularla al acuerdo (RouteSheetId). Guarda la hoja, vincúlala, y recién entonces marca publicada en la plataforma.",
+            }),
+            RouteSheetMutationResult.ExceedsUnpaidAgreementLimit => Conflict(new
+            {
+                error = "exceeds_unpaid_agreement_limit",
+                message = "Ya existe una hoja de ruta por cada acuerdo aceptado sin pago. Vincula las hojas existentes antes de crear una nueva.",
             }),
             _ => NotFound(new { error = "not_found", message = "Hilo no encontrado o datos inválidos." }),
         };
