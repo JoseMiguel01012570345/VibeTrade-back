@@ -30,7 +30,7 @@ public sealed class ElasticsearchStoreSearchOptions
     /// <summary>Nombre del índice (tiendas + productos + servicios; por defecto vt-catalog).</summary>
     public string IndexName { get; set; } = "vt-catalog";
 
-    /// <summary>Si true, al arrancar se reindexan todas las tiendas (útil en dev; en prod usar jobs o API).</summary>
+    /// <summary>Si true, al arrancar se reindexan todas las tiendas (útil en dev; en prod usar jobs).</summary>
     public bool ReindexOnStartup { get; set; }
 
     /// <summary>

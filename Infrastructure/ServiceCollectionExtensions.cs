@@ -37,6 +37,7 @@ using VibeTrade.Backend.Features.Routing;
 using VibeTrade.Backend.Features.Routing.Interfaces;
 using VibeTrade.Backend.Features.SavedOffers;
 using VibeTrade.Backend.Features.SavedOffers.Interfaces;
+using VibeTrade.Backend.Features.Search;
 using VibeTrade.Backend.Features.Search.Catalog;
 using VibeTrade.Backend.Features.Search.Elasticsearch;
 using VibeTrade.Backend.Features.Search.Interfaces;
@@ -157,6 +158,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IStoreSearchTextEmbeddingService, StoreSearchMlNetTfIdfEmbeddingService>();
         services.AddScoped<IElasticsearchStoreSearchQuery, ElasticsearchStoreSearchQuery>();
         services.AddScoped<IStoreSearchIndexWriter, ElasticsearchStoreSearchIndexWriter>();
+        services.AddScoped<ICatalogSearchLiveIndexSync, CatalogSearchLiveIndexSync>();
         services.AddHostedService<ElasticsearchSearchStartupHostedService>();
         services.AddHostedService<ElasticsearchDailyReindexHostedService>();
 

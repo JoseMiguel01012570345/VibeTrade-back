@@ -7,6 +7,7 @@ using VibeTrade.Backend.Features.RouteSheets.Interfaces;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Features.Routing;
 using VibeTrade.Backend.Features.Routing.Interfaces;
+using VibeTrade.Backend.Features.Search.Interfaces;
 using VibeTrade.Backend.Features.Trust;
 using VibeTrade.Backend.Features.Trust.Interfaces;
 
@@ -18,7 +19,8 @@ public sealed class RouteSheetChatService(
     ITrustScoreLedgerService trustLedger,
     IDrivingLegRoutingService drivingLegRouting,
     ILogger<RouteSheetChatService> logger,
-    IRouteSheetThreadNotificationService routeSheetThreadNotifications) : IRouteSheetChatService
+    IRouteSheetThreadNotificationService routeSheetThreadNotifications,
+    ICatalogSearchLiveIndexSync catalogSearchLiveIndex) : IRouteSheetChatService
 {
     public const string EmergentKindRouteSheet = EmergentRouteOfferRanking.EmergentKindRouteSheet;
 
@@ -149,10 +151,17 @@ public sealed class RouteSheetChatService(
 
         await CompleteUpsertPersistenceAsync(state, merge, persisted, userId, cancellationToken);
 
+        if (merge.Published || (merge.WasPublishedOnRow && !merge.Published))
+        {
+            var storeId = (state.Thread.StoreId ?? "").Trim();
+            if (storeId.Length >= 2)
+                await catalogSearchLiveIndex.SyncStoreAsync(storeId, cancellationToken);
+        }
+
         if (state.WasExistingSheet)
             await routeSheetThreadNotifications.PostRouteSheetUpsertEditSystemNoticeAsync(
                 userId,
-                threadId,
+                threadId, 
                 state.OldSnapshot,
                 persisted,
                 merge.NextAck,
