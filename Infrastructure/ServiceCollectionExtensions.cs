@@ -159,9 +159,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IElasticsearchStoreSearchQuery, ElasticsearchStoreSearchQuery>();
         services.AddScoped<IStoreSearchIndexWriter, ElasticsearchStoreSearchIndexWriter>();
         services.AddScoped<ICatalogSearchLiveIndexSync, CatalogSearchLiveIndexSync>();
-        services.AddHostedService<ElasticsearchSearchStartupHostedService>();
-        services.AddHostedService<ElasticsearchDailyReindexHostedService>();
-
         return services;
     }
 

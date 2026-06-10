@@ -47,14 +47,34 @@ public sealed class PaymentsService(
         string userId,
         CancellationToken cancellationToken = default)
     {
-        var serverKey = PaymentStripeEnv.StripeServerApiKey();
-        if (serverKey is null)
-            return [];
-
         var u = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == userId.Trim(), cancellationToken)
             .ConfigureAwait(false);
         var cusId = u?.StripeCustomerId?.Trim();
+
+        if (PaymentStripeEnv.SkipStripePaymentIntentCreate())
+        {
+            if (!string.IsNullOrWhiteSpace(cusId))
+            {
+                return
+                [
+                    new StripeCardPaymentMethodDto(
+                        PaymentStripeEnv.DemoSkipPaymentMethodId,
+                        "visa",
+                        "4242",
+                        12,
+                        2034,
+                        "US"),
+                ];
+            }
+
+            return [];
+        }
+
+        var serverKey = PaymentStripeEnv.StripeServerApiKey();
+        if (serverKey is null)
+            return [];
+
         if (string.IsNullOrWhiteSpace(cusId))
             return [];
 
