@@ -59,6 +59,18 @@ public static class LogisticsUtils
     public static int StopIndex(IReadOnlyList<string> ordered, string stopId) =>
         IndexOfStop(ordered, stopId);
 
+    public const int EvidenceDeadlineHoursAfterCede = 24;
+
+    /// <summary>Tras ceder titularidad: el tramo deja de estar en tránsito y entra en plazo de evidencia.</summary>
+    public static void ApplyPostCedeDeliveryState(RouteStopDeliveryRow delivery, DateTimeOffset now)
+    {
+        delivery.State = RouteStopDeliveryStates.DeliveredPendingEvidence;
+        delivery.CurrentOwnerUserId = null;
+        delivery.OwnershipGrantedAtUtc = null;
+        delivery.UpdatedAtUtc = now;
+        delivery.EvidenceDeadlineAtUtc ??= now.AddHours(EvidenceDeadlineHoursAfterCede);
+    }
+
     public static double HaversineMeters(double lat1, double lng1, double lat2, double lng2)
     {
         const double R = 6371000.0;

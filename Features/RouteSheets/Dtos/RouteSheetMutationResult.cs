@@ -11,4 +11,6 @@ public enum RouteSheetMutationResult
     PublishRequiresAgreementLink,
     /// <summary>Ya existen tantas hojas activas como acuerdos aceptados sin cobro exitoso; no se puede crear una más.</summary>
     ExceedsUnpaidAgreementLimit,
+    /// <summary>Tramos con moneda distinta a la mercadería del acuerdo vinculado.</summary>
+    RouteCurrencyMerchandiseMismatch,
 }

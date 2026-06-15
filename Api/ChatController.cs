@@ -7,6 +7,8 @@ using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
+using VibeTrade.Backend.Features.Agreements;
+using VibeTrade.Backend.Features.RouteSheets;
 using VibeTrade.Backend.Infrastructure;
 using VibeTrade.Backend.Data.Entities;
 
@@ -574,6 +576,11 @@ public sealed class ChatController(
                 error = "exceeds_unpaid_agreement_limit",
                 message = "Ya existe una hoja de ruta por cada acuerdo aceptado sin pago. Vincula las hojas existentes antes de crear una nueva.",
             }),
+            RouteSheetMutationResult.RouteCurrencyMerchandiseMismatch => BadRequest(new
+            {
+                error = "route_currency_merchandise_mismatch",
+                message = TradeAgreementService.RouteStopCurrencyMismatchMessage,
+            }),
             _ => NotFound(new { error = "not_found", message = "Hilo no encontrado o datos inválidos." }),
         };
     }
@@ -652,6 +659,43 @@ public sealed class ChatController(
         if (!ok)
             return NotFound(new { error = "not_found", message = errMsg });
         return Ok(new { ok = true, accepted = body.Accepted });
+    }
+
+    /// <summary>Duplica una hoja de ruta del hilo (solo vendedor; copia sin publicar).</summary>
+    [HttpPost("threads/{threadId}/route-sheets/{routeSheetId}/duplicate")]
+    [ProducesResponseType(typeof(RouteSheetPayload), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> PostDuplicateRouteSheet(
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
+            return Unauthorized();
+        var (payload, err) = await routeSheets.DuplicateAsync(
+            userId,
+            threadId,
+            routeSheetId,
+            cancellationToken);
+        if (payload is not null)
+            return Ok(payload);
+        return err switch
+        {
+            RouteSheetMutationResult.LockedByPaidAgreement => Conflict(new
+            {
+                error = "locked_paid_agreement",
+                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede duplicar.",
+            }),
+            RouteSheetMutationResult.ExceedsUnpaidAgreementLimit => Conflict(new
+            {
+                error = "exceeds_unpaid_agreement_limit",
+                message = "Ya existe una hoja de ruta por cada acuerdo aceptado sin pago. Vincula las hojas existentes antes de crear una nueva.",
+            }),
+            _ => NotFound(new { error = "not_found", message = "Hoja no encontrada o sin permiso." }),
+        };
     }
 
     /// <summary>Elimina una hoja de ruta persistida y retira la señal emergente asociada.</summary>

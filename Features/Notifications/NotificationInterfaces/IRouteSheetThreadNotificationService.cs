@@ -37,6 +37,14 @@ public interface IRouteSheetThreadNotificationService
         string? emergentPublicationId,
         CancellationToken cancellationToken = default);
 
+    Task NotifyAfterRouteSheetAutoArchivedAsync(
+        string actorUserId,
+        string threadId,
+        string routeSheetId,
+        string? sheetRawTitle,
+        string? emergentPublicationId,
+        CancellationToken cancellationToken = default);
+
     Task NotifySellerStoreTrustPenaltyAfterSheetEditRejectAsync(
         string sellerUserId,
         string threadId,

@@ -47,7 +47,11 @@ public sealed class PoliciesController(
         }
 
         var result = await chatExitOperations.PartySoftLeaveAsync(
-                new PartySoftLeaveArgs(userId, threadId, r),
+                new PartySoftLeaveArgs(
+                    userId,
+                    threadId,
+                    r,
+                    (body?.TradeAgreementId ?? "").Trim() is { Length: >= 8 } aid ? aid : null),
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -68,7 +72,7 @@ public sealed class PoliciesController(
     /// <summary>
     /// Transportista (no comprador/vendedor del hilo): abandona la operación, des-suscribe tramos y limpia teléfonos en hoja.
     /// </summary>
-    public sealed record CarrierWithdrawBody(string Reason);
+    public sealed record CarrierWithdrawBody(string Reason, string? TradeAgreementId = null);
 
     [HttpPost("threads/{threadId}/route-tramo-subscriptions/carrier-withdraw")]
     [Consumes("application/json")]
@@ -86,10 +90,14 @@ public sealed class PoliciesController(
         if (userId is null)
             return Unauthorized();
 
+        var agreementId = (body?.TradeAgreementId ?? "").Trim() is { Length: >= 8 } aid
+            ? aid
+            : null;
         var result = await routeTramoSubscriptions.WithdrawCarrierFromThreadAsync(
                 userId,
                 threadId,
                 body?.Reason ?? "",
+                agreementId,
                 cancellationToken)
             .ConfigureAwait(false);
         if (result is null)

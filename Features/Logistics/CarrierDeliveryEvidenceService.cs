@@ -4,6 +4,7 @@ using VibeTrade.Backend.Data.Entities;
 
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+using VibeTrade.Backend.Features.RouteSheets.Interfaces;
 
 namespace VibeTrade.Backend.Features.Logistics;
 
@@ -11,6 +12,7 @@ public sealed class CarrierDeliveryEvidenceService(
     IChatService chat,
     IChatThreadSystemMessageService threadSystemMessages,
     INotificationService notifications,
+    IRouteSheetChatService routeSheets,
     AppDbContext db) : ICarrierDeliveryEvidenceService
 {
     public async Task<(int StatusCode, string? Error, CarrierDeliveryEvidenceDto? Data)> UpsertAsync(
@@ -275,6 +277,14 @@ public sealed class CarrierDeliveryEvidenceService(
                         cancellationToken)
                     .ConfigureAwait(false);
             }
+
+            await routeSheets.AutoArchiveOnRouteCompletedAsync(
+                    uid,
+                    tid,
+                    rsid,
+                    sid,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return (StatusCodes.Status200OK, null);

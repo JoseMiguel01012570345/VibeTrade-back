@@ -128,6 +128,32 @@ public sealed class RouteSheetThreadNotificationService(
             cancellationToken);
     }
 
+    public async Task NotifyAfterRouteSheetAutoArchivedAsync(
+        string actorUserId,
+        string threadId,
+        string routeSheetId,
+        string? sheetRawTitle,
+        string? emergentPublicationId,
+        CancellationToken cancellationToken = default)
+    {
+        var title = (sheetRawTitle ?? "").Trim();
+        if (title.Length > 120)
+            title = title[..120] + "…";
+        var sys = title.Length > 0
+            ? $"La hoja de ruta «{title}» finalizó: todos los tramos quedaron liquidados y se retiró de la plataforma."
+            : "Una hoja de ruta finalizó y se retiró de la plataforma.";
+        await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(threadId, sys, cancellationToken);
+
+        await broadcasting.BroadcastRouteTramoSubscriptionsChangedAsync(
+            new RouteTramoSubscriptionsBroadcastArgs(
+                threadId,
+                routeSheetId,
+                "sheet_completed",
+                actorUserId.Trim(),
+                emergentPublicationId),
+            cancellationToken);
+    }
+
     public Task NotifySellerStoreTrustPenaltyAfterSheetEditRejectAsync(
         string sellerUserId,
         string threadId,

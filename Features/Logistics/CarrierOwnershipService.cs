@@ -67,6 +67,17 @@ public sealed class CarrierOwnershipService(
 
         if (nextStopId is null)
         {
+            var endDelivery = await db.RouteStopDeliveries.FirstOrDefaultAsync(
+                    x =>
+                        x.ThreadId == tid
+                        && x.TradeAgreementId == aid
+                        && x.RouteSheetId == rsid
+                        && x.RouteStopId == sid,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (endDelivery is not null)
+                LogisticsUtils.ApplyPostCedeDeliveryState(endDelivery, now);
+
             db.CarrierOwnershipEvents.Add(new CarrierOwnershipEventRow
             {
                 Id = "coe_" + Guid.NewGuid().ToString("N"),
@@ -78,7 +89,13 @@ public sealed class CarrierOwnershipService(
                 AtUtc = now,
                 Reason = "end_of_route",
             });
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false); 
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+            await broadcasting.BroadcastRouteTramoSubscriptionsChangedAsync(
+                    new RouteTramoSubscriptionsBroadcastArgs(tid, rsid, "route_deliveries_updated", uid),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
             return new CarrierOwnershipCedeResultDto(true, "end_of_route", "");
         }
 
@@ -165,6 +182,8 @@ public sealed class CarrierOwnershipService(
             Reason = "carrier_cede",
         });
 
+        LogisticsUtils.ApplyPostCedeDeliveryState(delivery, now);
+
         var grantOnNext = nextOwner.Length < 2;
         if (grantOnNext)
         {
@@ -192,6 +211,11 @@ public sealed class CarrierOwnershipService(
 
         await broadcasting.BroadcastRouteTramoSubscriptionsChangedAsync(
                 new RouteTramoSubscriptionsBroadcastArgs(tid, rsid, "ownership_cede", uid),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        await broadcasting.BroadcastRouteTramoSubscriptionsChangedAsync(
+                new RouteTramoSubscriptionsBroadcastArgs(tid, rsid, "route_deliveries_updated", uid),
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -290,7 +314,7 @@ public sealed class CarrierOwnershipService(
                 .FirstOrDefaultAsync(cancellationToken)
                 .ConfigureAwait(false);
             var nextUid = (nc ?? "").Trim();
-            if (nextUid.Length >= 2 && !string.Equals(nextUid, actor, StringComparison.Ordinal))
+            if (nextUid.Length >= 2)
                 return nextUid;
         }
 

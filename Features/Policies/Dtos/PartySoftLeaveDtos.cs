@@ -1,6 +1,6 @@
 namespace VibeTrade.Backend.Features.Policies.Dtos;
 
-public sealed record PartySoftLeaveBody(string Reason);
+public sealed record PartySoftLeaveBody(string Reason, string? TradeAgreementId = null);
 
 /// <summary>Respuesta 200 de <c>party-soft-leave</c> (campos en camelCase vía JSON).</summary>
 public sealed record PartySoftLeaveOkResponse(
@@ -12,7 +12,8 @@ public sealed record PartySoftLeaveOkResponse(
 public sealed record PartySoftLeaveArgs(
     string UserId,
     string ThreadId,
-    string Reason);
+    string Reason,
+    string? TradeAgreementId = null);
 
 /// <summary>Resultado de <see cref="VibeTrade.Backend.Features.Policies.Interfaces.IChatExitOperationsService.PartySoftLeaveAsync"/>.</summary>
 public sealed record PartySoftLeaveResult(

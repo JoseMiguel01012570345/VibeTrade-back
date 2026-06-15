@@ -221,7 +221,12 @@ public sealed class PartySoftLeaveCoordinator(
         if (!await HasAcceptedNonDeletedTradeAgreementOnThreadAsync(tid, cancellationToken))
             return new PartySoftLeaveResult(false, "party_leave_no_accepted_agreement", false);
 
-        var paymentPrep = await ProcessPaymentRulesAsync(t, isBuyer, isSeller, cancellationToken)
+        var paymentPrep = await ProcessPaymentRulesAsync(
+                t,
+                isBuyer,
+                isSeller,
+                (args.TradeAgreementId ?? "").Trim() is { Length: >= 8 } aid ? aid : null,
+                cancellationToken)
             .ConfigureAwait(false);
         if (!paymentPrep.AllowProceed)
             return new PartySoftLeaveResult(false, paymentPrep.ErrorCode, false);
@@ -287,13 +292,19 @@ public sealed class PartySoftLeaveCoordinator(
         ChatThreadRow thread,
         bool isBuyer,
         bool isSeller,
+        string? routeGateAgreementId = null,
         CancellationToken cancellationToken = default)
     {
         var tid = (thread.Id ?? "").Trim();
         if (tid.Length < 4)
             return new PartySoftLeavePaymentPrep(true, null, false, false, null);
 
-        var routeBlock = await EvaluateRouteDeliveryLeaveGateAsync(tid, isBuyer, isSeller, cancellationToken)
+        var routeBlock = await EvaluateRouteDeliveryLeaveGateAsync(
+                tid,
+                isBuyer,
+                isSeller,
+                routeGateAgreementId,
+                cancellationToken)
             .ConfigureAwait(false);
         if (routeBlock.AllowProceed == false)
             return routeBlock;
@@ -423,8 +434,10 @@ public sealed class PartySoftLeaveCoordinator(
         string threadId,
         bool isBuyer,
         bool isSeller,
-        CancellationToken cancellationToken)
+        string? tradeAgreementId = null,
+        CancellationToken cancellationToken = default)
     {
+        var agreementFilter = (tradeAgreementId ?? "").Trim();
         var active = await db.RouteStopDeliveries.AsNoTracking()
             .Where(x =>
                 x.ThreadId == threadId
@@ -432,7 +445,8 @@ public sealed class PartySoftLeaveCoordinator(
                 && x.RefundEligibleReason == null
                 && x.State != RouteStopDeliveryStates.Unpaid
                 && x.State != RouteStopDeliveryStates.Refunded
-                && x.State != RouteStopDeliveryStates.EvidenceAccepted)
+                && x.State != RouteStopDeliveryStates.EvidenceAccepted
+                && (agreementFilter.Length < 8 || x.TradeAgreementId == agreementFilter))
             .Select(x => new { x.TradeAgreementId, x.State })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

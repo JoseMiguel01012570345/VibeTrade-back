@@ -31,10 +31,33 @@ public interface IRouteSheetChatService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Tras liquidar el último tramo (evidencia aceptada), marca la hoja entregada y la retira de la plataforma (sin borrarla del chat).
+    /// </summary>
+    Task<bool> AutoArchiveOnRouteCompletedAsync(
+        string actorUserId,
+        string threadId,
+        string routeSheetId,
+        string acceptedRouteStopId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Clona la hoja en el mismo hilo (nuevo id, sin publicar ni suscripciones).</summary>
+    Task<(RouteSheetPayload? Payload, RouteSheetMutationResult? Error)> DuplicateAsync(
+        string userId,
+        string threadId,
+        string sourceRouteSheetId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// La hoja está vinculada en BD a un acuerdo con al menos un cobro <c>succeeded</c>
     /// (no debe editarse, borrarse, publicarse ni notificarse como pos-edición).
     /// </summary>
     Task<bool> RouteSheetIsLockedByPaidAgreementAsync(
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Tramos con transportista confirmado en una hoja del hilo.</summary>
+    Task<HashSet<string>> LoadConfirmedRouteStopIdsAsync(
         string threadId,
         string routeSheetId,
         CancellationToken cancellationToken = default);

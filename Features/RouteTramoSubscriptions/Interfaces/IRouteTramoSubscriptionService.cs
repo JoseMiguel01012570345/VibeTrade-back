@@ -47,6 +47,7 @@ public interface IRouteTramoSubscriptionService
         string carrierUserId,
         string threadId,
         string withdrawReason,
+        string? tradeAgreementId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -12,7 +12,8 @@ public static class RoutePathComputation
   public static IReadOnlyList<RoutePathDto> BuildRoutePaths(
     RouteSheetPayload sheet,
     IReadOnlySet<string>? paidStopIds = null,
-    IReadOnlySet<string>? paidLikeDeliveryStopIds = null)
+    IReadOnlySet<string>? paidLikeDeliveryStopIds = null,
+    IReadOnlySet<string>? confirmedStopIds = null)
   {
     var paradas = sheet.Paradas ?? [];
     if (paradas.Count == 0)
@@ -51,7 +52,10 @@ public static class RoutePathComputation
       var paid = paidCount == stopIds.Count && stopIds.Count > 0;
 
       var totals = ComputeTotalsByCurrency(stopsInChain, sheet);
-      var payable = !partiallyPaid && !paid && totals.Count > 0 && AllStopsHavePrice(stopsInChain, sheet);
+      var hasPrices = totals.Count > 0 && AllStopsHavePrice(stopsInChain, sheet);
+      var carriersOk = confirmedStopIds is null
+                       || RouteSheetChatService.AllStopsHaveConfirmedCarrier(stopsInChain, confirmedStopIds);
+      var payable = !partiallyPaid && !paid && hasPrices && carriersOk;
 
       paths.Add(new RoutePathDto
       {
@@ -170,12 +174,14 @@ public static class RoutePathComputation
     RouteSheetPayload sheet,
     IReadOnlyList<string>? selectedRoutePathIds,
     IReadOnlySet<string>? paidStopIds = null,
-    IReadOnlySet<string>? paidLikeDeliveryStopIds = null)
+    IReadOnlySet<string>? paidLikeDeliveryStopIds = null,
+    IReadOnlySet<string>? confirmedStopIds = null)
   {
     paidStopIds ??= new HashSet<string>(StringComparer.Ordinal);
     paidLikeDeliveryStopIds ??= new HashSet<string>(StringComparer.Ordinal);
+    confirmedStopIds ??= new HashSet<string>(StringComparer.Ordinal);
 
-    var paths = BuildRoutePaths(sheet, paidStopIds, paidLikeDeliveryStopIds);
+    var paths = BuildRoutePaths(sheet, paidStopIds, paidLikeDeliveryStopIds, confirmedStopIds);
     var pathById = paths.ToDictionary(p => p.RoutePathId, StringComparer.Ordinal);
     var errors = new List<string>();
 
@@ -225,7 +231,10 @@ public static class RoutePathComputation
 
       if (!path.Payable)
       {
-        errors.Add($"La ruta «{path.Label}» no es cobrable (revisa precios y moneda).");
+        if (RouteSheetChatService.PathMissingConfirmedCarriers(path, confirmedStopIds))
+          errors.Add($"La ruta «{path.Label}» no es cobrable: faltan transportistas confirmados en uno o más tramos.");
+        else
+          errors.Add($"La ruta «{path.Label}» no es cobrable (revisa precios y moneda).");
         continue;
       }
 

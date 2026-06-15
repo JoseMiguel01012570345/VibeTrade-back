@@ -22,7 +22,7 @@ public interface ITradeAgreementService
         TradeAgreementDraftRequest draft,
         CancellationToken cancellationToken = default);
 
-    Task<TradeAgreementApiResponse?> RespondAsync(
+    Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> RespondAsync(
         string buyerUserId,
         string threadId,
         string agreementId,
@@ -41,5 +41,12 @@ public interface ITradeAgreementService
         string threadId,
         string agreementId,
         string? routeSheetId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Copia el contenido del acuerdo en un borrador nuevo (sin vínculo de hoja ni pagos).</summary>
+    Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> DuplicateAsync(
+        string sellerUserId,
+        string threadId,
+        string agreementId,
         CancellationToken cancellationToken = default);
 }
