@@ -556,6 +556,8 @@ public sealed class ChatController(
             return Unauthorized();
         if (RouteSheetUtils.ValidateEstimatedTimes(payload) is { } validationMessage)
             return BadRequest(new { error = "validation", message = validationMessage });
+        if (RouteSheetUtils.ValidateLinkedTramoChain(payload) is { } linkMessage)
+            return BadRequest(new { error = "tramos_not_linked", message = linkMessage });
         var result = await routeSheets.UpsertAsync(userId, threadId, routeSheetId, payload, cancellationToken);
         return result switch
         {

@@ -23,27 +23,24 @@ public static class RoutePathComputation
     paidLikeDeliveryStopIds ??= new HashSet<string>(StringComparer.Ordinal);
 
     var chains = BuildTramoChainIndices(paradas);
-    var paths = new List<RoutePathDto>(chains.Count);
-    var pathOrdinal = 0;
+    if (chains.Count == 0 || chains[0].Count == 0)
+      return [];
 
-    foreach (var chain in chains)
-    {
-      if (chain.Count == 0)
-        continue;
+    var chain = chains[0];
+    var paths = new List<RoutePathDto>(1);
 
       var stopsInChain = chain
         .Select(i => paradas[i])
         .Where(p => !string.IsNullOrWhiteSpace(p.Id))
         .ToList();
       if (stopsInChain.Count == 0)
-        continue;
+        return [];
 
       var head = stopsInChain[0];
       var routePathId = (head.Id ?? "").Trim();
       if (routePathId.Length == 0)
-        continue;
+        return [];
 
-      pathOrdinal++;
       var stopIds = stopsInChain.Select(p => (p.Id ?? "").Trim()).Where(x => x.Length > 0).ToList();
 
       var paidCount = stopIds.Count(id =>
@@ -60,7 +57,7 @@ public static class RoutePathComputation
       paths.Add(new RoutePathDto
       {
         RoutePathId = routePathId,
-        Orden = pathOrdinal,
+        Orden = 1,
         Label = BuildPathLabel(stopsInChain),
         StopIds = stopIds,
         Stops = stopsInChain.Select(p => new RoutePathStopSummaryDto
@@ -77,7 +74,6 @@ public static class RoutePathComputation
         Paid = paid,
         PartiallyPaid = partiallyPaid,
       });
-    }
 
     return paths;
   }
@@ -249,35 +245,11 @@ public static class RoutePathComputation
     return new RoutePathCheckoutResolveResult(expanded, errors);
   }
 
-  /// <summary>Índices en <paramref name="paradas"/> de cada cadena enlazada (ordenadas por <see cref="RouteStopPayload.Orden"/>).</summary>
+  /// <summary>Índices en <paramref name="paradas"/> de la cadena única (ordenadas por <see cref="RouteStopPayload.Orden"/>).</summary>
   public static List<List<int>> BuildTramoChainIndices(IReadOnlyList<RouteStopPayload> paradas)
   {
-    var chains = new List<List<int>>();
-    if (paradas.Count == 0)
-      return chains;
-
-    var ordered = paradas
-      .Select((p, originalIndex) => (originalIndex, p))
-      .OrderBy(x => x.p.Orden)
-      .ThenBy(x => x.originalIndex)
-      .ToList();
-
-    var current = new List<int> { ordered[0].originalIndex };
-    for (var i = 1; i < ordered.Count; i++)
-    {
-      var prev = ordered[i - 1].p;
-      var next = ordered[i].p;
-      if (RouteSheetUtils.OrigenCoincideConDestinoAnterior(prev, next))
-        current.Add(ordered[i].originalIndex);
-      else
-      {
-        chains.Add(current);
-        current = [ordered[i].originalIndex];
-      }
-    }
-
-    chains.Add(current);
-    return chains;
+    var ordered = RouteSheetUtils.OrderParadaIndices(paradas);
+    return ordered.Count == 0 ? [] : [ordered];
   }
 
   private static bool AllStopsHavePrice(IReadOnlyList<RouteStopPayload> stops, RouteSheetPayload sheet) =>

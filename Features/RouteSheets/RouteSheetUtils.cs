@@ -212,27 +212,58 @@ public static class RouteSheetUtils
     public static string? ValidateEstimatedTimes(RouteSheetPayload payload)
     {
         var paradas = payload.Paradas ?? [];
-        var chains = BuildTramoChainsByCoords(paradas);
-        foreach (var chain in chains)
+        var ordered = OrderParadaIndices(paradas);
+        for (var k = 0; k < ordered.Count - 1; k++)
         {
-            for (var k = 0; k < chain.Count - 1; k++)
-            {
-                var a = chain[k];
-                var b = chain[k + 1];
-                if (!TryParseEstimadoIsoLocal(paradas[a].TiempoEntregaEstimado, out var entrega))
-                    continue;
-                if (!TryParseEstimadoIsoLocal(paradas[b].TiempoRecogidaEstimado, out var recogidaSiguiente))
-                    continue;
-                if (entrega > recogidaSiguiente)
-                    return "La entrega estimada no puede ser posterior a la recogida estimada del tramo siguiente.";
-            }
+            var a = ordered[k];
+            var b = ordered[k + 1];
+            if (!TryParseEstimadoIsoLocal(paradas[a].TiempoEntregaEstimado, out var entrega))
+                continue;
+            if (!TryParseEstimadoIsoLocal(paradas[b].TiempoRecogidaEstimado, out var recogidaSiguiente))
+                continue;
+            if (entrega > recogidaSiguiente)
+                return "La entrega estimada no puede ser posterior a la recogida estimada del tramo siguiente.";
         }
 
         return null;
     }
 
-    public static List<List<int>> BuildTramoChainsByCoords(IReadOnlyList<RouteStopPayload> paradas) =>
-        RoutePathComputation.BuildTramoChainIndices(paradas);
+    /// <summary>
+    /// Devuelve mensaje de error si algún tramo no encadena origen[i] con destino[i-1]; <c>null</c> si está permitido.
+    /// </summary>
+    public static string? ValidateLinkedTramoChain(RouteSheetPayload payload)
+    {
+        var paradas = payload.Paradas ?? [];
+        if (paradas.Count <= 1)
+            return null;
+
+        var ordered = OrderParadaIndices(paradas);
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            var prev = paradas[ordered[i - 1]];
+            var next = paradas[ordered[i]];
+            if (OrigenCoincideConDestinoAnterior(prev, next))
+                continue;
+            var orden = next.Orden > 0 ? next.Orden : i + 1;
+            return $"El origen del tramo {orden} debe coincidir con el destino del tramo anterior.";
+        }
+
+        return null;
+    }
+
+    public static List<int> OrderParadaIndices(IReadOnlyList<RouteStopPayload> paradas) =>
+        paradas
+            .Select((p, originalIndex) => (originalIndex, p))
+            .OrderBy(x => x.p.Orden)
+            .ThenBy(x => x.originalIndex)
+            .Select(x => x.originalIndex)
+            .ToList();
+
+    public static List<List<int>> BuildTramoChainsByCoords(IReadOnlyList<RouteStopPayload> paradas)
+    {
+        var ordered = OrderParadaIndices(paradas);
+        return ordered.Count == 0 ? [] : [ordered];
+    }
 
     public static bool OrigenCoincideConDestinoAnterior(RouteStopPayload anterior, RouteStopPayload siguiente)
     {
