@@ -588,7 +588,6 @@ public sealed class RouteTramoSubscriptionService(
                 x => x.ThreadId == tid
                     && x.RouteSheetId == filterRs
                     && x.RouteStopId == filterStop
-                    && x.CurrentOwnerUserId == carrierId
                     && x.State == RouteStopDeliveryStates.IdleStoreCustody,
                 cancellationToken);
 
