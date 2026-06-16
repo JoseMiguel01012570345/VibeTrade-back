@@ -519,6 +519,7 @@ public sealed class RouteTramoSubscriptionService(
             ctx.ConfirmedStopsWithdrawnCount,
             ctx.Thread.StoreId,
             ctx.ReasonTrim,
+            ctx.ExpelledWhileTramoPaused,
             cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
@@ -572,14 +573,24 @@ public sealed class RouteTramoSubscriptionService(
             .Where(x => x.ThreadId == tid && x.CarrierUserId == carrierId && x.Status != "withdrawn")
             .ToListAsync(cancellationToken);
 
-        var hasDeliveryOnStop = await db.RouteStopDeliveries.AsNoTracking()
-        .AnyAsync(
-            x => x.ThreadId == tid &&
-            x.RouteSheetId == filterRs &&
-            x.RouteStopId == filterStop &&
-            x.CurrentOwnerUserId == carrierId &&
-            x.State != RouteStopDeliveryStates.EvidenceAccepted,
-            cancellationToken);
+        var hasBlockingDeliveryOnStop = await db.RouteStopDeliveries.AsNoTracking()
+            .AnyAsync(
+                x => x.ThreadId == tid
+                    && x.RouteSheetId == filterRs
+                    && x.RouteStopId == filterStop
+                    && x.CurrentOwnerUserId == carrierId
+                    && x.State != RouteStopDeliveryStates.EvidenceAccepted
+                    && x.State != RouteStopDeliveryStates.IdleStoreCustody,
+                cancellationToken);
+
+        var expelledWhileTramoPaused = expelSingleTramo && await db.RouteStopDeliveries.AsNoTracking()
+            .AnyAsync(
+                x => x.ThreadId == tid
+                    && x.RouteSheetId == filterRs
+                    && x.RouteStopId == filterStop
+                    && x.CurrentOwnerUserId == carrierId
+                    && x.State == RouteStopDeliveryStates.IdleStoreCustody,
+                cancellationToken);
 
         if (subs.Count == 0)
             return null;
@@ -610,7 +621,7 @@ public sealed class RouteTramoSubscriptionService(
         var applyStoreTrustPenalty = hadConfirmed
             && thread.BuyerExpelledAtUtc is null
             && thread.SellerExpelledAtUtc is null
-            && !hasDeliveryOnStop;
+            && !hasBlockingDeliveryOnStop;
 
         var distinctSheetIds = subs.Select(x => x.RouteSheetId).Distinct().ToList();
 
@@ -625,14 +636,13 @@ public sealed class RouteTramoSubscriptionService(
             confirmedStopsWithdrawnCount,
             !hadOtherActive,
             applyStoreTrustPenalty,
+            expelledWhileTramoPaused,
             distinctSheetIds);
     }
 
     private static bool DeliveryStateAllowsCarrierWithdraw(string? stateRaw)
     {
         var s = (stateRaw ?? "").Trim();
-        if (string.Equals(s, RouteStopDeliveryStates.IdleStoreCustody, StringComparison.OrdinalIgnoreCase))
-            return true;
         if (string.Equals(s, RouteStopDeliveryStates.EvidenceAccepted, StringComparison.OrdinalIgnoreCase))
             return true;
         return string.Equals(s, RouteStopDeliveryStates.AwaitingCarrierForHandoff, StringComparison.OrdinalIgnoreCase);
@@ -1420,6 +1430,7 @@ public sealed class RouteTramoSubscriptionService(
         int confirmedStopCount,
         string? storeId,
         string reasonForLedger,
+        bool expelledWhileTramoPaused,
         CancellationToken cancellationToken)
     {
         if (!apply || confirmedStopCount < 1)
@@ -1434,14 +1445,16 @@ public sealed class RouteTramoSubscriptionService(
         var deltaTotal = -unit * confirmedStopCount;
         var prev = storeRow.TrustScore;
         storeRow.TrustScore = Math.Max(-10_000, prev + deltaTotal);
-        var r = reasonForLedger.Length > 120 ? reasonForLedger[..120] + "…" : reasonForLedger;
         var tramosTxt = confirmedStopCount == 1 ? "1 tramo" : $"{confirmedStopCount} tramos";
+        var ledgerDetail = expelledWhileTramoPaused
+            ? "Transportista expulsado con tramo detenido"
+            : $"Motivo: {(reasonForLedger.Length > 120 ? reasonForLedger[..120] + "…" : reasonForLedger)}";
         trustLedger.StageEntry(
             TrustLedgerSubjects.Store,
             sid,
             storeRow.TrustScore - prev,
             storeRow.TrustScore,
-            $"Expulsión de transportista confirmado por la tienda — {tramosTxt} (demo). Motivo: {r}");
+            $"Expulsión de transportista confirmado por la tienda — {tramosTxt} (demo). {ledgerDetail}");
         return storeRow.TrustScore;
     }
 

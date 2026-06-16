@@ -32,6 +32,7 @@ public sealed record SellerExpelContext(
     int ConfirmedStopsWithdrawnCount,
     bool CarrierFullyRemovedFromThread,
     bool ApplyStoreTrustPenalty,
+    bool ExpelledWhileTramoPaused,
     IReadOnlyList<string> DistinctRouteSheetIds);
 
 /// <summary>Datos cargados para flujo presel (transportista + hoja).</summary>
