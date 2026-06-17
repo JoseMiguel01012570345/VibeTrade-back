@@ -33,4 +33,31 @@ public static class TrustAwardHelper
             reason);
         return true;
     }
+
+    public static async Task<bool> TryAwardStoreTrustAsync(
+        AppDbContext db,
+        ITrustScoreLedgerService trustLedger,
+        string storeId,
+        int delta,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var sid = (storeId ?? "").Trim();
+        if (sid.Length < 2 || delta == 0)
+            return false;
+
+        var store = await db.Stores.FirstOrDefaultAsync(x => x.Id == sid, cancellationToken)
+            .ConfigureAwait(false);
+        if (store is null || store.DeletedAtUtc is not null)
+            return false;
+
+        store.TrustScore = Math.Max(-10_000, store.TrustScore + delta);
+        trustLedger.StageEntry(
+            TrustLedgerSubjects.Store,
+            sid,
+            delta,
+            store.TrustScore,
+            reason);
+        return true;
+    }
 }

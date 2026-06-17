@@ -141,6 +141,12 @@ public sealed class PartySoftLeaveCoordinator(
             StatusCodes.Status409Conflict,
             "Falta el estado de entrega para un tramo confirmado. Coordina con la tienda.",
             "Fila de entrega ausente."),
+        new(
+            "tramo_must_be_paused",
+            "seller",
+            StatusCodes.Status409Conflict,
+            "Pausá el tramo (custodia tienda) antes de expulsar al transportista mientras tiene la carga en curso.",
+            "Expulsión con tramo activo sin pausa."),
     ];
 
     private static readonly Dictionary<string, ChatExitPolicyDefinition> PartyByCode = All
@@ -149,6 +155,10 @@ public sealed class PartySoftLeaveCoordinator(
 
     private static readonly Dictionary<string, ChatExitPolicyDefinition> CarrierByCode = All
         .Where(x => string.Equals(x.Audience, "carrier", StringComparison.OrdinalIgnoreCase))
+        .ToDictionary(x => x.Code, StringComparer.OrdinalIgnoreCase);
+
+    private static readonly Dictionary<string, ChatExitPolicyDefinition> SellerByCode = All
+        .Where(x => string.Equals(x.Audience, "seller", StringComparison.OrdinalIgnoreCase))
         .ToDictionary(x => x.Code, StringComparer.OrdinalIgnoreCase);
 
     private const string PartyLeaveGenericMessage =
@@ -172,6 +182,18 @@ public sealed class PartySoftLeaveCoordinator(
         statusCode = 0;
         message = "";
         if (string.IsNullOrWhiteSpace(errorCode) || !CarrierByCode.TryGetValue(errorCode, out var def))
+            return false;
+        statusCode = def.HttpStatus;
+        message = def.MessageEs;
+        return true;
+    }
+
+    /// <inheritdoc />
+    public bool TryMapSellerExpelFailure(string? errorCode, out int statusCode, out string message)
+    {
+        statusCode = 0;
+        message = "";
+        if (string.IsNullOrWhiteSpace(errorCode) || !SellerByCode.TryGetValue(errorCode, out var def))
             return false;
         statusCode = def.HttpStatus;
         message = def.MessageEs;

@@ -8,7 +8,10 @@ using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
 using VibeTrade.Backend.Features.Agreements;
+using VibeTrade.Backend.Features.Policies.Interfaces;
 using VibeTrade.Backend.Features.RouteSheets;
+using VibeTrade.Backend.Features.RouteTramoSubscriptions.Dtos;
+using VibeTrade.Backend.Features.RouteTramoSubscriptions.Interfaces;
 using VibeTrade.Backend.Infrastructure;
 using VibeTrade.Backend.Data.Entities;
 
@@ -25,7 +28,8 @@ public sealed class ChatController(
     IChatService chat,
     IBroadcastingService broadcasting,
     IRouteSheetChatService routeSheets,
-    IRouteTramoSubscriptionService routeTramoSubscriptions)
+    IRouteTramoSubscriptionService routeTramoSubscriptions,
+    IChatExitPolicyRegistry chatExitPolicyRegistry)
     : ControllerBase
 {
     public sealed record CreateThreadBody(string OfferId, bool? PurchaseIntent, bool? ForceNew);
@@ -503,6 +507,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> PostSellerExpelCarrier(
         string threadId,
         [FromBody] SellerExpelCarrierBody? body,
@@ -535,6 +540,14 @@ public sealed class ChatController(
             cancellationToken);
         if (r is null)
             return NotFound(new { error = "not_found", message = "No se pudo retirar al transportista (sin permiso o sin suscripciones activas)." });
+
+        if (chatExitPolicyRegistry.TryMapSellerExpelFailure(r.ErrorCode, out var sellerStatus, out var sellerMessage))
+        {
+            return StatusCode(
+                sellerStatus,
+                new { error = r.ErrorCode, message = sellerMessage });
+        }
+
         return Ok(r);
     }
 
@@ -565,13 +578,7 @@ public sealed class ChatController(
             RouteSheetMutationResult.LockedByPaidAgreement => Conflict(new
             {
                 error = "locked_paid_agreement",
-                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
-            }),
-            RouteSheetMutationResult.PublishRequiresAgreementLink => BadRequest(new
-            {
-                error = "publish_requires_agreement_link",
-                message =
-                    "Publica la hoja solo después de vincularla al acuerdo (RouteSheetId). Guarda la hoja, vincúlala, y recién entonces marca publicada en la plataforma.",
+                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar ni eliminar.",
             }),
             RouteSheetMutationResult.ExceedsUnpaidAgreementLimit => Conflict(new
             {
@@ -619,7 +626,7 @@ public sealed class ChatController(
                 return Conflict(new
                 {
                     error = "locked_paid_agreement",
-                    message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
+                    message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar ni eliminar.",
                 });
         }
         var n = await routeSheets.NotifyPreselectedTransportistasAsync(
@@ -727,7 +734,7 @@ public sealed class ChatController(
             RouteSheetMutationResult.LockedByPaidAgreement => Conflict(new
             {
                 error = "locked_paid_agreement",
-                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
+                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar ni eliminar.",
             }),
             _ => NotFound(new { error = "not_found", message = "Hoja no encontrada o sin permiso." }),
         };

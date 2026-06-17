@@ -269,11 +269,6 @@ public sealed class RouteSheetChatService(
                 is { } currencyFail)
             return currencyFail;
 
-        if (merge.Published && !merge.WasPublishedOnRow
-            && !await AgreementLinksRouteSheetAsync(threadId, state.RouteSheetId, cancellationToken)
-                .ConfigureAwait(false))
-            return RouteSheetMutationResult.PublishRequiresAgreementLink;
-
         await CompleteUpsertPersistenceAsync(state, merge, persisted, userId, cancellationToken);
 
         if (merge.Published || (merge.WasPublishedOnRow && !merge.Published))
@@ -367,7 +362,8 @@ public sealed class RouteSheetChatService(
             if (!RouteSheetPaidEditPolicy.IsCarrierContactOnlyUpdate(
                     oldSnapshot,
                     payload,
-                    confirmedStopIds))
+                    confirmedStopIds)
+                && !RouteSheetPaidEditPolicy.IsPublishToggleOnlyUpdate(oldSnapshot, payload))
                 return new UpsertLoadResult(RouteSheetMutationResult.LockedByPaidAgreement, null);
         }
 
@@ -522,25 +518,6 @@ public sealed class RouteSheetChatService(
             row.DeletedAtUtc = null;
             row.DeletedByUserId = null;
         }
-    }
-
-    private Task<bool> AgreementLinksRouteSheetAsync(
-        string threadId,
-        string routeSheetId,
-        CancellationToken cancellationToken)
-    {
-        var tid = (threadId ?? "").Trim();
-        var rs = (routeSheetId ?? "").Trim();
-        if (tid.Length < 4 || rs.Length < 1)
-            return Task.FromResult(false);
-
-        // Avoid string.Equals(..., StringComparison): not translatable to SQL on all EF providers.
-        return db.TradeAgreements.AsNoTracking().AnyAsync(
-            a =>
-                a.ThreadId == tid
-                && a.DeletedAtUtc == null
-                && (a.RouteSheetId ?? "") == rs,
-            cancellationToken);
     }
 
     private async Task<RouteSheetMutationResult?> ValidateMerchandiseRouteCurrencyAsync(

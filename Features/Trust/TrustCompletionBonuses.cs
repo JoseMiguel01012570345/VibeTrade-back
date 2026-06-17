@@ -7,13 +7,13 @@ public static class TrustCompletionBonuses
     public const int BuyerOnPurchaseCompleted = 2;
 
     public const string CarrierTramoReason =
-        "Tramo entregado: evidencia aceptada (demo)";
+        "Tramo entregado: evidencia aceptada — tienda transportista";
 
     public const string StoreAgreementReason =
-        "Acuerdo completado: compra cerrada (demo)";
+        "Acuerdo completado: compra cerrada";
 
     public const string BuyerPurchaseReason =
-        "Compra completada (demo)";
+        "Compra completada";
 
     public const string AgreementCompletionLedgerPrefix = "Acuerdo completado";
 }

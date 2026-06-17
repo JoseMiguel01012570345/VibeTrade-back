@@ -253,15 +253,26 @@ public sealed class CarrierDeliveryEvidenceService(
         if (string.Equals(status, ServiceEvidenceStatuses.Accepted, StringComparison.OrdinalIgnoreCase)
             && wasSubmitted)
         {
-            await TrustAwardHelper.TryAwardUserTrustAsync(
+            var transportStoreId = await TransportTramoTrustResolver.ResolveTransportProviderStoreIdAsync(
                     db,
-                    trustLedger,
+                    tid,
+                    rsid,
+                    sid,
                     ev.CarrierUserId,
-                    TrustCompletionBonuses.CarrierPerTramoAccepted,
-                    TrustCompletionBonuses.CarrierTramoReason,
                     cancellationToken)
                 .ConfigureAwait(false);
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(transportStoreId))
+            {
+                await TrustAwardHelper.TryAwardStoreTrustAsync(
+                        db,
+                        trustLedger,
+                        transportStoreId,
+                        TrustCompletionBonuses.CarrierPerTramoAccepted,
+                        TrustCompletionBonuses.CarrierTramoReason,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
 
         await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(

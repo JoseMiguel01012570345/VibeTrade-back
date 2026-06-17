@@ -16,7 +16,11 @@ public sealed record CarrierExpelledBySellerResult(
     bool ApplyStoreTrustPenalty,
     int? StoreTrustScoreAfter = null,
     int ConfirmedStopsWithdrawnCount = 0,
-    bool CarrierFullyRemovedFromThread = false);
+    bool CarrierFullyRemovedFromThread = false)
+{
+    /// <summary>P.ej. <c>tramo_must_be_paused</c> cuando el transportista tiene carga en curso sin pausa.</summary>
+    public string? ErrorCode { get; init; }
+}
 
 public sealed record RouteTramoSubscriptionItemDto(
     string RouteSheetId,

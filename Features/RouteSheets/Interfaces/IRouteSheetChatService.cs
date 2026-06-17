@@ -49,7 +49,7 @@ public interface IRouteSheetChatService
 
     /// <summary>
     /// La hoja está vinculada en BD a un acuerdo con al menos un cobro <c>succeeded</c>
-    /// (no debe editarse, borrarse, publicarse ni notificarse como pos-edición).
+    /// (no debe editarse ni borrarse salvo contacto en tramos vacantes; publicar/ocultar sí está permitido).
     /// </summary>
     Task<bool> RouteSheetIsLockedByPaidAgreementAsync(
         string threadId,
