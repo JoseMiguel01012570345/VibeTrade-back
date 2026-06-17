@@ -5,6 +5,8 @@ using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.RouteSheets.Interfaces;
+using VibeTrade.Backend.Features.Trust;
+using VibeTrade.Backend.Features.Trust.Interfaces;
 
 namespace VibeTrade.Backend.Features.Logistics;
 
@@ -13,6 +15,7 @@ public sealed class CarrierDeliveryEvidenceService(
     IChatThreadSystemMessageService threadSystemMessages,
     INotificationService notifications,
     IRouteSheetChatService routeSheets,
+    ITrustScoreLedgerService trustLedger,
     AppDbContext db) : ICarrierDeliveryEvidenceService
 {
     public async Task<(int StatusCode, string? Error, CarrierDeliveryEvidenceDto? Data)> UpsertAsync(
@@ -200,6 +203,12 @@ public sealed class CarrierDeliveryEvidenceService(
             .ConfigureAwait(false);
         if (ev is null) return (StatusCodes.Status400BadRequest, "No hay evidencia para decidir o la evidencia ya ha sido aceptada");
 
+        var priorStatus = (ev.Status ?? "").Trim();
+        var wasSubmitted = string.Equals(
+            priorStatus,
+            ServiceEvidenceStatuses.Submitted,
+            StringComparison.OrdinalIgnoreCase);
+
         var delivery = await db.RouteStopDeliveries.FirstOrDefaultAsync(
                 x =>
                     x.ThreadId == tid
@@ -240,6 +249,20 @@ public sealed class CarrierDeliveryEvidenceService(
         delivery.UpdatedAtUtc = now;
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        if (string.Equals(status, ServiceEvidenceStatuses.Accepted, StringComparison.OrdinalIgnoreCase)
+            && wasSubmitted)
+        {
+            await TrustAwardHelper.TryAwardUserTrustAsync(
+                    db,
+                    trustLedger,
+                    ev.CarrierUserId,
+                    TrustCompletionBonuses.CarrierPerTramoAccepted,
+                    TrustCompletionBonuses.CarrierTramoReason,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(
                 tid,

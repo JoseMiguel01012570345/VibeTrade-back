@@ -344,9 +344,6 @@ public sealed class RouteSheetChatService(
         if (rsId.Length == 0)
             return new UpsertLoadResult(RouteSheetMutationResult.NotFoundOrForbidden, null);
 
-        if (await RouteSheetHasPaidAgreementLinkAsync(threadId, rsId, cancellationToken))
-            return new UpsertLoadResult(RouteSheetMutationResult.LockedByPaidAgreement, null);
-
         var idInPayload = (payload.Id ?? "").Trim();
         if (idInPayload.Length > 0 && !string.Equals(idInPayload, rsId, StringComparison.Ordinal))
             return new UpsertLoadResult(RouteSheetMutationResult.NotFoundOrForbidden, null);
@@ -359,6 +356,19 @@ public sealed class RouteSheetChatService(
         if (row is not null)
         {
             oldSnapshot = RouteSheetUtils.ClonePayload(row.Payload);
+        }
+
+        if (await RouteSheetHasPaidAgreementLinkAsync(threadId, rsId, cancellationToken))
+        {
+            if (oldSnapshot is null || !wasExistingSheet)
+                return new UpsertLoadResult(RouteSheetMutationResult.LockedByPaidAgreement, null);
+
+            var confirmedStopIds = await LoadConfirmedRouteStopIdsAsync(threadId, rsId, cancellationToken);
+            if (!RouteSheetPaidEditPolicy.IsCarrierContactOnlyUpdate(
+                    oldSnapshot,
+                    payload,
+                    confirmedStopIds))
+                return new UpsertLoadResult(RouteSheetMutationResult.LockedByPaidAgreement, null);
         }
 
         if (!wasExistingSheet && !bypassUnpaidAgreementLimit)

@@ -610,11 +610,18 @@ public sealed class ChatController(
         if (body?.Invites is null || body.Invites.Length == 0)
             return BadRequest(new { error = "invalid_body", message = "Indica al menos un tramo con teléfono a notificar." });
         if (await routeSheets.RouteSheetIsLockedByPaidAgreementAsync(threadId, routeSheetId, cancellationToken))
-            return Conflict(new
-            {
-                error = "locked_paid_agreement",
-                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
-            });
+        {
+            var confirmedStopIds = await routeSheets.LoadConfirmedRouteStopIdsAsync(
+                threadId,
+                routeSheetId,
+                cancellationToken);
+            if (!RouteSheetPaidEditPolicy.InvitesTargetOnlyVacantStops(body.Invites, confirmedStopIds))
+                return Conflict(new
+                {
+                    error = "locked_paid_agreement",
+                    message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
+                });
+        }
         var n = await routeSheets.NotifyPreselectedTransportistasAsync(
             userId,
             threadId,

@@ -140,8 +140,8 @@ public sealed class RouteSheetThreadNotificationService(
         if (title.Length > 120)
             title = title[..120] + "…";
         var sys = title.Length > 0
-            ? $"La hoja de ruta «{title}» finalizó: todos los tramos quedaron liquidados y se retiró de la plataforma."
-            : "Una hoja de ruta finalizó y se retiró de la plataforma.";
+            ? $"La hoja de ruta «{title}» finalizó: todos los tramos quedaron liquidados y se retiró de la plataforma. Puedes presentar la evidencia de mercancía en el acuerdo vinculado."
+            : "Una hoja de ruta finalizó y se retiró de la plataforma. Puedes presentar la evidencia de mercancía en el acuerdo vinculado.";
         await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(threadId, sys, cancellationToken);
 
         await broadcasting.BroadcastRouteTramoSubscriptionsChangedAsync(

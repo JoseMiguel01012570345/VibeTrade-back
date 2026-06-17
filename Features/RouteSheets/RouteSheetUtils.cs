@@ -133,6 +133,38 @@ public static class RouteSheetUtils
         return null;
     }
 
+    /// <summary>
+    /// Quita del acuse a transportistas retirados o expulsados para no bloquear ediciones posteriores de la hoja.
+    /// </summary>
+    public static RouteSheetEditAckPayload? PruneEditAckRemovedCarriers(
+        RouteSheetEditAckPayload? ack,
+        IEnumerable<string> removedCarrierUserIds)
+    {
+        if (ack?.ByCarrier is null || ack.ByCarrier.Count == 0)
+            return ack;
+
+        var nextBy = new Dictionary<string, string>(ack.ByCarrier, StringComparer.Ordinal);
+        var changed = false;
+        foreach (var removedId in removedCarrierUserIds)
+        {
+            var key = ResolveCarrierKeyInEditAck(nextBy, removedId);
+            if (key is null)
+                continue;
+            nextBy.Remove(key);
+            changed = true;
+        }
+
+        if (!changed)
+            return ack;
+        return nextBy.Count == 0
+            ? null
+            : new RouteSheetEditAckPayload
+            {
+                Revision = ack.Revision + 1,
+                ByCarrier = nextBy,
+            };
+    }
+
     public static void PersistSheetPayloadWithAck(
         ChatRouteSheetRow row,
         RouteSheetEditAckPayload ack,

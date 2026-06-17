@@ -10,6 +10,7 @@ namespace VibeTrade.Backend.Features.Agreements;
 public sealed class AgreementServiceEvidenceService(
     IChatService chat,
     IChatThreadSystemMessageService threadSystemMessages,
+    AgreementCompletionTrustService completionTrust,
     AppDbContext db) : IAgreementServiceEvidenceService
 {
     public async Task<(int StatusCode, IReadOnlyList<AgreementServicePaymentWithEvidenceDto>? Data)> ListAsync(
@@ -242,6 +243,9 @@ public sealed class AgreementServiceEvidenceService(
             ? $"El comprador aceptó la evidencia del servicio ({payKey}). Pago liberado (demo)."
             : $"El comprador rechazó la evidencia del servicio ({payKey}).";
         await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(tid, notice, cancellationToken).ConfigureAwait(false);
+
+        if (string.Equals(d, "accepted", StringComparison.OrdinalIgnoreCase))
+            await completionTrust.TryApplyCompletionBonusesAsync(tid, aid, cancellationToken).ConfigureAwait(false);
 
         return (StatusCodes.Status200OK, null);
     }

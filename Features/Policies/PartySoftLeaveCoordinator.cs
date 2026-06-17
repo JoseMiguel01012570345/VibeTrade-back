@@ -133,7 +133,7 @@ public sealed class PartySoftLeaveCoordinator(
             "carrier_route_active",
             "carrier",
             StatusCodes.Status409Conflict,
-            "No puedes salir mientras haya tramos confirmados con logística activa. Pide a la tienda que pause el tramo si hubo una excepción.",
+            "No puedes salir mientras estés confirmado en un tramo con logística activa. Pide a la tienda que te expulse del tramo.",
             "Tramo confirmado no apto para retiro."),
         new(
             "carrier_route_delivery_missing",

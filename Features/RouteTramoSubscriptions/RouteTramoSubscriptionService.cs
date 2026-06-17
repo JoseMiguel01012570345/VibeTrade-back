@@ -1487,6 +1487,16 @@ public sealed class RouteTramoSubscriptionService(
                     parada.TransportInvitedServiceSummary = null;
                 }
             }
+
+            var removedCarrierIds = grp
+                .Select(x => x.CarrierUserId)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            payload.RouteSheetEditAck = RouteSheetUtils.PruneEditAckRemovedCarriers(
+                payload.RouteSheetEditAck,
+                removedCarrierIds);
+
             RouteSheetPayloadPersistence.ApplyPayloadAndTouch(sheetRow, payload, now);
         }
     }
