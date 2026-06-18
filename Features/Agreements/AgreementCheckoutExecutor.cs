@@ -175,6 +175,39 @@ internal static class AgreementCheckoutExecutor
         }
     }
 
+    internal static async Task AttachPendingMerchandiseEvidencesAsync(
+        AppDbContext db,
+        AgreementCurrencyPaymentRow payment,
+        CancellationToken cancellationToken)
+    {
+        if (payment.MerchandiseLinePaids.Count == 0)
+            return;
+
+        var tid = payment.ThreadId.Trim();
+        var sellerId = await db.ChatThreads.AsNoTracking()
+            .Where(x => x.Id == tid)
+            .Select(x => x.SellerUserId)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(sellerId))
+            return;
+
+        var now = DateTimeOffset.UtcNow;
+        var uid = sellerId.Trim();
+        foreach (var ml in payment.MerchandiseLinePaids)
+        {
+            db.MerchandiseEvidences.Add(new MerchandiseEvidenceRow
+            {
+                Id = $"mevd_{Guid.NewGuid():n}",
+                AgreementMerchandiseLinePaidId = ml.Id,
+                SellerUserId = uid,
+                Status = MerchandiseEvidenceStatuses.Pending,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now,
+            });
+        }
+    }
+
     internal static AgreementExecutePaymentResultDto FromDup(AgreementCurrencyPaymentRow dup)
         => new(
             dup.StripePaymentIntentId ?? "",
@@ -232,6 +265,7 @@ internal static class AgreementCheckoutExecutor
             pay.CompletedAtUtc = DateTimeOffset.UtcNow;
             AttachSplits(pay, qb);
             AttachMerchandiseLineSplits(pay, qb);
+            await AttachPendingMerchandiseEvidencesAsync(db, pay, ct).ConfigureAwait(false);
             db.AgreementCurrencyPayments.Add(pay);
             var skipDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
             if (skipDup is not null)
@@ -306,6 +340,7 @@ internal static class AgreementCheckoutExecutor
             pay.CompletedAtUtc = DateTimeOffset.UtcNow;
             AttachSplits(pay, qb);
             AttachMerchandiseLineSplits(pay, qb);
+            await AttachPendingMerchandiseEvidencesAsync(db, pay, ct).ConfigureAwait(false);
             db.AgreementCurrencyPayments.Add(pay);
             var okDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
             if (okDup is not null)

@@ -197,6 +197,10 @@ public sealed class BootstrapService(
                 th.PartyExitedReason = summ.PartyExitedReason.Trim();
             if (summ.PartyExitedAtUtc is { } pAt)
                 th.PartyExitedAtUtc = pAt;
+            if (summ.BuyerExpelledAtUtc is { } bExp)
+                th.BuyerExpelledAtUtc = bExp;
+            if (summ.SellerExpelledAtUtc is { } sExp)
+                th.SellerExpelledAtUtc = sExp;
             threadsOut[summ.Id] = th;
         }
     }

@@ -17,6 +17,8 @@ public sealed record ChatThreadDto(
     string? PartyExitedUserId = null,
     string? PartyExitedReason = null,
     DateTimeOffset? PartyExitedAtUtc = null,
+    DateTimeOffset? BuyerExpelledAtUtc = null,
+    DateTimeOffset? SellerExpelledAtUtc = null,
     bool IsSocialGroup = false,
     string? SocialGroupTitle = null);
 
@@ -47,6 +49,8 @@ public sealed record ChatThreadSummaryDto(
     string? PartyExitedUserId = null,
     string? PartyExitedReason = null,
     DateTimeOffset? PartyExitedAtUtc = null,
+    DateTimeOffset? BuyerExpelledAtUtc = null,
+    DateTimeOffset? SellerExpelledAtUtc = null,
     bool IsSocialGroup = false,
     string? SocialGroupTitle = null);
 

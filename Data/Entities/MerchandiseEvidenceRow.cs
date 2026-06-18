@@ -22,7 +22,7 @@ public sealed class MerchandiseEvidenceRow
 
     public DateTimeOffset? LastSubmittedAtUtc { get; set; }
 
-    /// <summary>draft | submitted | accepted | rejected</summary>
+    /// <summary>pending | draft | submitted | accepted | rejected</summary>
     public string Status { get; set; } = MerchandiseEvidenceStatuses.Draft;
 
     public DateTimeOffset CreatedAtUtc { get; set; }
@@ -34,6 +34,8 @@ public sealed class MerchandiseEvidenceRow
 
 public static class MerchandiseEvidenceStatuses
 {
+    /// <summary>Creada al cobrar mercancía retenida; el vendedor debe presentar evidencia.</summary>
+    public const string Pending = "pending";
     public const string Draft = "draft";
     public const string Submitted = "submitted";
     public const string Accepted = "accepted";

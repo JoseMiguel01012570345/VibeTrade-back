@@ -85,8 +85,8 @@ public sealed class PartySoftLeaveCoordinator(
             "evidence_pending",
             "party",
             StatusCodes.Status409Conflict,
-            "No puedes salir del chat mientras haya evidencia enviada al comprador sin resolver o rechazada con pago aún retenido (servicio o mercadería).",
-            "Evidencia pendiente o rechazada con pago retenido."),
+            "No puedes salir del chat mientras haya evidencia pendiente, enviada al comprador sin resolver o rechazada con pago aún retenido (servicio o mercadería).",
+            "Evidencia pendiente, enviada o rechazada con pago retenido."),
         new(
             "route_delivery_active_buyer",
             "party",
@@ -545,7 +545,7 @@ public sealed class PartySoftLeaveCoordinator(
     }
 
     /// <summary>
-    /// Evidencia enviada o rechazada con pago aún retenido: no permitir abandono con reembolso hasta decisión/liberación.
+    /// Evidencia pendiente, enviada o rechazada con pago aún retenido: no permitir abandono con reembolso hasta decisión/liberación.
     /// </summary>
     private async Task<bool> HasHeldPaymentWithEvidenceBlockingExitAsync(
         string threadId,
@@ -572,7 +572,8 @@ public sealed class PartySoftLeaveCoordinator(
                     on e.AgreementMerchandiseLinePaidId equals ml.Id
                 where ml.ThreadId == threadId
                       && ml.Status == AgreementMerchandiseLinePaidStatuses.Held
-                      && (e.Status == MerchandiseEvidenceStatuses.Submitted
+                      && (e.Status == MerchandiseEvidenceStatuses.Pending
+                          || e.Status == MerchandiseEvidenceStatuses.Submitted
                           || e.Status == MerchandiseEvidenceStatuses.Rejected)
                 select e.Id)
             .AnyAsync(cancellationToken)

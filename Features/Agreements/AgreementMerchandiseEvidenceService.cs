@@ -119,7 +119,12 @@ public sealed class AgreementMerchandiseEvidenceService(
             string.Equals(ev.Status, MerchandiseEvidenceStatuses.Accepted, StringComparison.OrdinalIgnoreCase))
             return (StatusCodes.Status400BadRequest, "Evidencia ya aceptada: no se puede editar.", null);
 
-        var nextStatus = body.Submit ? MerchandiseEvidenceStatuses.Submitted : MerchandiseEvidenceStatuses.Draft;
+        var nextStatus = body.Submit
+            ? MerchandiseEvidenceStatuses.Submitted
+            : ev is not null &&
+              string.Equals(ev.Status, MerchandiseEvidenceStatuses.Pending, StringComparison.OrdinalIgnoreCase)
+                ? MerchandiseEvidenceStatuses.Pending
+                : MerchandiseEvidenceStatuses.Draft;
         var norm = AgreementUtils.NormalizeEvidence(body.Text, body.Attachments);
 
         if (ev is null)
