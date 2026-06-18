@@ -30,6 +30,7 @@ public sealed record SellerExpelContext(
     bool ExpelSingleTramo,
     List<RouteTramoSubscriptionRow> Subs,
     int ConfirmedStopsWithdrawnCount,
+    int PenaltyEligibleConfirmedStopCount,
     bool CarrierFullyRemovedFromThread,
     bool ApplyStoreTrustPenalty,
     bool ExpelledWhileTramoPaused,

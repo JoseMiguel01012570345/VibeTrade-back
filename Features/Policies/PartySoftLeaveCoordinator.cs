@@ -147,6 +147,18 @@ public sealed class PartySoftLeaveCoordinator(
             StatusCodes.Status409Conflict,
             "Pausá el tramo (custodia tienda) antes de expulsar al transportista mientras tiene la carga en curso.",
             "Expulsión con tramo activo sin pausa."),
+        new(
+            "seller_expel_evidence_pending",
+            "seller",
+            StatusCodes.Status409Conflict,
+            "No podés expulsar al transportista mientras haya evidencia de entrega pendiente en un tramo confirmado.",
+            "Expulsión con evidencia de tramo pendiente."),
+        new(
+            "seller_expel_evidence_rejected",
+            "seller",
+            StatusCodes.Status409Conflict,
+            "No podés expulsar al transportista mientras haya evidencia de entrega rechazada: debe reenviar o coordinar el reembolso.",
+            "Expulsión con evidencia de tramo rechazada."),
     ];
 
     private static readonly Dictionary<string, ChatExitPolicyDefinition> PartyByCode = All
@@ -347,6 +359,21 @@ public sealed class PartySoftLeaveCoordinator(
 
         if (!hasHeld)
         {
+            var allPaidAndSettled = await ThreadAllAcceptedAgreementsPaidAndSettledAsync(tid, cancellationToken)
+                .ConfigureAwait(false);
+            if (allPaidAndSettled)
+            {
+                return new PartySoftLeavePaymentPrep(
+                    true,
+                    null,
+                    true,
+                    false,
+                    null,
+                    0,
+                    false,
+                    null);
+            }
+
             var penalty = await ApplyOtherMemberSoftLeavePenaltyIfNeededAsync(
                     thread,
                     isBuyer,
@@ -788,5 +815,105 @@ public sealed class PartySoftLeaveCoordinator(
             storeRow.TrustScore - prev,
             storeRow.TrustScore,
             "Salida del vendedor del chat con pagos retenidos reembolsados al comprador (servicios y/o mercadería).");
+    }
+
+    /// <summary>
+    /// Todos los acuerdos aceptados del hilo tienen al menos un cobro exitoso y están liquidados
+    /// (sin pagos retenidos ni logística de ruta abierta).
+    /// </summary>
+    private async Task<bool> ThreadAllAcceptedAgreementsPaidAndSettledAsync(
+        string threadId,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        if (tid.Length < 4)
+            return false;
+
+        var agreementIds = await db.TradeAgreements.AsNoTracking()
+            .Where(x => x.ThreadId == tid && x.Status == "accepted" && x.DeletedAtUtc == null)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (agreementIds.Count == 0)
+            return false;
+
+        foreach (var aid in agreementIds)
+        {
+            var hasSucceededPayment = await db.AgreementCurrencyPayments.AsNoTracking()
+                .AnyAsync(
+                    x => x.ThreadId == tid
+                        && x.TradeAgreementId == aid
+                        && x.Status == AgreementPaymentStatuses.Succeeded,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!hasSucceededPayment)
+                return false;
+
+            if (!await IsThreadAgreementSettledForLeaveAsync(tid, aid, cancellationToken).ConfigureAwait(false))
+                return false;
+        }
+
+        return true;
+    }
+
+    private async Task<bool> IsThreadAgreementSettledForLeaveAsync(
+        string threadId,
+        string agreementId,
+        CancellationToken cancellationToken)
+    {
+        var hasHeldService = await db.AgreementServicePayments.AsNoTracking()
+            .AnyAsync(
+                x => x.ThreadId == threadId
+                    && x.TradeAgreementId == agreementId
+                    && x.Status == AgreementServicePaymentStatuses.Held,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (hasHeldService)
+            return false;
+
+        var hasHeldMerch = await db.AgreementMerchandiseLinePaids.AsNoTracking()
+            .AnyAsync(
+                x => x.ThreadId == threadId
+                    && x.TradeAgreementId == agreementId
+                    && x.Status == AgreementMerchandiseLinePaidStatuses.Held,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (hasHeldMerch)
+            return false;
+
+        var ag = await db.TradeAgreements.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == agreementId && x.ThreadId == threadId, cancellationToken)
+            .ConfigureAwait(false);
+        if (ag is null)
+            return false;
+
+        var rsid = (ag.RouteSheetId ?? "").Trim();
+        if (rsid.Length > 0)
+        {
+            var row = await db.ChatRouteSheets.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.ThreadId == threadId && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (row is null)
+                return false;
+            if (!string.Equals(
+                    (row.Payload?.Estado ?? "").Trim(),
+                    "entregada",
+                    StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        var activeDeliveries = await db.RouteStopDeliveries.AsNoTracking()
+            .Where(x =>
+                x.ThreadId == threadId
+                && x.TradeAgreementId == agreementId
+                && x.State != RouteStopDeliveryStates.Unpaid
+                && x.State != RouteStopDeliveryStates.Refunded
+                && x.State != RouteStopDeliveryStates.EvidenceAccepted)
+            .AnyAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return !activeDeliveries;
     }
 }

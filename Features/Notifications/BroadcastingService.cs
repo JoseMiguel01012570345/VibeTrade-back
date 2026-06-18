@@ -62,24 +62,6 @@ public sealed class BroadcastingService(
             }
         }
 
-        var participatedHereIds = await ChatQueryHelpers.GetParticipatedCarrierUserIdsForThreadAsync(db, thread.Id, cancellationToken);
-        var activeElsewhereIds = await ChatQueryHelpers.GetActiveCarrierUserIdsElsewhereAsync(db, thread.Id, cancellationToken);
-        foreach (var pid in participatedHereIds)
-        {
-            if (string.IsNullOrWhiteSpace(pid))
-                continue;
-            var p = pid.Trim();
-            if (set.Contains(p))
-                continue;
-            if (IsBuyerOrSellerExpelledFromThread(thread, p))
-                continue;
-            if (activeElsewhereIds.Any(e =>
-                    !string.IsNullOrWhiteSpace(e)
-                    && (string.Equals(e.Trim(), p, StringComparison.Ordinal)
-                        || ChatThreadAccess.UserIdsMatchLoose(p, e))))
-                set.Add(p);
-        }
-
         return set;
     }
 
