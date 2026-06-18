@@ -6,9 +6,15 @@ public static class TradeAgreementEntityToApiMapper
 {
     public static TradeAgreementApiResponse ToApiResponse(
         TradeAgreementRow ag,
-        bool hasSucceededPayments = false)
+        bool hasSucceededPayments = false,
+        bool hasSucceededRoutePayments = false,
+        bool hasAcceptedMerchandiseEvidence = false)
     {
-        var resp = MapAgreementHeader(ag, hasSucceededPayments);
+        var resp = MapAgreementHeader(
+            ag,
+            hasSucceededPayments,
+            hasSucceededRoutePayments,
+            hasAcceptedMerchandiseEvidence);
         MapMerchandiseMeta(ag, resp);
         MapMerchandiseLines(ag, resp);
         MapServiceItems(ag, resp);
@@ -18,7 +24,9 @@ public static class TradeAgreementEntityToApiMapper
 
     private static TradeAgreementApiResponse MapAgreementHeader(
         TradeAgreementRow ag,
-        bool hasSucceededPayments)
+        bool hasSucceededPayments,
+        bool hasSucceededRoutePayments,
+        bool hasAcceptedMerchandiseEvidence)
     {
         var deleted = ag.DeletedAtUtc is not null;
         return new TradeAgreementApiResponse
@@ -39,6 +47,8 @@ public static class TradeAgreementEntityToApiMapper
             RouteSheetId = ag.RouteSheetId,
             RouteSheetUrl = ag.RouteSheetUrl,
             HasSucceededPayments = hasSucceededPayments,
+            HasSucceededRoutePayments = hasSucceededRoutePayments,
+            HasAcceptedMerchandiseEvidence = hasAcceptedMerchandiseEvidence,
         };
     }
 

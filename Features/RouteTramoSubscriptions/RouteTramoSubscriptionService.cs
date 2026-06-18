@@ -22,6 +22,10 @@ public sealed class RouteTramoSubscriptionService(
     public const string AcceptCarrierPendingConflictMessage =
         "Los tramos pendientes de este transportista ya tienen otro transportista confirmado.";
 
+    /// <summary>Mensaje cuando el tramo ya fue entregado (evidencia aceptada).</summary>
+    public const string StopDeliveredSubscriptionBlockedMessage =
+        "Este tramo ya fue entregado; no se aceptan nuevas suscripciones.";
+
     private const int CarrierRouteExitTrustPenalty = 3;
 
     public async Task RecordSubscriptionRequestAsync(
@@ -49,6 +53,19 @@ public sealed class RouteTramoSubscriptionService(
             .FirstOrDefaultAsync(
                 x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
                 cancellationToken);
+        if (SubscriptionsUtils.RouteSheetPayloadIsDelivered(sheetRow?.Payload))
+            throw new InvalidOperationException(StopDeliveredSubscriptionBlockedMessage);
+
+        var stopDelivered = await db.RouteStopDeliveries.AsNoTracking()
+            .AnyAsync(
+                x => x.ThreadId == tid
+                    && x.RouteSheetId == rsid
+                    && x.RouteStopId == sid
+                    && x.State == RouteStopDeliveryStates.EvidenceAccepted,
+                cancellationToken);
+        if (stopDelivered)
+            throw new InvalidOperationException(StopDeliveredSubscriptionBlockedMessage);
+
         string? stopFp = null;
         if (sheetRow is not null)
         {

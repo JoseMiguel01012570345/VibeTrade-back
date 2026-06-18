@@ -1,4 +1,5 @@
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.RouteSheets.Dtos;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Logistics;
@@ -262,4 +263,17 @@ public static class SubscriptionsUtils
             || RouteStopDeliveryStates.IsRefundedTerminal(s)
             || s == RouteStopDeliveryStates.IdleStoreCustody;
     }
+
+    /// <summary>Tramo ya liquidado con evidencia aceptada (entregado).</summary>
+    public static bool StopDeliveryIsEvidenceAccepted(string? stateRaw) =>
+        string.Equals(
+            (stateRaw ?? "").Trim(),
+            RouteStopDeliveryStates.EvidenceAccepted,
+            StringComparison.OrdinalIgnoreCase);
+
+    public static bool RouteSheetPayloadIsDelivered(RouteSheetPayload? payload) =>
+        string.Equals(
+            (payload?.Estado ?? "").Trim(),
+            "entregada",
+            StringComparison.OrdinalIgnoreCase);
 }

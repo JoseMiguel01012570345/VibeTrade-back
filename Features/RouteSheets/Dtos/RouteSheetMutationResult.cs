@@ -11,4 +11,6 @@ public enum RouteSheetMutationResult
     ExceedsUnpaidAgreementLimit,
     /// <summary>Tramos con moneda distinta a la mercadería del acuerdo vinculado.</summary>
     RouteCurrencyMerchandiseMismatch,
+    /// <summary>No se puede publicar una hoja ya marcada como entregada.</summary>
+    CannotPublishDeliveredSheet,
 }

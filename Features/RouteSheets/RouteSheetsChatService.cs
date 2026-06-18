@@ -367,21 +367,33 @@ public sealed class RouteSheetChatService(
                 return new UpsertLoadResult(RouteSheetMutationResult.LockedByPaidAgreement, null);
         }
 
+        if (payload.PublicadaPlataforma == true)
+        {
+            var sheetDelivered = PayloadMarkedDelivered(payload)
+                || PayloadMarkedDelivered(oldSnapshot)
+                || (row is not null && PayloadMarkedDelivered(row.Payload));
+            if (sheetDelivered)
+                return new UpsertLoadResult(RouteSheetMutationResult.CannotPublishDeliveredSheet, null);
+        }
+
         if (!wasExistingSheet && !bypassUnpaidAgreementLimit)
         {
-            var unpaidCount = await db.TradeAgreements.AsNoTracking()
+            var routeSheetSlotCount = await db.TradeAgreements.AsNoTracking()
                 .Where(a => a.ThreadId == threadId
                             && a.DeletedAtUtc == null
                             && a.Status == "accepted")
                 .CountAsync(
                     a => !db.AgreementCurrencyPayments.AsNoTracking().Any(
-                        p => p.TradeAgreementId == a.Id && p.Status == AgreementPaymentStatuses.Succeeded),
+                             p => p.TradeAgreementId == a.Id
+                                  && p.Status == AgreementPaymentStatuses.Succeeded)
+                         || a.RouteSheetId == null
+                         || a.RouteSheetId == "",
                     cancellationToken);
 
             var activeSheetCount = await db.ChatRouteSheets.AsNoTracking()
                 .CountAsync(x => x.ThreadId == threadId && x.DeletedAtUtc == null, cancellationToken);
 
-            if (activeSheetCount >= unpaidCount)
+            if (activeSheetCount >= routeSheetSlotCount)
                 return new UpsertLoadResult(RouteSheetMutationResult.ExceedsUnpaidAgreementLimit, null);
         }
 

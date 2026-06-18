@@ -60,7 +60,15 @@ public sealed partial class TradeAgreementService(
                 .Distinct()
                 .ToListAsync(cancellationToken);
         var paidSet = paidIds.ToHashSet(StringComparer.Ordinal);
-        return list.ConvertAll(a => TradeAgreementEntityToApiMapper.ToApiResponse(a, paidSet.Contains(a.Id)));
+        var routePaidSet = await LoadAgreementIdsWithSucceededRouteLegPaymentsAsync(ids, cancellationToken)
+            .ConfigureAwait(false);
+        var evidenceAcceptedSet = await LoadAgreementIdsWithAcceptedMerchandiseEvidenceAsync(ids, cancellationToken)
+            .ConfigureAwait(false);
+        return list.ConvertAll(a => TradeAgreementEntityToApiMapper.ToApiResponse(
+            a,
+            paidSet.Contains(a.Id),
+            routePaidSet.Contains(a.Id),
+            evidenceAcceptedSet.Contains(a.Id)));
     }
 
     public async Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> CreateAsync(
@@ -369,15 +377,31 @@ public sealed partial class TradeAgreementService(
         }
 
         var paid = await HasSucceededPaymentAsync(ag.Id, cancellationToken);
+        var routeTransportPaid = await HasSucceededRouteLegPaymentAsync(ag.Id, cancellationToken);
+        var evidenceAccepted = await HasAcceptedMerchandiseEvidenceAsync(ag.Id, cancellationToken);
         var incoming = (routeSheetId ?? "").Trim();
         var prevRs = (ag.RouteSheetId ?? "").Trim();
-        if (paid)
+        if (evidenceAccepted)
+        {
+            if (string.Equals(incoming, prevRs, StringComparison.OrdinalIgnoreCase))
+                return await OkResponseAsync().ConfigureAwait(false);
+            return Fail(
+                400,
+                "No se puede modificar el vínculo con la hoja de ruta: la evidencia de mercancía ya fue aceptada.");
+        }
+        if (routeTransportPaid)
         {
             if (string.Equals(incoming, prevRs, StringComparison.OrdinalIgnoreCase))
                 return await OkResponseAsync().ConfigureAwait(false);
             if (string.IsNullOrEmpty(incoming))
-                return Fail(400, "No se puede desvincular la hoja de ruta: ya hay pagos registrados para este acuerdo.");
-            return Fail(400, "No se puede cambiar la hoja de ruta vinculada: ya hay pagos registrados para este acuerdo.");
+                return Fail(400, "No se puede desvincular la hoja de ruta: ya hay pagos de transporte registrados para este acuerdo.");
+            if (!string.IsNullOrEmpty(prevRs))
+                return Fail(400, "No se puede cambiar la hoja de ruta vinculada: ya hay pagos de transporte registrados para este acuerdo.");
+        }
+        else if (paid
+                 && string.Equals(incoming, prevRs, StringComparison.OrdinalIgnoreCase))
+        {
+            return await OkResponseAsync().ConfigureAwait(false);
         }
 
         if (string.IsNullOrEmpty(incoming))
@@ -531,7 +555,9 @@ public sealed partial class TradeAgreementService(
         if (ag is null)
             return null;
         var paid = await HasSucceededPaymentAsync(ag.Id, cancellationToken);
-        return TradeAgreementEntityToApiMapper.ToApiResponse(ag, paid);
+        var routePaid = await HasSucceededRouteLegPaymentAsync(ag.Id, cancellationToken);
+        var evidenceAccepted = await HasAcceptedMerchandiseEvidenceAsync(ag.Id, cancellationToken);
+        return TradeAgreementEntityToApiMapper.ToApiResponse(ag, paid, routePaid, evidenceAccepted);
     }
 
     private async Task<bool> HasSucceededPaymentAsync(string agreementId, CancellationToken cancellationToken)
@@ -540,6 +566,79 @@ public sealed partial class TradeAgreementService(
             .AnyAsync(
                 p => p.TradeAgreementId == agreementId && p.Status == AgreementPaymentStatuses.Succeeded,
                 cancellationToken);
+    }
+
+    private async Task<bool> HasSucceededRouteLegPaymentAsync(
+        string agreementId,
+        CancellationToken cancellationToken)
+    {
+        var aid = agreementId.Trim();
+        if (aid.Length < 2)
+            return false;
+        return await (
+                from rl in db.AgreementRouteLegPaids.AsNoTracking()
+                join cp in db.AgreementCurrencyPayments.AsNoTracking()
+                    on rl.AgreementCurrencyPaymentId equals cp.Id
+                where cp.TradeAgreementId == aid && cp.Status == AgreementPaymentStatuses.Succeeded
+                select rl.Id)
+            .AnyAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<HashSet<string>> LoadAgreementIdsWithSucceededRouteLegPaymentsAsync(
+        IReadOnlyList<string> agreementIds,
+        CancellationToken cancellationToken)
+    {
+        if (agreementIds.Count == 0)
+            return new HashSet<string>(StringComparer.Ordinal);
+        var ids = await (
+                from rl in db.AgreementRouteLegPaids.AsNoTracking()
+                join cp in db.AgreementCurrencyPayments.AsNoTracking()
+                    on rl.AgreementCurrencyPaymentId equals cp.Id
+                where agreementIds.Contains(cp.TradeAgreementId)
+                      && cp.Status == AgreementPaymentStatuses.Succeeded
+                select cp.TradeAgreementId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return ids.ToHashSet(StringComparer.Ordinal);
+    }
+
+    private async Task<bool> HasAcceptedMerchandiseEvidenceAsync(
+        string agreementId,
+        CancellationToken cancellationToken)
+    {
+        var aid = agreementId.Trim();
+        if (aid.Length < 2)
+            return false;
+        return await (
+                from e in db.MerchandiseEvidences.AsNoTracking()
+                join p in db.AgreementMerchandiseLinePaids.AsNoTracking()
+                    on e.AgreementMerchandiseLinePaidId equals p.Id
+                where p.TradeAgreementId == aid
+                      && e.Status == MerchandiseEvidenceStatuses.Accepted
+                select e.Id)
+            .AnyAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<HashSet<string>> LoadAgreementIdsWithAcceptedMerchandiseEvidenceAsync(
+        IReadOnlyList<string> agreementIds,
+        CancellationToken cancellationToken)
+    {
+        if (agreementIds.Count == 0)
+            return new HashSet<string>(StringComparer.Ordinal);
+        var ids = await (
+                from e in db.MerchandiseEvidences.AsNoTracking()
+                join p in db.AgreementMerchandiseLinePaids.AsNoTracking()
+                    on e.AgreementMerchandiseLinePaidId equals p.Id
+                where agreementIds.Contains(p.TradeAgreementId)
+                      && e.Status == MerchandiseEvidenceStatuses.Accepted
+                select p.TradeAgreementId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return ids.ToHashSet(StringComparer.Ordinal);
     }
 
     private async Task<TradeAgreementRow?> LoadTrackedAgreementAsync(

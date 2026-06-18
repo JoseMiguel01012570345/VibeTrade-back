@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Interfaces;
+using VibeTrade.Backend.Features.RouteTramoSubscriptions;
 
 namespace VibeTrade.Backend.Features.EmergentOffers;
 
@@ -17,6 +19,7 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
     public const string ErrInvalidEmergent = "invalid_emergent_offer";
     public const string ErrInvalidStop = "invalid_stop";
     public const string ErrNotPublished = "route_not_published";
+    public const string ErrStopDelivered = "stop_delivered";
     public const string ErrInvalidService = "invalid_transport_service";
     public const string ErrServiceNotTransport = "service_not_transport";
 
@@ -68,6 +71,18 @@ public sealed class EmergentRouteTramoSubscriptionRequestService(
         var stop = paradas.FirstOrDefault(p => string.Equals((p.Id ?? "").Trim(), sid, StringComparison.Ordinal));
         if (stop is null)
             return (false, ErrInvalidStop, "El tramo no pertenece a esta hoja.");
+
+        if (SubscriptionsUtils.RouteSheetPayloadIsDelivered(payload))
+            return (false, ErrNotPublished, "La hoja de ruta no está publicada en la plataforma.");
+
+        var stopDeliveryState = await db.RouteStopDeliveries.AsNoTracking()
+            .Where(x => x.ThreadId == em.ThreadId
+                && x.RouteSheetId == em.RouteSheetId
+                && x.RouteStopId == sid)
+            .Select(x => x.State)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (SubscriptionsUtils.StopDeliveryIsEvidenceAccepted(stopDeliveryState))
+            return (false, ErrStopDelivered, RouteTramoSubscriptionService.StopDeliveredSubscriptionBlockedMessage);
 
         var service = await db.StoreServices
             .AsNoTracking()
