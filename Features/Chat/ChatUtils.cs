@@ -101,6 +101,8 @@ public static class ChatMessageDtoFactory
             string.IsNullOrWhiteSpace(t.PartyExitedUserId) ? null : t.PartyExitedUserId.Trim(),
             string.IsNullOrWhiteSpace(t.PartyExitedReason) ? null : t.PartyExitedReason.Trim(),
             t.PartyExitedAtUtc,
+            t.BuyerExpelledAtUtc,
+            t.SellerExpelledAtUtc,
             t.IsSocialGroup,
             string.IsNullOrWhiteSpace(t.SocialGroupTitle) ? null : t.SocialGroupTitle.Trim());
 }
@@ -483,6 +485,8 @@ public static class ChatThreadSummaryMapper
             string.IsNullOrWhiteSpace(t.PartyExitedUserId) ? null : t.PartyExitedUserId.Trim(),
             string.IsNullOrWhiteSpace(t.PartyExitedReason) ? null : t.PartyExitedReason.Trim(),
             t.PartyExitedAtUtc,
+            t.BuyerExpelledAtUtc,
+            t.SellerExpelledAtUtc,
             t.IsSocialGroup,
             string.IsNullOrWhiteSpace(t.SocialGroupTitle) ? null : t.SocialGroupTitle.Trim());
     }

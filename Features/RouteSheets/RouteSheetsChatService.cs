@@ -2,11 +2,14 @@ using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Agreements;
 using VibeTrade.Backend.Features.RouteSheets.Dtos;
 using VibeTrade.Backend.Features.RouteSheets.Interfaces;
+using VibeTrade.Backend.Features.Logistics;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Features.Routing;
 using VibeTrade.Backend.Features.Routing.Interfaces;
+using VibeTrade.Backend.Features.Search.Interfaces;
 using VibeTrade.Backend.Features.Trust;
 using VibeTrade.Backend.Features.Trust.Interfaces;
 
@@ -18,7 +21,8 @@ public sealed class RouteSheetChatService(
     ITrustScoreLedgerService trustLedger,
     IDrivingLegRoutingService drivingLegRouting,
     ILogger<RouteSheetChatService> logger,
-    IRouteSheetThreadNotificationService routeSheetThreadNotifications) : IRouteSheetChatService
+    IRouteSheetThreadNotificationService routeSheetThreadNotifications,
+    ICatalogSearchLiveIndexSync catalogSearchLiveIndex) : IRouteSheetChatService
 {
     public const string EmergentKindRouteSheet = EmergentRouteOfferRanking.EmergentKindRouteSheet;
 
@@ -124,6 +128,102 @@ public sealed class RouteSheetChatService(
                 cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task<HashSet<string>> LoadConfirmedRouteStopIdsAsync(
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        var rsid = (routeSheetId ?? "").Trim();
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        if (tid.Length < 2 || rsid.Length < 1)
+            return set;
+
+        var rows = await db.RouteTramoSubscriptions.AsNoTracking()
+            .Where(x =>
+                x.ThreadId == tid
+                && x.RouteSheetId == rsid
+                && x.Status == "confirmed")
+            .Select(x => x.StopId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var id in rows)
+        {
+            var s = (id ?? "").Trim();
+            if (s.Length > 0)
+                set.Add(s);
+        }
+
+        return set;
+    }
+
+    /// <summary>Reglas de cobro por ruta enlazada: cada tramo debe tener transportista confirmado.</summary>
+    public static bool AllStopsHaveConfirmedCarrier(
+        IReadOnlyList<RouteStopPayload> stops,
+        IReadOnlySet<string> confirmedStopIds) =>
+        stops.All(p =>
+        {
+            var sid = (p.Id ?? "").Trim();
+            return sid.Length == 0 || confirmedStopIds.Contains(sid);
+        });
+
+    public static bool PathMissingConfirmedCarriers(
+        RoutePathDto path,
+        IReadOnlySet<string> confirmedStopIds) =>
+        path.TotalsByCurrency.Count > 0
+        && path.StopIds.Any(sid => !confirmedStopIds.Contains((sid ?? "").Trim()));
+
+    /// <summary>
+    /// Criterios para marcar entregada y retirar de la plataforma cuando la logística del último tramo quedó liquidada.
+    /// </summary>
+    public static bool IsTerminalSettledState(string? stateRaw)
+    {
+        var s = (stateRaw ?? "").Trim();
+        return string.Equals(s, RouteStopDeliveryStates.EvidenceAccepted, StringComparison.OrdinalIgnoreCase)
+            || RouteStopDeliveryStates.IsRefundedTerminal(s);
+    }
+
+    public static bool PayloadMarkedDelivered(RouteSheetPayload? payload) =>
+        string.Equals((payload?.Estado ?? "").Trim(), "entregada", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// El tramo aceptado es el último de la hoja y ya no quedan entregas activas en ningún acuerdo de esa hoja.
+    /// </summary>
+    public static bool ShouldAutoArchiveRouteSheet(
+        IReadOnlyList<string> orderedStopIds,
+        string acceptedStopId,
+        IReadOnlyList<string> deliveryStatesOnSheet)
+    {
+        if (orderedStopIds.Count == 0)
+            return false;
+
+        var lastId = orderedStopIds[^1].Trim();
+        var sid = (acceptedStopId ?? "").Trim();
+        if (sid.Length == 0 || !string.Equals(sid, lastId, StringComparison.Ordinal))
+            return false;
+
+        if (deliveryStatesOnSheet.Count == 0)
+            return false;
+
+        foreach (var state in deliveryStatesOnSheet)
+        {
+            var s = (state ?? "").Trim();
+            if (string.Equals(s, RouteStopDeliveryStates.Unpaid, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!IsTerminalSettledState(s))
+                return false;
+        }
+
+        return deliveryStatesOnSheet.Any(s =>
+            !string.Equals((s ?? "").Trim(), RouteStopDeliveryStates.Unpaid, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static bool IsLastOrderedStop(IReadOnlyList<string> orderedStopIds, string stopId) =>
+        orderedStopIds.Count > 0
+        && string.Equals(orderedStopIds[^1].Trim(), (stopId ?? "").Trim(), StringComparison.Ordinal);
+
     public async Task<RouteSheetMutationResult> UpsertAsync(
         string userId,
         string threadId,
@@ -131,7 +231,30 @@ public sealed class RouteSheetChatService(
         RouteSheetPayload payload,
         CancellationToken cancellationToken = default)
     {
-        var load = await LoadUpsertStateOrFailureAsync(userId, threadId, routeSheetId, payload, cancellationToken);
+        return await UpsertInternalAsync(
+            userId,
+            threadId,
+            routeSheetId,
+            payload,
+            bypassUnpaidAgreementLimit: false,
+            cancellationToken);
+    }
+
+    private async Task<RouteSheetMutationResult> UpsertInternalAsync(
+        string userId,
+        string threadId,
+        string routeSheetId,
+        RouteSheetPayload payload,
+        bool bypassUnpaidAgreementLimit,
+        CancellationToken cancellationToken)
+    {
+        var load = await LoadUpsertStateOrFailureAsync(
+            userId,
+            threadId,
+            routeSheetId,
+            payload,
+            bypassUnpaidAgreementLimit,
+            cancellationToken);
         if (load.Error is { } err)
             return err;
 
@@ -142,17 +265,23 @@ public sealed class RouteSheetChatService(
             return fail;
 
         var persisted = finalized.Persisted!;
-        if (merge.Published && !merge.WasPublishedOnRow
-            && !await AgreementLinksRouteSheetAsync(threadId, state.RouteSheetId, cancellationToken)
-                .ConfigureAwait(false))
-            return RouteSheetMutationResult.PublishRequiresAgreementLink;
+        if (await ValidateMerchandiseRouteCurrencyAsync(threadId, state.RouteSheetId, persisted, cancellationToken)
+                is { } currencyFail)
+            return currencyFail;
 
         await CompleteUpsertPersistenceAsync(state, merge, persisted, userId, cancellationToken);
+
+        if (merge.Published || (merge.WasPublishedOnRow && !merge.Published))
+        {
+            var storeId = (state.Thread.StoreId ?? "").Trim();
+            if (storeId.Length >= 2)
+                await catalogSearchLiveIndex.SyncStoreAsync(storeId, cancellationToken);
+        }
 
         if (state.WasExistingSheet)
             await routeSheetThreadNotifications.PostRouteSheetUpsertEditSystemNoticeAsync(
                 userId,
-                threadId,
+                threadId, 
                 state.OldSnapshot,
                 persisted,
                 merge.NextAck,
@@ -197,6 +326,7 @@ public sealed class RouteSheetChatService(
         string threadId,
         string routeSheetId,
         RouteSheetPayload payload,
+        bool bypassUnpaidAgreementLimit,
         CancellationToken cancellationToken)
     {
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
@@ -208,9 +338,6 @@ public sealed class RouteSheetChatService(
         var rsId = (routeSheetId ?? "").Trim();
         if (rsId.Length == 0)
             return new UpsertLoadResult(RouteSheetMutationResult.NotFoundOrForbidden, null);
-
-        if (await RouteSheetHasPaidAgreementLinkAsync(threadId, rsId, cancellationToken))
-            return new UpsertLoadResult(RouteSheetMutationResult.LockedByPaidAgreement, null);
 
         var idInPayload = (payload.Id ?? "").Trim();
         if (idInPayload.Length > 0 && !string.Equals(idInPayload, rsId, StringComparison.Ordinal))
@@ -224,6 +351,50 @@ public sealed class RouteSheetChatService(
         if (row is not null)
         {
             oldSnapshot = RouteSheetUtils.ClonePayload(row.Payload);
+        }
+
+        if (await RouteSheetHasPaidAgreementLinkAsync(threadId, rsId, cancellationToken))
+        {
+            if (oldSnapshot is null || !wasExistingSheet)
+                return new UpsertLoadResult(RouteSheetMutationResult.LockedByPaidAgreement, null);
+
+            var confirmedStopIds = await LoadConfirmedRouteStopIdsAsync(threadId, rsId, cancellationToken);
+            if (!RouteSheetPaidEditPolicy.IsCarrierContactOnlyUpdate(
+                    oldSnapshot,
+                    payload,
+                    confirmedStopIds)
+                && !RouteSheetPaidEditPolicy.IsPublishToggleOnlyUpdate(oldSnapshot, payload))
+                return new UpsertLoadResult(RouteSheetMutationResult.LockedByPaidAgreement, null);
+        }
+
+        if (payload.PublicadaPlataforma == true)
+        {
+            var sheetDelivered = PayloadMarkedDelivered(payload)
+                || PayloadMarkedDelivered(oldSnapshot)
+                || (row is not null && PayloadMarkedDelivered(row.Payload));
+            if (sheetDelivered)
+                return new UpsertLoadResult(RouteSheetMutationResult.CannotPublishDeliveredSheet, null);
+        }
+
+        if (!wasExistingSheet && !bypassUnpaidAgreementLimit)
+        {
+            var routeSheetSlotCount = await db.TradeAgreements.AsNoTracking()
+                .Where(a => a.ThreadId == threadId
+                            && a.DeletedAtUtc == null
+                            && a.Status == "accepted")
+                .CountAsync(
+                    a => !db.AgreementCurrencyPayments.AsNoTracking().Any(
+                             p => p.TradeAgreementId == a.Id
+                                  && p.Status == AgreementPaymentStatuses.Succeeded)
+                         || a.RouteSheetId == null
+                         || a.RouteSheetId == "",
+                    cancellationToken);
+
+            var activeSheetCount = await db.ChatRouteSheets.AsNoTracking()
+                .CountAsync(x => x.ThreadId == threadId && x.DeletedAtUtc == null, cancellationToken);
+
+            if (activeSheetCount >= routeSheetSlotCount)
+                return new UpsertLoadResult(RouteSheetMutationResult.ExceedsUnpaidAgreementLimit, null);
         }
 
         return new UpsertLoadResult(
@@ -361,23 +532,38 @@ public sealed class RouteSheetChatService(
         }
     }
 
-    private Task<bool> AgreementLinksRouteSheetAsync(
+    private async Task<RouteSheetMutationResult?> ValidateMerchandiseRouteCurrencyAsync(
         string threadId,
         string routeSheetId,
+        RouteSheetPayload payload,
         CancellationToken cancellationToken)
     {
         var tid = (threadId ?? "").Trim();
         var rs = (routeSheetId ?? "").Trim();
         if (tid.Length < 4 || rs.Length < 1)
-            return Task.FromResult(false);
+            return null;
 
-        // Avoid string.Equals(..., StringComparison): not translatable to SQL on all EF providers.
-        return db.TradeAgreements.AsNoTracking().AnyAsync(
-            a =>
-                a.ThreadId == tid
-                && a.DeletedAtUtc == null
-                && (a.RouteSheetId ?? "") == rs,
-            cancellationToken);
+        var ag = await db.TradeAgreements.AsNoTracking()
+            .Include(a => a.MerchandiseLines)
+            .FirstOrDefaultAsync(
+                a =>
+                    a.ThreadId == tid
+                    && a.DeletedAtUtc == null
+                    && a.IncludeMerchandise
+                    && (a.RouteSheetId ?? "") == rs,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (ag is null)
+            return null;
+
+        if (!TradeAgreementService.TryResolveSingleAgreementCurrency(
+                ag, payload, out var merchCur, out _))
+            return RouteSheetMutationResult.RouteCurrencyMerchandiseMismatch;
+
+        if (TradeAgreementService.ValidateRoutePayloadCurrency(payload, merchCur!) is not null)
+            return RouteSheetMutationResult.RouteCurrencyMerchandiseMismatch;
+
+        return null;
     }
 
     public async Task<RouteSheetMutationResult> DeleteAsync(
@@ -484,6 +670,118 @@ public sealed class RouteSheetChatService(
             cancellationToken);
 
         return RouteSheetMutationResult.Ok;
+    }
+
+    public async Task<bool> AutoArchiveOnRouteCompletedAsync(
+        string actorUserId,
+        string threadId,
+        string routeSheetId,
+        string acceptedRouteStopId,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        var rsId = (routeSheetId ?? "").Trim();
+        var sid = (acceptedRouteStopId ?? "").Trim();
+        var actor = (actorUserId ?? "").Trim();
+        if (tid.Length < 4 || rsId.Length < 1 || sid.Length < 1 || actor.Length < 2)
+            return false;
+
+        var row = await db.ChatRouteSheets.FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.RouteSheetId == rsId,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (row is null || row.DeletedAtUtc is not null)
+            return false;
+
+        var ordered = LogisticsUtils.OrderedStopIds(row.Payload);
+        if (!IsLastOrderedStop(ordered, sid))
+            return false;
+
+        var deliveryRows = await db.RouteStopDeliveries.AsNoTracking()
+            .Where(x => x.ThreadId == tid && x.RouteSheetId == rsId)
+            .Select(x => new { x.RouteStopId, x.State })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var deliveryStates = deliveryRows
+            .Select(r =>
+                string.Equals((r.RouteStopId ?? "").Trim(), sid, StringComparison.Ordinal)
+                    ? RouteStopDeliveryStates.EvidenceAccepted
+                    : (r.State ?? "").Trim())
+            .ToList();
+
+        if (!ShouldAutoArchiveRouteSheet(ordered, sid, deliveryStates))
+            return false;
+
+        var completedAt = DateTimeOffset.UtcNow;
+
+        var payload = row.Payload;
+        payload.Estado = "entregada";
+        payload.PublicadaPlataforma = false;
+        payload.ActualizadoEn = completedAt.ToUnixTimeMilliseconds();
+        RouteSheetPayloadPersistence.ApplyPayloadAndTouch(row, payload, completedAt);
+        row.PublishedToPlatform = false;
+
+        var emRow0 = await db.EmergentOffers.AsNoTracking()
+            .FirstOrDefaultAsync(
+                e => e.ThreadId == tid && e.RouteSheetId == rsId && e.RetractedAtUtc == null,
+                cancellationToken)
+            .ConfigureAwait(false);
+        var emergentPubId = string.IsNullOrWhiteSpace(emRow0?.Id) ? null : emRow0!.Id.Trim();
+
+        await RetractEmergentAsync(tid, rsId, cancellationToken).ConfigureAwait(false);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        await routeSheetThreadNotifications.NotifyAfterRouteSheetAutoArchivedAsync(
+                actor,
+                tid,
+                rsId,
+                row.Payload.Titulo,
+                emergentPubId,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        return true;
+    }
+
+    public async Task<(RouteSheetPayload? Payload, RouteSheetMutationResult? Error)> DuplicateAsync(
+        string userId,
+        string threadId,
+        string sourceRouteSheetId,
+        CancellationToken cancellationToken = default)
+    {
+        var tid = (threadId ?? "").Trim();
+        var rsId = (sourceRouteSheetId ?? "").Trim();
+        if (tid.Length < 4 || rsId.Length < 1)
+            return (null, RouteSheetMutationResult.NotFoundOrForbidden);
+
+        var sourceRow = await db.ChatRouteSheets.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.RouteSheetId == rsId && x.DeletedAtUtc == null,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (sourceRow is null)
+            return (null, RouteSheetMutationResult.NotFoundOrForbidden);
+
+        var (newId, payload) = CloneForDuplicate(sourceRow.Payload, tid);
+        var upsert = await UpsertInternalAsync(
+            userId,
+            tid,
+            newId,
+            payload,
+            bypassUnpaidAgreementLimit: true,
+            cancellationToken).ConfigureAwait(false);
+        if (upsert != RouteSheetMutationResult.Ok)
+            return (null, upsert);
+
+        var created = await db.ChatRouteSheets.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.RouteSheetId == newId && x.DeletedAtUtc == null,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return created is null
+            ? (null, RouteSheetMutationResult.NotFoundOrForbidden)
+            : (created.Payload, null);
     }
 
     public async Task<bool> CarrierRespondToSheetEditAsync(
@@ -840,5 +1138,35 @@ public sealed class RouteSheetChatService(
         if (emergent is null || emergent.RetractedAtUtc is not null)
             return;
         emergent.RetractedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    private static (string NewRouteSheetId, RouteSheetPayload Payload) CloneForDuplicate(
+        RouteSheetPayload source,
+        string threadId)
+    {
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var newRsId = "rs_" + Guid.NewGuid().ToString("N")[..16];
+        var clone = RouteSheetUtils.ClonePayload(source);
+        clone.Id = newRsId;
+        clone.ThreadId = threadId;
+        clone.Estado = "programada";
+        clone.PublicadaPlataforma = false;
+        clone.RouteSheetEditAck = null;
+        clone.EditadaEnFormulario = null;
+        clone.CreadoEn = nowMs;
+        clone.ActualizadoEn = nowMs;
+
+        var baseTitulo = (clone.Titulo ?? "").Trim();
+        clone.Titulo = baseTitulo.Length > 0 ? $"{baseTitulo} (copia)" : "Hoja de ruta (copia)";
+
+        clone.Paradas ??= new List<RouteStopPayload>();
+        foreach (var p in clone.Paradas)
+        {
+            p.Id = "stop_" + Guid.NewGuid().ToString("N")[..12];
+            p.Completada = null;
+            p.TelefonoTransportista = null;
+        }
+
+        return (newRsId, clone);
     }
 }

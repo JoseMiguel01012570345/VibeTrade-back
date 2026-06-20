@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Agreements;
 using VibeTrade.Backend.Features.Payments.Dtos;
 using VibeTrade.Backend.Features.RouteSheets;
 using VibeTrade.Backend.Features.RouteSheets.Dtos;
@@ -32,9 +33,17 @@ public static class PaymentCheckoutComputation
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments = null,
         IReadOnlyList<string>? selectedRoutePathIds = null,
         IReadOnlyList<string>? selectedMerchandiseLineIds = null,
-        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower = null)
+        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower = null,
+        IReadOnlySet<string>? confirmedRouteStopIds = null)
     {
         var errs = ValidateAgreementForCheckout(ag);
+        if (!TradeAgreementService.TryResolveSingleAgreementCurrency(
+                ag, routeSheetPayload, out _, out var currencyErr))
+        {
+            if (currencyErr is not null)
+                errs.Add(currencyErr);
+        }
+
         var buckets = new Dictionary<string, CurrencyBucket>(StringComparer.OrdinalIgnoreCase);
         var hasServiceSelection = selectedServicePayments is { Count: > 0 };
         var routesSpecified = selectedRoutePathIds is not null;
@@ -73,9 +82,12 @@ public static class PaymentCheckoutComputation
         }
 
         if (!hasServiceSelection)
-            AccumulateRouteLegsIfAny(ag, routeSheetPayload, selectedRoutePathIds, errs, buckets);
+            AccumulateRouteLegsIfAny(
+                ag, routeSheetPayload, selectedRoutePathIds, errs, buckets, confirmedRouteStopIds);
 
         var byCurrency = BuildTotalsByCurrency(buckets);
+        if (buckets.Count > 1)
+            errs.Add(TradeAgreementService.MultipleAgreementCurrenciesMessage);
         if (byCurrency.Count == 0 && errs.Count == 0)
             errs.Add("No hay importes para cobrar en este acuerdo.");
 
@@ -346,14 +358,35 @@ public static class PaymentCheckoutComputation
         RouteSheetPayload? routeSheetPayload,
         IReadOnlyList<string>? selectedRoutePathIds,
         ICollection<string> errs,
-        IDictionary<string, CurrencyBucket> buckets)
+        IDictionary<string, CurrencyBucket> buckets,
+        IReadOnlySet<string>? confirmedRouteStopIds = null)
     {
         var rsIdLink = string.IsNullOrWhiteSpace(ag.RouteSheetId) ? null : ag.RouteSheetId!.Trim();
         if (string.IsNullOrEmpty(rsIdLink)) return;
         if (routeSheetPayload?.Paradas is not { Count: > 0 } stops) return;
 
+        if (ag.IncludeMerchandise)
+        {
+            if (!TradeAgreementService.TryResolveSingleAgreementCurrency(
+                    ag, routeSheetPayload, out var merchCur, out var merchErr))
+            {
+                if (merchErr is not null) errs.Add(merchErr);
+                return;
+            }
+
+            var currencyErr = TradeAgreementService.ValidateRoutePayloadCurrency(
+                routeSheetPayload, merchCur!);
+            if (currencyErr is not null)
+            {
+                errs.Add(currencyErr);
+                return;
+            }
+        }
+
         // null = todas las rutas payables; [] = sin transporte; lista = rutas indicadas (expandidas a paradas).
-        var resolved = RoutePathComputation.ResolveForCheckout(routeSheetPayload, selectedRoutePathIds);
+        var confirmed = confirmedRouteStopIds ?? new HashSet<string>(StringComparer.Ordinal);
+        var resolved = RoutePathComputation.ResolveForCheckout(
+            routeSheetPayload, selectedRoutePathIds, confirmedStopIds: confirmed);
         foreach (var e in resolved.Errors)
             errs.Add(e);
         var stopPick = resolved.ExpandedStopIds;

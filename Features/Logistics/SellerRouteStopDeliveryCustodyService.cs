@@ -58,30 +58,28 @@ public sealed class SellerRouteStopDeliveryCustodyService(
             || !string.Equals((agreement.RouteSheetId ?? "").Trim(), rsid, StringComparison.Ordinal))
             return new SellerRouteStopCustodyResult(false, "agreement_mismatch", "Acuerdo no válido para esta hoja.");
 
-        var otherIdle = await db.RouteStopDeliveries.AsNoTracking()
-            .AnyAsync(
-                x =>
-                    x.ThreadId == tid
-                    && x.RouteSheetId == rsid
-                    && x.RouteStopId != stop
-                    && x.State == RouteStopDeliveryStates.IdleStoreCustody
-                    && x.RefundedAtUtc == null,
-                cancellationToken)
+        await using var tx = await db.Database
+            .BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken)
             .ConfigureAwait(false);
-        if (otherIdle)
+
+        var sheetDeliveries = await db.RouteStopDeliveries
+            .Where(x => x.ThreadId == tid && x.RouteSheetId == rsid)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (sheetDeliveries.Any(x =>
+                x.RouteStopId != stop
+                && x.State == RouteStopDeliveryStates.IdleStoreCustody
+                && x.RefundedAtUtc == null))
+        {
             return new SellerRouteStopCustodyResult(
                 false,
                 "route_sheet_already_idle",
                 "Ya hay otro tramo en pausa en esta hoja. Reanudalo antes de pausar otro.");
+        }
 
-        var delivery = await db.RouteStopDeliveries.FirstOrDefaultAsync(
-                x =>
-                    x.ThreadId == tid
-                    && x.TradeAgreementId == aid
-                    && x.RouteSheetId == rsid
-                    && x.RouteStopId == stop,
-                cancellationToken)
-            .ConfigureAwait(false);
+        var delivery = sheetDeliveries.FirstOrDefault(x =>
+            x.TradeAgreementId == aid && x.RouteStopId == stop);
         if (delivery is null)
             return new SellerRouteStopCustodyResult(false, "delivery_missing", "No hay estado de entrega para este tramo.");
 
@@ -92,10 +90,7 @@ public sealed class SellerRouteStopDeliveryCustodyService(
                 "no_active_owner",
                 "No hay titular del paquete en este tramo para pausar.");
 
-        var canPause =
-            string.Equals(delivery.State, RouteStopDeliveryStates.InTransit, StringComparison.OrdinalIgnoreCase)
-            || prevOwner.Length >= 2;
-        if (!canPause)
+        if (!string.Equals(delivery.State, RouteStopDeliveryStates.InTransit, StringComparison.OrdinalIgnoreCase))
             return new SellerRouteStopCustodyResult(
                 false,
                 "invalid_state_for_pause",
@@ -120,6 +115,7 @@ public sealed class SellerRouteStopDeliveryCustodyService(
         });
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         await broadcasting.BroadcastRouteTramoSubscriptionsChangedAsync(
                 new RouteTramoSubscriptionsBroadcastArgs(tid, rsid, "route_stop_idle", sid),

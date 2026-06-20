@@ -27,4 +27,7 @@ public static class PaymentStripeEnv
     /// </summary>
     public static bool SkipStripePaymentIntentCreate() =>
         EnvTruthy("VIBETRADE_SKIP_PAYMENT_INTENTS") || EnvTruthy("STRIPE_SKIP_PAYMENT_INTENTS");
+
+    /// <summary>PM sintético listado en modo skip cuando el usuario ya tiene StripeCustomerId (E2E / demo).</summary>
+    public const string DemoSkipPaymentMethodId = "pm_demo_skip_e2e0001";
 }

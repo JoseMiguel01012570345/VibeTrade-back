@@ -37,6 +37,7 @@ using VibeTrade.Backend.Features.Routing;
 using VibeTrade.Backend.Features.Routing.Interfaces;
 using VibeTrade.Backend.Features.SavedOffers;
 using VibeTrade.Backend.Features.SavedOffers.Interfaces;
+using VibeTrade.Backend.Features.Search;
 using VibeTrade.Backend.Features.Search.Catalog;
 using VibeTrade.Backend.Features.Search.Elasticsearch;
 using VibeTrade.Backend.Features.Search.Interfaces;
@@ -83,6 +84,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
         services.AddScoped<IUserContactsService, UserContactsService>();
         services.AddScoped<ITrustScoreLedgerService, TrustScoreLedgerService>();
+        services.AddScoped<AgreementCompletionTrustService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
         services.AddScoped<IThreadAccessControlService, ThreadAccessControlService>();
@@ -157,9 +159,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IStoreSearchTextEmbeddingService, StoreSearchMlNetTfIdfEmbeddingService>();
         services.AddScoped<IElasticsearchStoreSearchQuery, ElasticsearchStoreSearchQuery>();
         services.AddScoped<IStoreSearchIndexWriter, ElasticsearchStoreSearchIndexWriter>();
-        services.AddHostedService<ElasticsearchSearchStartupHostedService>();
-        services.AddHostedService<ElasticsearchDailyReindexHostedService>();
-
+        services.AddScoped<ICatalogSearchLiveIndexSync, CatalogSearchLiveIndexSync>();
         return services;
     }
 

@@ -24,6 +24,7 @@ public sealed class BearerSessionAuthMiddleware(RequestDelegate next)
         ("POST", "/api/v1/market/inquiries"),
         ("POST", "/api/v1/auth/request-code"),
         ("POST", "/api/v1/auth/verify"),
+        ("GET", "/api/v1/auth/public-profile"),
         ("POST", "/api/v1/market/stores"),
         ("GET", "/api/v1/market/currencies"),
         ("GET", "/api/v1/routing/osrm"),

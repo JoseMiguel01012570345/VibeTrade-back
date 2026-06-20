@@ -232,7 +232,8 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
             .Indices(_opt.IndexName)
             .Query(q => q.Term(t => t
                 .Field(f => f.StoreId)
-                .Value(storeId))), cancellationToken);
+                .Value(storeId)))
+            .Refresh(true), cancellationToken);
 
         if (!del.IsValidResponse)
         {
@@ -366,7 +367,11 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         if (ops.Count == 0)
             return;
 
-        var bulk = await _client.BulkAsync(new BulkRequest(_opt.IndexName) { Operations = ops }, cancellationToken);
+        var bulk = await _client.BulkAsync(new BulkRequest(_opt.IndexName)
+        {
+            Operations = ops,
+            Refresh = Refresh.WaitFor,
+        }, cancellationToken);
         if (!bulk.IsValidResponse)
         {
             var errors = new List<string>(8);

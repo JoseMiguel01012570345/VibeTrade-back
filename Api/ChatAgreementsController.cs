@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using VibeTrade.Backend.Features.Agreements;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Auth.Interfaces;
 
@@ -49,6 +50,12 @@ public sealed class ChatAgreementsController(
                 error = writeErr,
                 message = "En este chat ya hay un acuerdo con ese nombre. Elige otro título.",
             });
+        if (writeErr == TradeAgreementWriteErrors.SingleAgreementCurrency)
+            return BadRequest(new
+            {
+                error = writeErr,
+                message = TradeAgreementService.MultipleAgreementCurrenciesMessage,
+            });
         if (created is null)
             return NotFound(new { error = "not_found", message = "No se pudo crear el acuerdo." });
         return Ok(created);
@@ -76,6 +83,12 @@ public sealed class ChatAgreementsController(
             {
                 error = writeErr,
                 message = "En este chat ya hay otro acuerdo con ese nombre. Elige otro título.",
+            });
+        if (writeErr == TradeAgreementWriteErrors.SingleAgreementCurrency)
+            return BadRequest(new
+            {
+                error = writeErr,
+                message = TradeAgreementService.MultipleAgreementCurrenciesMessage,
             });
         if (updated is null)
             return NotFound(new { error = "not_found", message = "No se pudo actualizar el acuerdo." });
@@ -111,7 +124,43 @@ public sealed class ChatAgreementsController(
         var msg = outcome.FailureMessage ?? "No se pudo actualizar el vínculo con la hoja de ruta.";
         if (code == StatusCodes.Status400BadRequest)
             return BadRequest(new { error = "no_merchandise", message = msg });
+        if (code == StatusCodes.Status409Conflict)
+            return Conflict(new
+            {
+                error = TradeAgreementWriteErrors.RouteSheetAlreadyLinked,
+                message = msg,
+            });
         return NotFound(new { error = "not_found", message = msg });
+    }
+
+    /// <summary>Duplica un acuerdo del hilo (solo vendedor; copia el contenido; estado inicial pendiente; sin vínculo de hoja ni pagos).</summary>
+    [HttpPost("threads/{threadId}/trade-agreements/{agreementId}/duplicate")]
+    [ProducesResponseType(typeof(TradeAgreementApiResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> PostDuplicateTradeAgreement(
+        string threadId,
+        string agreementId,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
+            return Unauthorized();
+        var (created, writeErr) = await tradeAgreements.DuplicateAsync(
+            userId,
+            threadId,
+            agreementId,
+            cancellationToken);
+        if (writeErr == TradeAgreementWriteErrors.DuplicateAgreementTitle)
+            return Conflict(new
+            {
+                error = writeErr,
+                message = "En este chat ya hay un acuerdo con ese nombre. Elige otro título.",
+            });
+        if (created is null)
+            return NotFound(new { error = "not_found", message = "No se pudo duplicar el acuerdo." });
+        return Ok(created);
     }
 
     public sealed record TradeAgreementRespondBody(bool Accept);
@@ -131,7 +180,13 @@ public sealed class ChatAgreementsController(
         var userId = currentUser.GetUserId(Request);
         if (userId is null)
             return Unauthorized();
-        var updated = await tradeAgreements.RespondAsync(userId, threadId, agreementId, body.Accept, cancellationToken);
+        var (updated, respondErr) = await tradeAgreements.RespondAsync(userId, threadId, agreementId, body.Accept, cancellationToken);
+        if (respondErr == TradeAgreementWriteErrors.SingleAgreementCurrency)
+            return BadRequest(new
+            {
+                error = respondErr,
+                message = TradeAgreementService.MultipleAgreementCurrenciesMessage,
+            });
         if (updated is null)
             return NotFound(new { error = "not_found", message = "No se pudo registrar la respuesta." });
         return Ok(updated);

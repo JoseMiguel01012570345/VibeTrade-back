@@ -6,6 +6,7 @@ using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+using VibeTrade.Backend.Features.Notifications.BroadcastingDtos;
 
 namespace VibeTrade.Backend.Features.Logistics;
 
@@ -180,8 +181,12 @@ public sealed class CarrierTelemetryService(
                 projection.OffRoute, resolvedSpeedKmh, avatarUrl);
         }
 
+        var movedToInTransit = false;
         if (delivery.State is RouteStopDeliveryStates.Paid or RouteStopDeliveryStates.AwaitingCarrierForHandoff)
+        {
             delivery.State = RouteStopDeliveryStates.InTransit;
+            movedToInTransit = true;
+        }
 
         delivery.LastTelemetryProgressFraction = projection.Progress01;
         delivery.UpdatedAtUtc = now;
@@ -206,6 +211,14 @@ public sealed class CarrierTelemetryService(
                 avatarUrl,
                 cancellationToken)
             .ConfigureAwait(false);
+
+        if (movedToInTransit)
+        {
+            await broadcasting.BroadcastRouteTramoSubscriptionsChangedAsync(
+                    new RouteTramoSubscriptionsBroadcastArgs(tid, rsid, "route_deliveries_updated", uid),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return new CarrierTelemetryIngestResultDto(true, null, null, projection.Progress01, projection.OffRoute, resolvedSpeedKmh,
             avatarUrl);

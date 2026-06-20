@@ -9,6 +9,7 @@ namespace VibeTrade.Backend.Features.Agreements;
 public sealed class AgreementMerchandiseEvidenceService(
     IChatService chat,
     IChatThreadSystemMessageService threadSystemMessages,
+    AgreementCompletionTrustService completionTrust,
     AppDbContext db) : IAgreementMerchandiseEvidenceService
 {
     public async Task<(int StatusCode, IReadOnlyList<AgreementMerchandiseLinePaymentWithEvidenceDto>? Data)> ListAsync(
@@ -102,6 +103,14 @@ public sealed class AgreementMerchandiseEvidenceService(
         if (string.Equals(pay.Status, AgreementMerchandiseLinePaidStatuses.Released, StringComparison.OrdinalIgnoreCase))
             return (StatusCodes.Status400BadRequest, "Pago ya liberado: no se puede editar evidencia.", null);
 
+        var routeGate = await AgreementRouteCompletionGate.ValidateMerchandiseEvidenceSubmitAsync(
+                db, tid, aid, body.Submit, cancellationToken)
+            .ConfigureAwait(false);
+        if (!routeGate.Ok)
+            return (StatusCodes.Status400BadRequest,
+                "La hoja de ruta vinculada aún no está entregada; presentá la evidencia cuando el recorrido haya finalizado.",
+                null);
+
         var now = DateTimeOffset.UtcNow;
         var ev = await db.MerchandiseEvidences
             .FirstOrDefaultAsync(x => x.AgreementMerchandiseLinePaidId == pid, cancellationToken)
@@ -110,7 +119,12 @@ public sealed class AgreementMerchandiseEvidenceService(
             string.Equals(ev.Status, MerchandiseEvidenceStatuses.Accepted, StringComparison.OrdinalIgnoreCase))
             return (StatusCodes.Status400BadRequest, "Evidencia ya aceptada: no se puede editar.", null);
 
-        var nextStatus = body.Submit ? MerchandiseEvidenceStatuses.Submitted : MerchandiseEvidenceStatuses.Draft;
+        var nextStatus = body.Submit
+            ? MerchandiseEvidenceStatuses.Submitted
+            : ev is not null &&
+              string.Equals(ev.Status, MerchandiseEvidenceStatuses.Pending, StringComparison.OrdinalIgnoreCase)
+                ? MerchandiseEvidenceStatuses.Pending
+                : MerchandiseEvidenceStatuses.Draft;
         var norm = AgreementUtils.NormalizeEvidence(body.Text, body.Attachments);
 
         if (ev is null)
@@ -233,6 +247,9 @@ public sealed class AgreementMerchandiseEvidenceService(
             ? "El comprador aceptó la evidencia de mercadería. Pago liberado (demo)."
             : "El comprador rechazó la evidencia de mercadería.";
         await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(tid, notice, cancellationToken).ConfigureAwait(false);
+
+        if (string.Equals(d, "accepted", StringComparison.OrdinalIgnoreCase))
+            await completionTrust.TryApplyCompletionBonusesAsync(tid, aid, cancellationToken).ConfigureAwait(false);
 
         return (StatusCodes.Status200OK, null);
     }

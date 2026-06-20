@@ -13,5 +13,6 @@ public interface IPartySoftLeaveCoordinator
         ChatThreadRow thread,
         bool isBuyer,
         bool isSeller,
+        string? routeGateAgreementId = null,
         CancellationToken cancellationToken = default);
 }

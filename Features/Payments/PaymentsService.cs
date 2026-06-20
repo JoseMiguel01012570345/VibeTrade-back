@@ -7,11 +7,15 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Agreements;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
-using VibeTrade.Backend.Features.Logistics.Interfaces;
+using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
+using VibeTrade.Backend.Features.Notifications.BroadcastingDtos;
 using VibeTrade.Backend.Features.Logistics;
 using VibeTrade.Backend.Features.RouteSheets;
+using VibeTrade.Backend.Features.RouteSheets.Dtos;
+using VibeTrade.Backend.Features.RouteSheets.Interfaces;
 using Stripe;
 using static VibeTrade.Backend.Features.Payments.PaymentUtils;
 
@@ -20,8 +24,10 @@ namespace VibeTrade.Backend.Features.Payments;
 public sealed class PaymentsService(
     AppDbContext db,
     IChatService chat,
+    IRouteSheetChatService routeSheets,
     IChatThreadSystemMessageService threadSystemMessages,
     INotificationService notifications,
+    IBroadcastingService broadcasting,
     IPaymentFeeReceiptEmailDispatcher paymentFeeReceiptEmail,
     ILogger<PaymentsService> logger)
     : IPaymentsService, IStripeUserPaymentService, IStripePaymentIntentService, IAgreementPaymentService
@@ -47,14 +53,34 @@ public sealed class PaymentsService(
         string userId,
         CancellationToken cancellationToken = default)
     {
-        var serverKey = PaymentStripeEnv.StripeServerApiKey();
-        if (serverKey is null)
-            return [];
-
         var u = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == userId.Trim(), cancellationToken)
             .ConfigureAwait(false);
         var cusId = u?.StripeCustomerId?.Trim();
+
+        if (PaymentStripeEnv.SkipStripePaymentIntentCreate())
+        {
+            if (!string.IsNullOrWhiteSpace(cusId))
+            {
+                return
+                [
+                    new StripeCardPaymentMethodDto(
+                        PaymentStripeEnv.DemoSkipPaymentMethodId,
+                        "visa",
+                        "4242",
+                        12,
+                        2034,
+                        "US"),
+                ];
+            }
+
+            return [];
+        }
+
+        var serverKey = PaymentStripeEnv.StripeServerApiKey();
+        if (serverKey is null)
+            return [];
+
         if (string.IsNullOrWhiteSpace(cusId))
             return [];
 
@@ -242,8 +268,18 @@ public sealed class PaymentsService(
             await LoadPaidMerchandiseLineIdsByCurrencyAsync(agreementId.Trim(), cancellationToken)
                 .ConfigureAwait(false);
 
-        return PaymentCheckoutComputation.ComputeForAgreement(ag, rp, selectedServicePayments, selectedRoutePathIds,
-            selectedMerchandiseLineIds, paidMerch);
+        var confirmedRouteStopIds = await routeSheets.LoadConfirmedRouteStopIdsAsync(
+                threadId.Trim(), ag.RouteSheetId?.Trim() ?? "", cancellationToken)
+            .ConfigureAwait(false);
+
+        return PaymentCheckoutComputation.ComputeForAgreement(
+            ag,
+            rp,
+            selectedServicePayments,
+            selectedRoutePathIds,
+            selectedMerchandiseLineIds,
+            paidMerch,
+            confirmedRouteStopIds);
     }
 
     private async Task<Dictionary<string, HashSet<string>>> LoadPaidMerchandiseLineIdsByCurrencyAsync(
@@ -325,6 +361,19 @@ public sealed class PaymentsService(
             if (cur.Length is < 3 or > 8 || pmId.Length < 12)
                 return ExecutePaymentErr.InvalidParams();
             var ik = (idempotencyKey ?? "").Trim();
+
+            var lockedCurrency = await db.AgreementCurrencyPayments.AsNoTracking()
+                .Where(
+                    x =>
+                        x.TradeAgreementId == agreementId.Trim()
+                        && x.Status == AgreementPaymentStatuses.Succeeded
+                        && x.Currency != cur)
+                .Select(x => x.Currency)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(lockedCurrency))
+                return ExecutePaymentErr.AgreementCurrencyMismatch(lockedCurrency!.Trim(), cur);
+
             var blocked = await TryPreChargeExitAsync(ik, agreementId, cur, selectedServicePayments, selectedRoutePathIds,
                     selectedMerchandiseLineIds, cancellationToken)
                 .ConfigureAwait(false);
@@ -340,8 +389,17 @@ public sealed class PaymentsService(
             var paidMerch =
                 await LoadPaidMerchandiseLineIdsByCurrencyAsync(agreementId.Trim(), cancellationToken)
                     .ConfigureAwait(false);
-            var breakdown = PaymentCheckoutComputation.ComputeForAgreement(agr, rp, selectedServicePayments,
-                selectedRoutePathIds, selectedMerchandiseLineIds, paidMerch);
+            var confirmedRouteStopIds = await routeSheets.LoadConfirmedRouteStopIdsAsync(
+                    threadId.Trim(), agr.RouteSheetId?.Trim() ?? "", cancellationToken)
+                .ConfigureAwait(false);
+            var breakdown = PaymentCheckoutComputation.ComputeForAgreement(
+                agr,
+                rp,
+                selectedServicePayments,
+                selectedRoutePathIds,
+                selectedMerchandiseLineIds,
+                paidMerch,
+                confirmedRouteStopIds);
             var qb = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, cur);
             if (!breakdown.Ok || qb is null)
             {
@@ -662,6 +720,14 @@ public sealed class PaymentsService(
         internal static AgreementExecutePaymentResultDto MerchandiseLineAlreadyPaid() =>
             new("", false, null, "Esta línea de mercadería ya fue cobrada en esta moneda.", false,
                 "merchandise_line_already_paid");
+
+        internal static AgreementExecutePaymentResultDto AgreementCurrencyMismatch(
+            string lockedCurrencyLower,
+            string attemptedCurrencyLower) =>
+            new("", false, null,
+                $"Este acuerdo ya tiene un cobro en {lockedCurrencyLower.ToUpperInvariant()}; no se puede cobrar en {attemptedCurrencyLower.ToUpperInvariant()}.",
+                false,
+                "agreement_currency_mismatch");
     }
 
     private static List<AgreementServicePaymentRow> BuildServicePaymentRowsForSelection(
@@ -850,7 +916,7 @@ public sealed class PaymentsService(
                             });
                         }
 
-                        row.State = RouteStopDeliveryStates.AwaitingCarrierForHandoff;
+                        row.State = RouteStopDeliveryStates.InTransit;
                         row.UpdatedAtUtc = now;
                     }
                     else
@@ -873,6 +939,15 @@ public sealed class PaymentsService(
         }
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        await broadcasting.BroadcastRouteTramoSubscriptionsChangedAsync(
+                new RouteTramoSubscriptionsBroadcastArgs(
+                    threadId.Trim(),
+                    rsid,
+                    "route_deliveries_updated",
+                    ""),
+                cancellationToken)
+            .ConfigureAwait(false);
 
         if (rp is not null)
         {

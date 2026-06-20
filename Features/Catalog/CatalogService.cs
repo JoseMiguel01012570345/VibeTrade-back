@@ -11,14 +11,13 @@ using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Features.Search.Catalog;
-using VibeTrade.Backend.Features.Search.Elasticsearch;
 using VibeTrade.Backend.Features.Search.Interfaces;
 
 namespace VibeTrade.Backend.Features.Catalog;
 
 public sealed class CatalogService(
     AppDbContext db,
-    IStoreSearchIndexWriter storeSearchIndex,
+    ICatalogSearchLiveIndexSync catalogSearchLiveIndex,
     IChatService chat,
     IOfferService offerService) : IMarketCatalogSyncService
 {
@@ -273,7 +272,7 @@ public sealed class CatalogService(
         store.DeletedAtUtc = now;
         await db.SaveChangesAsync(cancellationToken);
 
-        await storeSearchIndex.UpsertStoresAsync([sid], cancellationToken);
+        await catalogSearchLiveIndex.SyncStoreAsync(sid, cancellationToken);
 
         return StoreCatalogUpsertResult.Ok;
     }
@@ -389,7 +388,7 @@ public sealed class CatalogService(
         var now = DateTimeOffset.UtcNow;
         await UpsertSingleProductRowAsync(storeId, productId, product, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        await storeSearchIndex.UpsertStoresAsync([storeId], cancellationToken);
+        await catalogSearchLiveIndex.SyncStoreAsync(storeId, cancellationToken);
         return StoreCatalogUpsertResult.Ok;
     }
 
@@ -418,7 +417,7 @@ public sealed class CatalogService(
 
         row.DeletedAtUtc = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
-        await storeSearchIndex.UpsertStoresAsync([storeId], cancellationToken);
+        await catalogSearchLiveIndex.SyncStoreAsync(storeId, cancellationToken);
         return StoreCatalogUpsertResult.Ok;
     }
 
@@ -450,7 +449,7 @@ public sealed class CatalogService(
         var now = DateTimeOffset.UtcNow;
         await UpsertSingleServiceRowAsync(storeId, serviceId, service, now, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
-        await storeSearchIndex.UpsertStoresAsync([storeId], cancellationToken);
+        await catalogSearchLiveIndex.SyncStoreAsync(storeId, cancellationToken);
         return StoreCatalogUpsertResult.Ok;
     }
 
@@ -479,7 +478,7 @@ public sealed class CatalogService(
 
         row.DeletedAtUtc = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
-        await storeSearchIndex.UpsertStoresAsync([storeId], cancellationToken);
+        await catalogSearchLiveIndex.SyncStoreAsync(storeId, cancellationToken);
         return StoreCatalogUpsertResult.Ok;
     }
 
@@ -565,7 +564,7 @@ public sealed class CatalogService(
         if (hasStores && (storeProfiles || catalogs))
         {
             var ids = workspaceRoot.Stores.Select(p => p.Key).ToList();
-            await storeSearchIndex.UpsertStoresAsync(ids, cancellationToken);
+            await catalogSearchLiveIndex.SyncStoresAsync(ids, cancellationToken);
         }
     }
 

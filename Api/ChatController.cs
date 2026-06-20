@@ -7,6 +7,11 @@ using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
+using VibeTrade.Backend.Features.Agreements;
+using VibeTrade.Backend.Features.Policies.Interfaces;
+using VibeTrade.Backend.Features.RouteSheets;
+using VibeTrade.Backend.Features.RouteTramoSubscriptions.Dtos;
+using VibeTrade.Backend.Features.RouteTramoSubscriptions.Interfaces;
 using VibeTrade.Backend.Infrastructure;
 using VibeTrade.Backend.Data.Entities;
 
@@ -23,7 +28,8 @@ public sealed class ChatController(
     IChatService chat,
     IBroadcastingService broadcasting,
     IRouteSheetChatService routeSheets,
-    IRouteTramoSubscriptionService routeTramoSubscriptions)
+    IRouteTramoSubscriptionService routeTramoSubscriptions,
+    IChatExitPolicyRegistry chatExitPolicyRegistry)
     : ControllerBase
 {
     public sealed record CreateThreadBody(string OfferId, bool? PurchaseIntent, bool? ForceNew);
@@ -329,7 +335,7 @@ public sealed class ChatController(
     }
 
     /// <summary>
-    /// Indica si el hilo tiene al menos una hoja de ruta vinculada a un acuerdo aceptado sin pagos exitosos.
+    /// Indica si el hilo permite crear otra hoja de ruta (acuerdo aceptado sin pago o con cobro pero sin hoja vinculada).
     /// </summary>
     [HttpGet("threads/{threadId}/route-sheets/has-unpaid")]
     [ProducesResponseType(typeof(bool), StatusCodes.Status200OK)]
@@ -349,17 +355,18 @@ public sealed class ChatController(
         if (t is null || t.DeletedAtUtc is not null || !await chat.UserCanAccessThreadRowAsync(userId, t, cancellationToken))
             return NotFound();
 
-        var hasUnpaid = await db.TradeAgreements.AsNoTracking()
+        var canCreateRouteSheet = await db.TradeAgreements.AsNoTracking()
             .Where(a => a.ThreadId == tid
                         && a.DeletedAtUtc == null
-                        && a.Status == "accepted"
-                        && a.RouteSheetId != null)
+                        && a.Status == "accepted")
             .AnyAsync(
                 a => !db.AgreementCurrencyPayments.AsNoTracking().Any(
-                    p => p.TradeAgreementId == a.Id && p.Status == AgreementPaymentStatuses.Succeeded),
+                         p => p.TradeAgreementId == a.Id
+                              && p.Status == AgreementPaymentStatuses.Succeeded)
+                     || a.RouteSheetId == null
+                     || a.RouteSheetId == "",
                 cancellationToken);
-
-        return Ok(hasUnpaid);
+        return Ok(canCreateRouteSheet);
     }
 
     /// <summary>
@@ -502,6 +509,7 @@ public sealed class ChatController(
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> PostSellerExpelCarrier(
         string threadId,
         [FromBody] SellerExpelCarrierBody? body,
@@ -534,6 +542,14 @@ public sealed class ChatController(
             cancellationToken);
         if (r is null)
             return NotFound(new { error = "not_found", message = "No se pudo retirar al transportista (sin permiso o sin suscripciones activas)." });
+
+        if (chatExitPolicyRegistry.TryMapSellerExpelFailure(r.ErrorCode, out var sellerStatus, out var sellerMessage))
+        {
+            return StatusCode(
+                sellerStatus,
+                new { error = r.ErrorCode, message = sellerMessage });
+        }
+
         return Ok(r);
     }
 
@@ -555,6 +571,8 @@ public sealed class ChatController(
             return Unauthorized();
         if (RouteSheetUtils.ValidateEstimatedTimes(payload) is { } validationMessage)
             return BadRequest(new { error = "validation", message = validationMessage });
+        if (RouteSheetUtils.ValidateLinkedTramoChain(payload) is { } linkMessage)
+            return BadRequest(new { error = "tramos_not_linked", message = linkMessage });
         var result = await routeSheets.UpsertAsync(userId, threadId, routeSheetId, payload, cancellationToken);
         return result switch
         {
@@ -562,13 +580,22 @@ public sealed class ChatController(
             RouteSheetMutationResult.LockedByPaidAgreement => Conflict(new
             {
                 error = "locked_paid_agreement",
-                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
+                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar ni eliminar.",
             }),
-            RouteSheetMutationResult.PublishRequiresAgreementLink => BadRequest(new
+            RouteSheetMutationResult.ExceedsUnpaidAgreementLimit => Conflict(new
             {
-                error = "publish_requires_agreement_link",
-                message =
-                    "Publica la hoja solo después de vincularla al acuerdo (RouteSheetId). Guarda la hoja, vincúlala, y recién entonces marca publicada en la plataforma.",
+                error = "exceeds_unpaid_agreement_limit",
+                message = "Ya hay una hoja de ruta por cada acuerdo que puede vincularse. Vinculá las hojas existentes antes de crear una nueva.",
+            }),
+            RouteSheetMutationResult.RouteCurrencyMerchandiseMismatch => BadRequest(new
+            {
+                error = "route_currency_merchandise_mismatch",
+                message = TradeAgreementService.RouteStopCurrencyMismatchMessage,
+            }),
+            RouteSheetMutationResult.CannotPublishDeliveredSheet => Conflict(new
+            {
+                error = "cannot_publish_delivered_sheet",
+                message = "Esta hoja de ruta ya fue entregada; no se puede publicar en la plataforma.",
             }),
             _ => NotFound(new { error = "not_found", message = "Hilo no encontrado o datos inválidos." }),
         };
@@ -597,11 +624,18 @@ public sealed class ChatController(
         if (body?.Invites is null || body.Invites.Length == 0)
             return BadRequest(new { error = "invalid_body", message = "Indica al menos un tramo con teléfono a notificar." });
         if (await routeSheets.RouteSheetIsLockedByPaidAgreementAsync(threadId, routeSheetId, cancellationToken))
-            return Conflict(new
-            {
-                error = "locked_paid_agreement",
-                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
-            });
+        {
+            var confirmedStopIds = await routeSheets.LoadConfirmedRouteStopIdsAsync(
+                threadId,
+                routeSheetId,
+                cancellationToken);
+            if (!RouteSheetPaidEditPolicy.InvitesTargetOnlyVacantStops(body.Invites, confirmedStopIds))
+                return Conflict(new
+                {
+                    error = "locked_paid_agreement",
+                    message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar ni eliminar.",
+                });
+        }
         var n = await routeSheets.NotifyPreselectedTransportistasAsync(
             userId,
             threadId,
@@ -650,6 +684,43 @@ public sealed class ChatController(
         return Ok(new { ok = true, accepted = body.Accepted });
     }
 
+    /// <summary>Duplica una hoja de ruta del hilo (solo vendedor; copia sin publicar).</summary>
+    [HttpPost("threads/{threadId}/route-sheets/{routeSheetId}/duplicate")]
+    [ProducesResponseType(typeof(RouteSheetPayload), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> PostDuplicateRouteSheet(
+        string threadId,
+        string routeSheetId,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.GetUserId(Request);
+        if (userId is null)
+            return Unauthorized();
+        var (payload, err) = await routeSheets.DuplicateAsync(
+            userId,
+            threadId,
+            routeSheetId,
+            cancellationToken);
+        if (payload is not null)
+            return Ok(payload);
+        return err switch
+        {
+            RouteSheetMutationResult.LockedByPaidAgreement => Conflict(new
+            {
+                error = "locked_paid_agreement",
+                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede duplicar.",
+            }),
+            RouteSheetMutationResult.ExceedsUnpaidAgreementLimit => Conflict(new
+            {
+                error = "exceeds_unpaid_agreement_limit",
+                message = "Ya hay una hoja de ruta por cada acuerdo que puede vincularse. Vinculá las hojas existentes antes de crear una nueva.",
+            }),
+            _ => NotFound(new { error = "not_found", message = "Hoja no encontrada o sin permiso." }),
+        };
+    }
+
     /// <summary>Elimina una hoja de ruta persistida y retira la señal emergente asociada.</summary>
     [HttpDelete("threads/{threadId}/route-sheets/{routeSheetId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -670,7 +741,7 @@ public sealed class ChatController(
             RouteSheetMutationResult.LockedByPaidAgreement => Conflict(new
             {
                 error = "locked_paid_agreement",
-                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar, eliminar ni publicar.",
+                message = "Esta hoja está vinculada a un acuerdo con cobros registrados; no se puede editar ni eliminar.",
             }),
             _ => NotFound(new { error = "not_found", message = "Hoja no encontrada o sin permiso." }),
         };

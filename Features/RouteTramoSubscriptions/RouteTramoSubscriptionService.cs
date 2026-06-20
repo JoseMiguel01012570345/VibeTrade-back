@@ -7,6 +7,7 @@ using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 using VibeTrade.Backend.Features.Trust.Interfaces;
 using VibeTrade.Backend.Features.Logistics;
+using VibeTrade.Backend.Features.RouteSheets;
 using VibeTrade.Backend.Features.Trust;
 
 namespace VibeTrade.Backend.Features.RouteTramoSubscriptions;
@@ -20,6 +21,10 @@ public sealed class RouteTramoSubscriptionService(
     /// <summary>Mensaje de <see cref="InvalidOperationException"/> cuando no se puede confirmar: otro transportista ya ocupa los tramos.</summary>
     public const string AcceptCarrierPendingConflictMessage =
         "Los tramos pendientes de este transportista ya tienen otro transportista confirmado.";
+
+    /// <summary>Mensaje cuando el tramo ya fue entregado (evidencia aceptada).</summary>
+    public const string StopDeliveredSubscriptionBlockedMessage =
+        "Este tramo ya fue entregado; no se aceptan nuevas suscripciones.";
 
     private const int CarrierRouteExitTrustPenalty = 3;
 
@@ -48,6 +53,19 @@ public sealed class RouteTramoSubscriptionService(
             .FirstOrDefaultAsync(
                 x => x.ThreadId == tid && x.RouteSheetId == rsid && x.DeletedAtUtc == null,
                 cancellationToken);
+        if (SubscriptionsUtils.RouteSheetPayloadIsDelivered(sheetRow?.Payload))
+            throw new InvalidOperationException(StopDeliveredSubscriptionBlockedMessage);
+
+        var stopDelivered = await db.RouteStopDeliveries.AsNoTracking()
+            .AnyAsync(
+                x => x.ThreadId == tid
+                    && x.RouteSheetId == rsid
+                    && x.RouteStopId == sid
+                    && x.State == RouteStopDeliveryStates.EvidenceAccepted,
+                cancellationToken);
+        if (stopDelivered)
+            throw new InvalidOperationException(StopDeliveredSubscriptionBlockedMessage);
+
         string? stopFp = null;
         if (sheetRow is not null)
         {
@@ -501,6 +519,27 @@ public sealed class RouteTramoSubscriptionService(
         if (ctx is null)
             return null;
 
+        var evidenceErr = await TryGetSellerExpelEvidenceGateErrorAsync(
+                ctx.ThreadId,
+                ctx.CarrierUserId,
+                ctx.Subs,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (evidenceErr is not null)
+            return new CarrierExpelledBySellerResult(0, false, null) { ErrorCode = evidenceErr };
+
+        var gateErr = await TryGetSellerExpelTramoMustPauseErrorAsync(
+                ctx.ThreadId,
+                ctx.CarrierUserId,
+                ctx.Subs,
+                ctx.ExpelSingleTramo,
+                routeSheetId,
+                stopId,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (gateErr is not null)
+            return new CarrierExpelledBySellerResult(0, false, null) { ErrorCode = gateErr };
+
         var now = DateTimeOffset.UtcNow;
         await ApplyRouteDeliveryRefundEligibilityForCarrierRemovalAsync(
                 ctx.ThreadId,
@@ -515,9 +554,10 @@ public sealed class RouteTramoSubscriptionService(
         SubscriptionsUtils.MarkSubscriptionsWithdrawn(ctx.Subs, now);
         int? storeTrustAfter = await ApplyStoreTrustPenaltyForSellerExpelIfNeededAsync(
             ctx.ApplyStoreTrustPenalty,
-            ctx.ConfirmedStopsWithdrawnCount,
+            ctx.PenaltyEligibleConfirmedStopCount,
             ctx.Thread.StoreId,
             ctx.ReasonTrim,
+            ctx.ExpelledWhileTramoPaused,
             cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
@@ -571,14 +611,13 @@ public sealed class RouteTramoSubscriptionService(
             .Where(x => x.ThreadId == tid && x.CarrierUserId == carrierId && x.Status != "withdrawn")
             .ToListAsync(cancellationToken);
 
-        var hasDeliveryOnStop = await db.RouteStopDeliveries.AsNoTracking()
-        .AnyAsync(
-            x => x.ThreadId == tid &&
-            x.RouteSheetId == filterRs &&
-            x.RouteStopId == filterStop &&
-            x.CurrentOwnerUserId == carrierId &&
-            x.State != RouteStopDeliveryStates.EvidenceAccepted,
-            cancellationToken);
+        var expelledWhileTramoPaused = expelSingleTramo && await db.RouteStopDeliveries.AsNoTracking()
+            .AnyAsync(
+                x => x.ThreadId == tid
+                    && x.RouteSheetId == filterRs
+                    && x.RouteStopId == filterStop
+                    && x.State == RouteStopDeliveryStates.IdleStoreCustody,
+                cancellationToken);
 
         if (subs.Count == 0)
             return null;
@@ -588,14 +627,16 @@ public sealed class RouteTramoSubscriptionService(
         if (subs.Count == 0)
             return null;
 
-        var hadConfirmed = subs.Exists(x =>
-            string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase));
-
         var confirmedStopsWithdrawnCount = subs
             .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
             .Select(x => (x.RouteSheetId, x.StopId))
             .Distinct()
             .Count();
+
+        var penaltyEligibleConfirmedStopCount = await CountPenaltyEligibleConfirmedStopsForSellerExpelAsync(
+            tid,
+            subs,
+            cancellationToken);
 
         var withdrawingIds = subs.Select(x => x.Id).ToHashSet();
         var hadOtherActive = await db.RouteTramoSubscriptions
@@ -606,10 +647,9 @@ public sealed class RouteTramoSubscriptionService(
                     && !withdrawingIds.Contains(x.Id),
                 cancellationToken);
 
-        var applyStoreTrustPenalty = hadConfirmed
+        var applyStoreTrustPenalty = penaltyEligibleConfirmedStopCount > 0
             && thread.BuyerExpelledAtUtc is null
-            && thread.SellerExpelledAtUtc is null
-            && !hasDeliveryOnStop;
+            && thread.SellerExpelledAtUtc is null;
 
         var distinctSheetIds = subs.Select(x => x.RouteSheetId).Distinct().ToList();
 
@@ -622,16 +662,155 @@ public sealed class RouteTramoSubscriptionService(
             expelSingleTramo,
             subs,
             confirmedStopsWithdrawnCount,
+            penaltyEligibleConfirmedStopCount,
             !hadOtherActive,
             applyStoreTrustPenalty,
+            expelledWhileTramoPaused,
             distinctSheetIds);
+    }
+
+    private async Task<int> CountPenaltyEligibleConfirmedStopsForSellerExpelAsync(
+        string threadId,
+        List<RouteTramoSubscriptionRow> subs,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var keys = subs
+            .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+            .Select(x => ((x.RouteSheetId ?? "").Trim(), (x.StopId ?? "").Trim()))
+            .Where(t => t.Item1.Length > 0 && t.Item2.Length > 0)
+            .Distinct()
+            .ToList();
+        if (keys.Count == 0 || tid.Length < 4)
+            return 0;
+
+        var count = 0;
+        foreach (var (rsid, stopId) in keys)
+        {
+            var state = await db.RouteStopDeliveries.AsNoTracking()
+                .Where(x => x.ThreadId == tid && x.RouteSheetId == rsid && x.RouteStopId == stopId)
+                .Select(x => x.State)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (SellerExpelDeliveryPolicy.ConfirmedStopSellerExpelWithoutTrustPenalty(state))
+                continue;
+            count++;
+        }
+
+        return count;
+    }
+
+    private async Task<string?> TryGetSellerExpelEvidenceGateErrorAsync(
+        string threadId,
+        string carrierUserId,
+        List<RouteTramoSubscriptionRow> subs,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var carrierId = (carrierUserId ?? "").Trim();
+        var keys = subs
+            .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+            .Select(x => ((x.RouteSheetId ?? "").Trim(), (x.StopId ?? "").Trim()))
+            .Where(t => t.Item1.Length > 0 && t.Item2.Length > 0)
+            .Distinct()
+            .ToList();
+        if (keys.Count == 0 || tid.Length < 4)
+            return null;
+
+        string? pending = null;
+        foreach (var (rsid, stopId) in keys)
+        {
+            var state = await db.RouteStopDeliveries.AsNoTracking()
+                .Where(x => x.ThreadId == tid && x.RouteSheetId == rsid && x.RouteStopId == stopId)
+                .Select(x => x.State)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var err = SellerExpelDeliveryPolicy.SellerExpelBlockedByEvidenceState(state);
+            if (err is null)
+                continue;
+            if (string.Equals(err, "seller_expel_evidence_rejected", StringComparison.OrdinalIgnoreCase))
+                return err;
+            pending ??= err;
+        }
+
+        if (pending is not null)
+            return pending;
+
+        if (carrierId.Length >= 2
+            && await HasPostCedeNonterminalRouteDeliveriesAsync(tid, carrierId, subs, cancellationToken)
+                .ConfigureAwait(false))
+            return "seller_expel_evidence_pending";
+
+        return null;
+    }
+
+    private async Task<string?> TryGetSellerExpelTramoMustPauseErrorAsync(
+        string threadId,
+        string carrierUserId,
+        List<RouteTramoSubscriptionRow> subs,
+        bool expelSingleTramo,
+        string? routeSheetId,
+        string? stopId,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var carrierId = (carrierUserId ?? "").Trim();
+        if (tid.Length < 4 || carrierId.Length < 2)
+            return null;
+
+        if (expelSingleTramo)
+        {
+            var rs = (routeSheetId ?? "").Trim();
+            var st = (stopId ?? "").Trim();
+            if (rs.Length == 0 || st.Length == 0)
+                return null;
+
+            var row = await db.RouteStopDeliveries.AsNoTracking()
+                .Where(x => x.ThreadId == tid && x.RouteSheetId == rs && x.RouteStopId == st)
+                .Select(x => new { x.State, x.CurrentOwnerUserId })
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (row is null)
+                return null;
+            return SellerExpelDeliveryPolicy.CarrierDeliveryBlocksSellerExpel(
+                row.State,
+                row.CurrentOwnerUserId,
+                carrierId)
+                ? "tramo_must_be_paused"
+                : null;
+        }
+
+        var confirmedKeys = subs
+            .Where(x => string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase))
+            .Select(x => ((x.RouteSheetId ?? "").Trim(), (x.StopId ?? "").Trim()))
+            .Where(t => t.Item1.Length > 0 && t.Item2.Length > 0)
+            .Distinct()
+            .ToList();
+        if (confirmedKeys.Count == 0)
+            return null;
+
+        foreach (var (rsid, sid) in confirmedKeys)
+        {
+            var row = await db.RouteStopDeliveries.AsNoTracking()
+                .Where(x => x.ThreadId == tid && x.RouteSheetId == rsid && x.RouteStopId == sid)
+                .Select(x => new { x.State, x.CurrentOwnerUserId })
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (row is null)
+                continue;
+            if (SellerExpelDeliveryPolicy.CarrierDeliveryBlocksSellerExpel(
+                    row.State,
+                    row.CurrentOwnerUserId,
+                    carrierId))
+                return "tramo_must_be_paused";
+        }
+
+        return null;
     }
 
     private static bool DeliveryStateAllowsCarrierWithdraw(string? stateRaw)
     {
         var s = (stateRaw ?? "").Trim();
-        if (string.Equals(s, RouteStopDeliveryStates.IdleStoreCustody, StringComparison.OrdinalIgnoreCase))
-            return true;
         if (string.Equals(s, RouteStopDeliveryStates.EvidenceAccepted, StringComparison.OrdinalIgnoreCase))
             return true;
         return string.Equals(s, RouteStopDeliveryStates.AwaitingCarrierForHandoff, StringComparison.OrdinalIgnoreCase);
@@ -676,10 +855,12 @@ public sealed class RouteTramoSubscriptionService(
         string carrierUserId,
         string threadId,
         string withdrawReason,
+        string? tradeAgreementId = null,
         CancellationToken cancellationToken = default)
     {
         var uid = (carrierUserId ?? "").Trim();
         var tid = (threadId ?? "").Trim();
+        var agreementFilter = (tradeAgreementId ?? "").Trim() is { Length: >= 8 } af ? af : null;
         var reasonTrim = (withdrawReason ?? "").Trim();
         if (uid.Length < 2 || tid.Length < 4)
             return null;
@@ -703,16 +884,37 @@ public sealed class RouteTramoSubscriptionService(
         if (subs.Count == 0)
             return null;
 
+        if (agreementFilter is not null)
+        {
+            subs = await FilterCarrierSubsByTradeAgreementAsync(tid, agreementFilter, subs, cancellationToken)
+                .ConfigureAwait(false);
+            if (subs.Count == 0)
+                return null;
+        }
+
         var confirmedStopCount = subs.Count(x =>
             string.Equals((x.Status ?? "").Trim(), "confirmed", StringComparison.OrdinalIgnoreCase));
 
-        var hasRejectedRouteEvidence = await db.CarrierDeliveryEvidences.AsNoTracking()
+        var scopedSheetIds = subs
+            .Select(x => (x.RouteSheetId ?? "").Trim())
+            .Where(x => x.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var rejectedEvidenceQuery = db.CarrierDeliveryEvidences.AsNoTracking()
+            .Where(e =>
+                e.ThreadId == tid
+                && e.CarrierUserId == uid
+                && e.Status == ServiceEvidenceStatuses.Rejected);
+        if (agreementFilter is not null && scopedSheetIds.Count > 0)
+        {
+            rejectedEvidenceQuery = rejectedEvidenceQuery.Where(e => scopedSheetIds.Contains(e.RouteSheetId));
+        }
+
+        var hasRejectedRouteEvidence = await rejectedEvidenceQuery
             .AnyAsync(
                 e =>
-                    e.ThreadId == tid
-                    && e.CarrierUserId == uid
-                    && e.Status == ServiceEvidenceStatuses.Rejected
-                    && db.RouteTramoSubscriptions.Any(s =>
+                    db.RouteTramoSubscriptions.Any(s =>
                         s.ThreadId == tid
                         && s.RouteSheetId == e.RouteSheetId
                         && s.StopId == e.RouteStopId
@@ -726,14 +928,17 @@ public sealed class RouteTramoSubscriptionService(
         if (await HasPostCedeNonterminalRouteDeliveriesAsync(tid, uid, subs, cancellationToken).ConfigureAwait(false))
             return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_route_post_cede_pending" };
 
-        var holdsOperationalOwnership = await db.RouteStopDeliveries.AsNoTracking()
-            .AnyAsync(
-                x =>
-                    x.ThreadId == tid
-                    && x.CurrentOwnerUserId == uid
-                    && x.State != RouteStopDeliveryStates.EvidenceAccepted
-                    && x.State != RouteStopDeliveryStates.Refunded,
-                cancellationToken)
+        var ownershipQuery = db.RouteStopDeliveries.AsNoTracking()
+            .Where(x =>
+                x.ThreadId == tid
+                && x.CurrentOwnerUserId == uid
+                && x.State != RouteStopDeliveryStates.EvidenceAccepted
+                && x.State != RouteStopDeliveryStates.Refunded);
+        if (agreementFilter is not null)
+            ownershipQuery = ownershipQuery.Where(x => x.TradeAgreementId == agreementFilter);
+
+        var holdsOperationalOwnership = await ownershipQuery
+            .AnyAsync(cancellationToken)
             .ConfigureAwait(false);
         if (holdsOperationalOwnership)
             return new CarrierWithdrawFromThreadResult(0, false, null) { ErrorCode = "carrier_holds_ownership" };
@@ -1193,8 +1398,8 @@ public sealed class RouteTramoSubscriptionService(
             return true;
 
         var rows = await db.ChatRouteSheets.AsNoTracking()
-            .Where(x => x.ThreadId == threadId && sheetIds.Contains(x.RouteSheetId) && x.DeletedAtUtc == null)
-            .Select(x => new { x.RouteSheetId, x.Payload })
+            .Where(x => x.ThreadId == threadId && sheetIds.Contains(x.RouteSheetId))
+            .Select(x => new { x.RouteSheetId, x.Payload, x.DeletedAtUtc })
             .ToListAsync(cancellationToken);
 
         if (rows.Count != sheetIds.Count)
@@ -1205,12 +1410,58 @@ public sealed class RouteTramoSubscriptionService(
         {
             if (!bySheet.TryGetValue(sid, out var row))
                 return false;
+            if (RouteSheetChatService.PayloadMarkedDelivered(row.Payload))
+                continue;
+            if (row.DeletedAtUtc is not null)
+                return false;
             var estado = (row.Payload.Estado ?? "").Trim();
             if (!string.Equals(estado, "entregada", StringComparison.OrdinalIgnoreCase))
                 return false;
         }
 
         return true;
+    }
+
+    private async Task<List<RouteTramoSubscriptionRow>> FilterCarrierSubsByTradeAgreementAsync(
+        string threadId,
+        string tradeAgreementId,
+        List<RouteTramoSubscriptionRow> subs,
+        CancellationToken cancellationToken)
+    {
+        var tid = (threadId ?? "").Trim();
+        var aid = (tradeAgreementId ?? "").Trim();
+        if (tid.Length < 4 || aid.Length < 8 || subs.Count == 0)
+            return [];
+
+        var deliveryKeys = await db.RouteStopDeliveries.AsNoTracking()
+            .Where(x => x.ThreadId == tid && x.TradeAgreementId == aid)
+            .Select(x => new { x.RouteSheetId, x.RouteStopId })
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (deliveryKeys.Count == 0)
+        {
+            var linkedSheetId = await db.TradeAgreements.AsNoTracking()
+                .Where(x => x.Id == aid && x.ThreadId == tid && x.DeletedAtUtc == null)
+                .Select(x => x.RouteSheetId)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var rsid = (linkedSheetId ?? "").Trim();
+            if (rsid.Length == 0)
+                return [];
+            return subs
+                .Where(x => string.Equals((x.RouteSheetId ?? "").Trim(), rsid, StringComparison.Ordinal))
+                .ToList();
+        }
+
+        var keySet = deliveryKeys
+            .Select(k => ((k.RouteSheetId ?? "").Trim(), (k.RouteStopId ?? "").Trim()))
+            .Where(t => t.Item1.Length > 0 && t.Item2.Length > 0)
+            .ToHashSet();
+        return subs
+            .Where(x => keySet.Contains(((x.RouteSheetId ?? "").Trim(), (x.StopId ?? "").Trim())))
+            .ToList();
     }
 
     /// <summary>
@@ -1347,6 +1598,7 @@ public sealed class RouteTramoSubscriptionService(
         int confirmedStopCount,
         string? storeId,
         string reasonForLedger,
+        bool expelledWhileTramoPaused,
         CancellationToken cancellationToken)
     {
         if (!apply || confirmedStopCount < 1)
@@ -1361,14 +1613,16 @@ public sealed class RouteTramoSubscriptionService(
         var deltaTotal = -unit * confirmedStopCount;
         var prev = storeRow.TrustScore;
         storeRow.TrustScore = Math.Max(-10_000, prev + deltaTotal);
-        var r = reasonForLedger.Length > 120 ? reasonForLedger[..120] + "…" : reasonForLedger;
         var tramosTxt = confirmedStopCount == 1 ? "1 tramo" : $"{confirmedStopCount} tramos";
+        var ledgerDetail = expelledWhileTramoPaused
+            ? "Transportista expulsado con tramo detenido"
+            : $"Motivo: {(reasonForLedger.Length > 120 ? reasonForLedger[..120] + "…" : reasonForLedger)}";
         trustLedger.StageEntry(
             TrustLedgerSubjects.Store,
             sid,
             storeRow.TrustScore - prev,
             storeRow.TrustScore,
-            $"Expulsión de transportista confirmado por la tienda — {tramosTxt} (demo). Motivo: {r}");
+            $"Expulsión de transportista confirmado por la tienda — {tramosTxt} (demo). {ledgerDetail}");
         return storeRow.TrustScore;
     }
 
@@ -1402,6 +1656,16 @@ public sealed class RouteTramoSubscriptionService(
                     parada.TransportInvitedServiceSummary = null;
                 }
             }
+
+            var removedCarrierIds = grp
+                .Select(x => x.CarrierUserId)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            payload.RouteSheetEditAck = RouteSheetUtils.PruneEditAckRemovedCarriers(
+                payload.RouteSheetEditAck,
+                removedCarrierIds);
+
             RouteSheetPayloadPersistence.ApplyPayloadAndTouch(sheetRow, payload, now);
         }
     }
@@ -1513,7 +1777,7 @@ public sealed class RouteTramoSubscriptionService(
                 row.CurrentOwnerUserId = carrier;
                 row.OwnershipGrantedAtUtc = now;
                 row.UpdatedAtUtc = now;
-                row.State = RouteStopDeliveryStates.AwaitingCarrierForHandoff;
+                row.State = RouteStopDeliveryStates.InTransit;
 
                 db.CarrierOwnershipEvents.Add(new CarrierOwnershipEventRow
                 {

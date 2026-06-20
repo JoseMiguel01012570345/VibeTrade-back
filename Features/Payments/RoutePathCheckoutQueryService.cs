@@ -7,10 +7,14 @@ using VibeTrade.Backend.Features.Logistics;
 using VibeTrade.Backend.Features.Payments.Interfaces;
 using VibeTrade.Backend.Features.RouteSheets;
 using VibeTrade.Backend.Features.RouteSheets.Dtos;
+using VibeTrade.Backend.Features.RouteSheets.Interfaces;
 
 namespace VibeTrade.Backend.Features.Payments;
 
-public sealed class RoutePathCheckoutQueryService(AppDbContext db, IChatService chat) : IRoutePathCheckoutQueryService
+public sealed class RoutePathCheckoutQueryService(
+    AppDbContext db,
+    IChatService chat,
+    IRouteSheetChatService routeSheets) : IRoutePathCheckoutQueryService
 {
   public async Task<AgreementRoutePathsDto?> GetAgreementRoutePathsAsync(
     string userId,
@@ -53,10 +57,14 @@ public sealed class RoutePathCheckoutQueryService(AppDbContext db, IChatService 
       return new AgreementRoutePathsDto { RouteSheetId = rsid, Paths = [] };
 
     var paidStopIds = await LoadPaidRouteLegStopIdsAsync(aid, cancellationToken).ConfigureAwait(false);
-    var paidLikeStopIds = await LoadPaidLikeDeliveryStopIdsAsync(tid, aid, rsid, cancellationToken)
+        var paidLikeStopIds = await LoadPaidLikeDeliveryStopIdsAsync(tid, aid, rsid, cancellationToken)
       .ConfigureAwait(false);
 
-    var paths = RoutePathComputation.BuildRoutePaths(rp, paidStopIds, paidLikeStopIds);
+    var confirmedStopIds = await routeSheets.LoadConfirmedRouteStopIdsAsync(
+            tid, rsid, cancellationToken)
+        .ConfigureAwait(false);
+
+    var paths = RoutePathComputation.BuildRoutePaths(rp, paidStopIds, paidLikeStopIds, confirmedStopIds);
     return new AgreementRoutePathsDto { RouteSheetId = rsid, Paths = paths };
   }
 

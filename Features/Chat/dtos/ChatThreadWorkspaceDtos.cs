@@ -148,6 +148,12 @@ public sealed class ChatThreadWorkspaceDto
     [JsonPropertyName("partyExitedAtUtc")]
     public DateTimeOffset? PartyExitedAtUtc { get; set; }
 
+    [JsonPropertyName("buyerExpelledAtUtc")]
+    public DateTimeOffset? BuyerExpelledAtUtc { get; set; }
+
+    [JsonPropertyName("sellerExpelledAtUtc")]
+    public DateTimeOffset? SellerExpelledAtUtc { get; set; }
+
     [JsonPropertyName("isSocialGroup")]
     public bool IsSocialGroup { get; set; }
 

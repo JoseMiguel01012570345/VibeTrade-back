@@ -4,6 +4,9 @@ using VibeTrade.Backend.Data.Entities;
 
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+using VibeTrade.Backend.Features.RouteSheets.Interfaces;
+using VibeTrade.Backend.Features.Trust;
+using VibeTrade.Backend.Features.Trust.Interfaces;
 
 namespace VibeTrade.Backend.Features.Logistics;
 
@@ -11,6 +14,8 @@ public sealed class CarrierDeliveryEvidenceService(
     IChatService chat,
     IChatThreadSystemMessageService threadSystemMessages,
     INotificationService notifications,
+    IRouteSheetChatService routeSheets,
+    ITrustScoreLedgerService trustLedger,
     AppDbContext db) : ICarrierDeliveryEvidenceService
 {
     public async Task<(int StatusCode, string? Error, CarrierDeliveryEvidenceDto? Data)> UpsertAsync(
@@ -198,6 +203,12 @@ public sealed class CarrierDeliveryEvidenceService(
             .ConfigureAwait(false);
         if (ev is null) return (StatusCodes.Status400BadRequest, "No hay evidencia para decidir o la evidencia ya ha sido aceptada");
 
+        var priorStatus = (ev.Status ?? "").Trim();
+        var wasSubmitted = string.Equals(
+            priorStatus,
+            ServiceEvidenceStatuses.Submitted,
+            StringComparison.OrdinalIgnoreCase);
+
         var delivery = await db.RouteStopDeliveries.FirstOrDefaultAsync(
                 x =>
                     x.ThreadId == tid
@@ -239,6 +250,31 @@ public sealed class CarrierDeliveryEvidenceService(
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+        if (string.Equals(status, ServiceEvidenceStatuses.Accepted, StringComparison.OrdinalIgnoreCase)
+            && wasSubmitted)
+        {
+            var transportStoreId = await TransportTramoTrustResolver.ResolveTransportProviderStoreIdAsync(
+                    db,
+                    tid,
+                    rsid,
+                    sid,
+                    ev.CarrierUserId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(transportStoreId))
+            {
+                await TrustAwardHelper.TryAwardStoreTrustAsync(
+                        db,
+                        trustLedger,
+                        transportStoreId,
+                        TrustCompletionBonuses.CarrierPerTramoAccepted,
+                        TrustCompletionBonuses.CarrierTramoReason,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
         await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(
                 tid,
                 message,
@@ -275,6 +311,14 @@ public sealed class CarrierDeliveryEvidenceService(
                         cancellationToken)
                     .ConfigureAwait(false);
             }
+
+            await routeSheets.AutoArchiveOnRouteCompletedAsync(
+                    uid,
+                    tid,
+                    rsid,
+                    sid,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         return (StatusCodes.Status200OK, null);

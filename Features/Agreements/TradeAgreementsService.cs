@@ -7,12 +7,12 @@ using VibeTrade.Backend.Features.Agreements.Interfaces;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Logistics.Interfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
-using VibeTrade.Backend.Features.Payments.Interfaces;
+using VibeTrade.Backend.Features.RouteSheets.Dtos;
 using VibeTrade.Backend.Features.Trust.Interfaces;
 
 namespace VibeTrade.Backend.Features.Agreements;
 
-public sealed class TradeAgreementService(
+public sealed partial class TradeAgreementService(
     AppDbContext db,
     IChatService chat,
     IChatThreadSystemMessageService threadSystemMessages,
@@ -60,7 +60,15 @@ public sealed class TradeAgreementService(
                 .Distinct()
                 .ToListAsync(cancellationToken);
         var paidSet = paidIds.ToHashSet(StringComparer.Ordinal);
-        return list.ConvertAll(a => TradeAgreementEntityToApiMapper.ToApiResponse(a, paidSet.Contains(a.Id)));
+        var routePaidSet = await LoadAgreementIdsWithSucceededRouteLegPaymentsAsync(ids, cancellationToken)
+            .ConfigureAwait(false);
+        var evidenceAcceptedSet = await LoadAgreementIdsWithAcceptedMerchandiseEvidenceAsync(ids, cancellationToken)
+            .ConfigureAwait(false);
+        return list.ConvertAll(a => TradeAgreementEntityToApiMapper.ToApiResponse(
+            a,
+            paidSet.Contains(a.Id),
+            routePaidSet.Contains(a.Id),
+            evidenceAcceptedSet.Contains(a.Id)));
     }
 
     public async Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> CreateAsync(
@@ -108,6 +116,11 @@ public sealed class TradeAgreementService(
         };
 
         TradeAgreementDraftToEntityMapper.ReplaceContentFromDraft(ag, draft);
+        var currencyErr = await ValidateAgreementCurrencyAsync(ag, t.Id, cancellationToken)
+            .ConfigureAwait(false);
+        if (currencyErr is not null)
+            return (null, TradeAgreementWriteErrors.SingleAgreementCurrency);
+
         db.TradeAgreements.Add(ag);
         await db.SaveChangesAsync(cancellationToken);
 
@@ -177,6 +190,11 @@ public sealed class TradeAgreementService(
         ag.SellerEditBlockedUntilBuyerResponse = true;
 
         TradeAgreementDraftToEntityMapper.ReplaceContentFromDraft(ag, draft);
+        var currencyErr = await ValidateAgreementCurrencyAsync(ag, t.Id, cancellationToken)
+            .ConfigureAwait(false);
+        if (currencyErr is not null)
+            return (null, TradeAgreementWriteErrors.SingleAgreementCurrency);
+
         await db.SaveChangesAsync(cancellationToken);
 
         var sys = wasAccepted
@@ -191,7 +209,7 @@ public sealed class TradeAgreementService(
         return (updated, null);
     }
 
-    public async Task<TradeAgreementApiResponse?> RespondAsync(
+    public async Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> RespondAsync(
         string buyerUserId,
         string threadId,
         string agreementId,
@@ -200,17 +218,23 @@ public sealed class TradeAgreementService(
     {
         var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
         if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(buyerUserId, t))
-            return null;
+            return (null, null);
         if (t.IsSocialGroup)
-            return null;
+            return (null, null);
         if (buyerUserId != t.BuyerUserId)
-            return null;
+            return (null, null);
 
-        var ag = await db.TradeAgreements.FirstOrDefaultAsync(
-            x => x.Id == agreementId && x.ThreadId == threadId && x.DeletedAtUtc == null,
-            cancellationToken);
+        var ag = await LoadTrackedAgreementAsync(threadId, agreementId, cancellationToken);
         if (ag is null || ag.Status != "pending_buyer")
-            return null;
+            return (null, null);
+
+        if (accept)
+        {
+            var routePayload = await LoadRoutePayloadForAgreementAsync(ag, cancellationToken)
+                .ConfigureAwait(false);
+            if (!TryResolveSingleAgreementCurrency(ag, routePayload, out _, out _))
+                return (null, TradeAgreementWriteErrors.SingleAgreementCurrency);
+        }
 
         const int demoPenaltyPts = 3;
         var rejectAfterPriorAccept =
@@ -270,7 +294,7 @@ public sealed class TradeAgreementService(
 
         await threadSystemMessages.PostSystemThreadNoticeAsync(buyerUserId, threadId, sys, cancellationToken);
 
-        return await GetTrackedResponseAsync(ag.Id, cancellationToken);
+        return (await GetTrackedResponseAsync(ag.Id, cancellationToken), null);
     }
 
     public async Task<bool> DeleteAsync(
@@ -353,15 +377,31 @@ public sealed class TradeAgreementService(
         }
 
         var paid = await HasSucceededPaymentAsync(ag.Id, cancellationToken);
+        var routeTransportPaid = await HasSucceededRouteLegPaymentAsync(ag.Id, cancellationToken);
+        var evidenceAccepted = await HasAcceptedMerchandiseEvidenceAsync(ag.Id, cancellationToken);
         var incoming = (routeSheetId ?? "").Trim();
         var prevRs = (ag.RouteSheetId ?? "").Trim();
-        if (paid)
+        if (evidenceAccepted)
+        {
+            if (string.Equals(incoming, prevRs, StringComparison.OrdinalIgnoreCase))
+                return await OkResponseAsync().ConfigureAwait(false);
+            return Fail(
+                400,
+                "No se puede modificar el vínculo con la hoja de ruta: la evidencia de mercancía ya fue aceptada.");
+        }
+        if (routeTransportPaid)
         {
             if (string.Equals(incoming, prevRs, StringComparison.OrdinalIgnoreCase))
                 return await OkResponseAsync().ConfigureAwait(false);
             if (string.IsNullOrEmpty(incoming))
-                return Fail(400, "No se puede desvincular la hoja de ruta: ya hay pagos registrados para este acuerdo.");
-            return Fail(400, "No se puede cambiar la hoja de ruta vinculada: ya hay pagos registrados para este acuerdo.");
+                return Fail(400, "No se puede desvincular la hoja de ruta: ya hay pagos de transporte registrados para este acuerdo.");
+            if (!string.IsNullOrEmpty(prevRs))
+                return Fail(400, "No se puede cambiar la hoja de ruta vinculada: ya hay pagos de transporte registrados para este acuerdo.");
+        }
+        else if (paid
+                 && string.Equals(incoming, prevRs, StringComparison.OrdinalIgnoreCase))
+        {
+            return await OkResponseAsync().ConfigureAwait(false);
         }
 
         if (string.IsNullOrEmpty(incoming))
@@ -393,11 +433,118 @@ public sealed class TradeAgreementService(
                     cancellationToken);
             if (!okRow)
                 return Fail(404, notFoundMsg);
+
+            var linkedToOther = await db.TradeAgreements.AsNoTracking()
+                .AnyAsync(
+                    x => x.ThreadId == threadId
+                         && x.DeletedAtUtc == null
+                         && x.Id != agreementId
+                         && x.RouteSheetId != null
+                         && x.RouteSheetId == incoming,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (linkedToOther)
+                return Fail(
+                    StatusCodes.Status409Conflict,
+                    "Esta hoja de ruta ya está vinculada a otro acuerdo en este chat.");
+
+            var routeRow = await db.ChatRouteSheets.AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.ThreadId == threadId
+                         && x.RouteSheetId == incoming
+                         && x.DeletedAtUtc == null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (routeRow is null)
+                return Fail(404, notFoundMsg);
+
+            var prevForRollback = ag.RouteSheetId;
             ag.RouteSheetId = incoming;
+            if (!TryResolveSingleAgreementCurrency(ag, routeRow.Payload, out _, out var linkCurErr))
+            {
+                ag.RouteSheetId = prevForRollback;
+                return Fail(
+                    StatusCodes.Status400BadRequest,
+                    linkCurErr ?? MultipleAgreementCurrenciesMessage);
+            }
         }
 
         await db.SaveChangesAsync(cancellationToken);
         return await OkResponseAsync().ConfigureAwait(false);
+    }
+
+    public async Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> DuplicateAsync(
+        string sellerUserId,
+        string threadId,
+        string agreementId,
+        CancellationToken cancellationToken = default)
+    {
+        var t = await db.ChatThreads.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken)
+            .ConfigureAwait(false);
+        if (t is null
+            || t.DeletedAtUtc is not null
+            || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t)
+            || sellerUserId != t.SellerUserId)
+            return (null, null);
+
+        var source = await LoadTrackedAgreementAsync(threadId, agreementId, cancellationToken)
+            .ConfigureAwait(false);
+        if (source is null || source.DeletedAtUtc is not null)
+            return (null, null);
+
+        var draft = TradeAgreementApiToDraftMapper.ToDraftRequest(source);
+        foreach (var svc in draft.Services)
+            svc.Id = null;
+        draft.Title = await BuildUniqueCopyTitleAsync(threadId, source.Title, cancellationToken)
+            .ConfigureAwait(false);
+
+        return await CreateAsync(sellerUserId, threadId, draft, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<string> BuildUniqueCopyTitleAsync(
+        string threadId,
+        string originalTitle,
+        CancellationToken cancellationToken)
+    {
+        var trimmed = StripCopyTitleSuffix(originalTitle);
+        if (trimmed.Length == 0)
+            trimmed = "Acuerdo";
+
+        var candidates = new List<string> { $"{trimmed} (copia)" };
+        for (var n = 2; n <= 20; n++)
+            candidates.Add($"{trimmed} (copia {n})");
+
+        foreach (var candidate in candidates)
+        {
+            if (!await ThreadHasAgreementWithSameTitleAsync(threadId, candidate, null, cancellationToken)
+                    .ConfigureAwait(false))
+                return candidate;
+        }
+
+        return $"{trimmed} (copia {Guid.NewGuid():N[..6]})";
+    }
+
+    private static string StripCopyTitleSuffix(string originalTitle)
+    {
+        var trimmed = (originalTitle ?? "").Trim();
+        if (trimmed.Length == 0)
+            return "Acuerdo";
+
+        var idx = trimmed.LastIndexOf(" (copia", StringComparison.OrdinalIgnoreCase);
+        if (idx < 0)
+            return trimmed;
+
+        var suffix = trimmed[idx..];
+        if (suffix.Equals(" (copia)", StringComparison.OrdinalIgnoreCase))
+            return trimmed[..idx].Trim();
+
+        if (suffix.StartsWith(" (copia ", StringComparison.OrdinalIgnoreCase)
+            && suffix.EndsWith(')')
+            && int.TryParse(suffix[" (copia ".Length..^1], out _))
+            return trimmed[..idx].Trim();
+
+        return trimmed;
     }
 
     private async Task<TradeAgreementApiResponse?> GetTrackedResponseAsync(
@@ -408,7 +555,9 @@ public sealed class TradeAgreementService(
         if (ag is null)
             return null;
         var paid = await HasSucceededPaymentAsync(ag.Id, cancellationToken);
-        return TradeAgreementEntityToApiMapper.ToApiResponse(ag, paid);
+        var routePaid = await HasSucceededRouteLegPaymentAsync(ag.Id, cancellationToken);
+        var evidenceAccepted = await HasAcceptedMerchandiseEvidenceAsync(ag.Id, cancellationToken);
+        return TradeAgreementEntityToApiMapper.ToApiResponse(ag, paid, routePaid, evidenceAccepted);
     }
 
     private async Task<bool> HasSucceededPaymentAsync(string agreementId, CancellationToken cancellationToken)
@@ -417,6 +566,79 @@ public sealed class TradeAgreementService(
             .AnyAsync(
                 p => p.TradeAgreementId == agreementId && p.Status == AgreementPaymentStatuses.Succeeded,
                 cancellationToken);
+    }
+
+    private async Task<bool> HasSucceededRouteLegPaymentAsync(
+        string agreementId,
+        CancellationToken cancellationToken)
+    {
+        var aid = agreementId.Trim();
+        if (aid.Length < 2)
+            return false;
+        return await (
+                from rl in db.AgreementRouteLegPaids.AsNoTracking()
+                join cp in db.AgreementCurrencyPayments.AsNoTracking()
+                    on rl.AgreementCurrencyPaymentId equals cp.Id
+                where cp.TradeAgreementId == aid && cp.Status == AgreementPaymentStatuses.Succeeded
+                select rl.Id)
+            .AnyAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<HashSet<string>> LoadAgreementIdsWithSucceededRouteLegPaymentsAsync(
+        IReadOnlyList<string> agreementIds,
+        CancellationToken cancellationToken)
+    {
+        if (agreementIds.Count == 0)
+            return new HashSet<string>(StringComparer.Ordinal);
+        var ids = await (
+                from rl in db.AgreementRouteLegPaids.AsNoTracking()
+                join cp in db.AgreementCurrencyPayments.AsNoTracking()
+                    on rl.AgreementCurrencyPaymentId equals cp.Id
+                where agreementIds.Contains(cp.TradeAgreementId)
+                      && cp.Status == AgreementPaymentStatuses.Succeeded
+                select cp.TradeAgreementId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return ids.ToHashSet(StringComparer.Ordinal);
+    }
+
+    private async Task<bool> HasAcceptedMerchandiseEvidenceAsync(
+        string agreementId,
+        CancellationToken cancellationToken)
+    {
+        var aid = agreementId.Trim();
+        if (aid.Length < 2)
+            return false;
+        return await (
+                from e in db.MerchandiseEvidences.AsNoTracking()
+                join p in db.AgreementMerchandiseLinePaids.AsNoTracking()
+                    on e.AgreementMerchandiseLinePaidId equals p.Id
+                where p.TradeAgreementId == aid
+                      && e.Status == MerchandiseEvidenceStatuses.Accepted
+                select e.Id)
+            .AnyAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<HashSet<string>> LoadAgreementIdsWithAcceptedMerchandiseEvidenceAsync(
+        IReadOnlyList<string> agreementIds,
+        CancellationToken cancellationToken)
+    {
+        if (agreementIds.Count == 0)
+            return new HashSet<string>(StringComparer.Ordinal);
+        var ids = await (
+                from e in db.MerchandiseEvidences.AsNoTracking()
+                join p in db.AgreementMerchandiseLinePaids.AsNoTracking()
+                    on e.AgreementMerchandiseLinePaidId equals p.Id
+                where agreementIds.Contains(p.TradeAgreementId)
+                      && e.Status == MerchandiseEvidenceStatuses.Accepted
+                select p.TradeAgreementId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return ids.ToHashSet(StringComparer.Ordinal);
     }
 
     private async Task<TradeAgreementRow?> LoadTrackedAgreementAsync(
@@ -469,6 +691,36 @@ public sealed class TradeAgreementService(
         }
 
         return false;
+    }
+
+    private async Task<RouteSheetPayload?> LoadRoutePayloadForAgreementAsync(
+        TradeAgreementRow ag,
+        CancellationToken cancellationToken)
+    {
+        var rsId = (ag.RouteSheetId ?? "").Trim();
+        var tid = (ag.ThreadId ?? "").Trim();
+        if (rsId.Length == 0 || tid.Length < 4)
+            return null;
+
+        var row = await db.ChatRouteSheets.AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.ThreadId == tid && x.RouteSheetId == rsId && x.DeletedAtUtc == null,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return row?.Payload;
+    }
+
+    private async Task<string?> ValidateAgreementCurrencyAsync(
+        TradeAgreementRow ag,
+        string threadId,
+        CancellationToken cancellationToken)
+    {
+        var routePayload = await LoadRoutePayloadForAgreementAsync(ag, cancellationToken)
+            .ConfigureAwait(false);
+        if (!TryResolveSingleAgreementCurrency(ag, routePayload, out _, out var err))
+            return err;
+
+        return null;
     }
 
 }

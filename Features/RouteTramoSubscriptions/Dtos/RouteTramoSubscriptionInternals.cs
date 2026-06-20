@@ -30,8 +30,10 @@ public sealed record SellerExpelContext(
     bool ExpelSingleTramo,
     List<RouteTramoSubscriptionRow> Subs,
     int ConfirmedStopsWithdrawnCount,
+    int PenaltyEligibleConfirmedStopCount,
     bool CarrierFullyRemovedFromThread,
     bool ApplyStoreTrustPenalty,
+    bool ExpelledWhileTramoPaused,
     IReadOnlyList<string> DistinctRouteSheetIds);
 
 /// <summary>Datos cargados para flujo presel (transportista + hoja).</summary>
