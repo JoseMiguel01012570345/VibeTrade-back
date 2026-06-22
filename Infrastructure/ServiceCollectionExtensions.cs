@@ -81,11 +81,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<RecommendationFeedV2>();
         services.AddSingleton<IGuestInteractionStore, GuestInteractionStore>();
         services.AddScoped<IGuestRecommendationService, GuestRecommendationService>();
-        services.AddScoped<IUserAccountSyncService, UserAccountSyncService>();
-        services.AddScoped<IUserContactsService, UserContactsService>();
+        services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ITrustScoreLedgerService, TrustScoreLedgerService>();
         services.AddScoped<AgreementCompletionTrustService>();
-        services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
         services.AddScoped<IThreadAccessControlService, ThreadAccessControlService>();
         services.AddScoped<INotificationService, NotificationService>();

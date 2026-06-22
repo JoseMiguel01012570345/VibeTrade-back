@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Agreements;
+using VibeTrade.Backend.Features.Agreements.Dtos;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Auth.Interfaces;
 
@@ -95,8 +96,6 @@ public sealed class ChatAgreementsController(
         return Ok(updated);
     }
 
-    public sealed record TradeAgreementRouteLinkBody(string? RouteSheetId);
-
     /// <summary>Vincula o desvincula una hoja de ruta del acuerdo (solo vendedor; persiste en BD).</summary>
     [HttpPatch("threads/{threadId}/trade-agreements/{agreementId}/route-link")]
     [Consumes("application/json")]
@@ -162,8 +161,6 @@ public sealed class ChatAgreementsController(
             return NotFound(new { error = "not_found", message = "No se pudo duplicar el acuerdo." });
         return Ok(created);
     }
-
-    public sealed record TradeAgreementRespondBody(bool Accept);
 
     /// <summary>Acepta o rechaza el acuerdo (solo comprador).</summary>
     [HttpPost("threads/{threadId}/trade-agreements/{agreementId}/respond")]

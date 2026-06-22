@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.EmergentOffers;
+using VibeTrade.Backend.Features.EmergentOffers.Dtos;
 using VibeTrade.Backend.Features.EmergentOffers.Interfaces;
 using VibeTrade.Backend.Infrastructure;
 
@@ -18,11 +19,6 @@ public sealed class EmergentOffersController(
     IEmergentRouteTramoSubscriptionRequestService tramoSubscriptionRequest,
     IRouteTramoSubscriptionService routeTramoSubscriptions) : ControllerBase
 {
-    public sealed record CarrierSubscriptionResponse(
-        bool CanSubscribe,
-        string? ReasonCode,
-        string? Message);
-
     /// <summary>
     /// Indica si el usuario autenticado (o anónimo) puede suscribirse como transportista a esta publicación.
     /// Bloquea cuando el hilo vinculado tiene al usuario como comprador y existe un acuerdo aceptado.
@@ -63,8 +59,6 @@ public sealed class EmergentOffersController(
             return NotFound();
         return Ok(list);
     }
-
-    public sealed record TramoSubscriptionRequestBody(string StopId, string StoreServiceId);
 
     /// <summary>
     /// Transportista autenticado: valida el servicio de catálogo y notifica a comprador y vendedor del hilo.

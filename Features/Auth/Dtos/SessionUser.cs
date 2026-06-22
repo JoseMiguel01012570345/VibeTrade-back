@@ -14,6 +14,9 @@ public sealed class SessionUser
     [JsonPropertyName("name")]
     public string? Name { get; set; }
 
+    [JsonPropertyName("username")]
+    public string? Username { get; set; }
+
     [JsonPropertyName("email")]
     public string? Email { get; set; }
 
@@ -38,6 +41,7 @@ public sealed class SessionUser
             Id = Id,
             Phone = Phone,
             Name = Name,
+            Username = Username,
             Email = Email,
             AvatarUrl = AvatarUrl,
             Instagram = Instagram,

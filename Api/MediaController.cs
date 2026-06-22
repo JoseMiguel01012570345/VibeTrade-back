@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Net.Http.Headers;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Media.Dtos;
 using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Api;
@@ -14,7 +15,6 @@ namespace VibeTrade.Backend.Api;
 [Tags("Media")]
 public sealed class MediaController(AppDbContext db, ICurrentUserAccessor currentUser) : ControllerBase
 {
-    public sealed record MediaUploadResponse(string Id, string MimeType, string FileName, long SizeBytes);
     private const long MaxBytes = 5L * 1024 * 1024;
 
     /// <summary>

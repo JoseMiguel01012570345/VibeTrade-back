@@ -15,8 +15,6 @@ public sealed class ChatNotificationsController(
     ICurrentUserAccessor currentUser,
     INotificationService notifications) : ControllerBase
 {
-    public sealed record MarkReadBody(string[]? Ids);
-
     /// <summary>Lista notificaciones. Opcional: <c>from</c> y <c>to</c> (ISO 8601) filtran por <c>CreatedAtUtc</c>.</summary>
     [HttpGet("notifications")]
     [ProducesResponseType(typeof(IReadOnlyList<ChatNotificationDto>), StatusCodes.Status200OK)]

@@ -2,6 +2,8 @@ namespace VibeTrade.Backend.Features.Policies.Dtos;
 
 public sealed record PartySoftLeaveBody(string Reason, string? TradeAgreementId = null);
 
+public sealed record CarrierWithdrawBody(string Reason, string? TradeAgreementId = null);
+
 /// <summary>Respuesta 200 de <c>party-soft-leave</c> (campos en camelCase vía JSON).</summary>
 public sealed record PartySoftLeaveOkResponse(
     bool SkipClientTrustPenalty,

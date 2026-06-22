@@ -4,6 +4,18 @@ public sealed record RequestCodeResult(int CodeLength, int ExpiresInSeconds, str
 
 public sealed record VerifyResult(string SessionToken, SessionUser User);
 
+public sealed record LoginResult(string SessionToken, SessionUser User);
+
+public sealed record RegisterStartResult(
+    string RegistrationId,
+    int CodeLength,
+    int ExpiresInSeconds,
+    string? DevMockCode);
+
+public sealed record VerifyPhoneResult(int CodeLength, int ExpiresInSeconds, string? DevMockCode);
+
+public sealed record ForgotPasswordResult(int CodeLength, int ExpiresInSeconds, string? DevMockCode);
+
 public sealed record UserContactDto(
     string UserId,
     string DisplayName,
@@ -22,7 +34,10 @@ public sealed record PlatformUserByPhoneDto(
 public sealed record UserProfileSnapshot(
     string Id,
     string DisplayName,
+    string? Username,
     string? Email,
+    string? PhoneDisplay,
+    string? PhoneDigits,
     string? AvatarUrl,
     string? Instagram,
     string? Telegram,

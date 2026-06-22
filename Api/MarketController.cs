@@ -30,7 +30,7 @@ public sealed class MarketController(
     IMarketWorkspaceService marketWorkspace,
     IMarketCatalogSyncService catalog,
     ICurrentUserAccessor currentUser,
-    IUserAccountSyncService userAccountSync,
+    IAuthService auth,
     IRecommendationService recommendations,
     IMarketCatalogStoreSearchService catalogStoreSearch,
     IChatService chat,
@@ -38,31 +38,6 @@ public sealed class MarketController(
     IBroadcastingService broadcasting,
     IOfferService offerService) : ControllerBase
 {
-    public sealed record CatalogCategoriesResponse(IReadOnlyList<string> Categories);
-
-    public sealed record CurrenciesResponse(IReadOnlyList<string> Currencies);
-
-    public sealed record StoreDetailBody(string? ViewerUserId, string? ViewerRole);
-
-    public sealed record PostInquiryAskedBy(string Id, string Name, int TrustScore);
-
-    public sealed record ToggleEngagementBody(string? GuestId);
-
-    /// <summary>Cuerpo para <c>POST /inquiries</c> (la API usa la sesión para <c>askedBy</c>).</summary>
-    /// <param name="OfferId">Id del producto o servicio (oferta).</param>
-    /// <param name="Question">Legado; preferí <paramref name="Text"/>.</param>
-    /// <param name="Text">Texto de la pregunta o comentario público.</param>
-    /// <param name="ParentId">Opcional: id del comentario padre (hilo tipo reels).</param>
-    /// <param name="AskedBy">En el DTO de cliente; el servidor puede sobreescribir con la sesión.</param>
-    /// <param name="CreatedAt">Epoch ms opcional (cliente).</param>
-    public sealed record PostInquiryBody(
-        string OfferId,
-        string? Question,
-        string? Text,
-        string? ParentId,
-        PostInquiryAskedBy AskedBy,
-        long? CreatedAt);
-
     /// <summary>Categorías permitidas para productos, servicios y sugerencias en acuerdos (misma lista).</summary>
     [HttpGet("catalog-categories")]
     [ProducesResponseType(typeof(CatalogCategoriesResponse), StatusCodes.Status200OK)]
@@ -448,7 +423,7 @@ public sealed class MarketController(
             return BadRequest(new { error = "invalid_inquiry", message = "Indica la oferta y el texto." });
 
         var askedById = bearerUserId.Trim();
-        var snap = await userAccountSync.GetProfileSnapshotByUserIdAsync(askedById, cancellationToken);
+        var snap = await auth.GetProfileSnapshotByUserIdAsync(askedById, cancellationToken);
         var askedByName = string.IsNullOrWhiteSpace(snap?.DisplayName) ? "Usuario" : snap!.DisplayName.Trim();
         var askedByTrust = snap?.TrustScore ?? 0;
 
@@ -624,7 +599,7 @@ public sealed class MarketController(
             var aid = (authorId ?? "").Trim();
             if (aid.Length > 0 && !string.Equals(aid, "guest", StringComparison.OrdinalIgnoreCase))
             {
-                var authorProfile = await userAccountSync.GetProfileSnapshotByUserIdAsync(aid, cancellationToken);
+                var authorProfile = await auth.GetProfileSnapshotByUserIdAsync(aid, cancellationToken);
                 if (authorProfile is not null)
                 {
                     var (likerSenderId, likerLabel, likerTrust) =
@@ -647,7 +622,7 @@ public sealed class MarketController(
         if (likerKey.StartsWith("u:", StringComparison.Ordinal))
         {
             var uid = likerKey[2..].Trim();
-            var snap = await userAccountSync.GetProfileSnapshotByUserIdAsync(uid, cancellationToken);
+            var snap = await auth.GetProfileSnapshotByUserIdAsync(uid, cancellationToken);
             var name = string.IsNullOrWhiteSpace(snap?.DisplayName) ? "Usuario" : snap!.DisplayName.Trim();
             var trust = snap?.TrustScore ?? 0;
             return (uid, name, trust);
@@ -716,7 +691,7 @@ public sealed class MarketController(
         if (!string.IsNullOrWhiteSpace(root.Store.OwnerUserId))
         {
             var ownerId = root.Store.OwnerUserId!.Trim();
-            var snap = await userAccountSync.GetProfileSnapshotByUserIdAsync(ownerId, cancellationToken);
+            var snap = await auth.GetProfileSnapshotByUserIdAsync(ownerId, cancellationToken);
             if (snap is not null)
             {
                 root.Owner = new StoreDetailOwnerView

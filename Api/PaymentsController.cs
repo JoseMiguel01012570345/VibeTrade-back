@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Payments;
+using VibeTrade.Backend.Features.Payments.Dtos;
 using VibeTrade.Backend.Features.Payments.Interfaces;
 using VibeTrade.Backend.Features.RouteSheets.Dtos;
 using VibeTrade.Backend.Infrastructure;
@@ -132,21 +133,6 @@ public sealed class PaymentsController(
 
         return Ok(list);
     }
-
-    public sealed record ServicePaymentPickBody(string ServiceItemId, int EntryMonth, int EntryDay);
-
-    public sealed record ExecutePaymentBody(
-        string Currency,
-        string PaymentMethodId,
-        string? IdempotencyKey,
-        IReadOnlyList<ServicePaymentPickBody>? SelectedServicePayments,
-        IReadOnlyList<string>? SelectedRoutePathIds,
-        IReadOnlyList<string>? SelectedMerchandiseLineIds);
-
-    public sealed record CheckoutBreakdownBody(
-        IReadOnlyList<ServicePaymentPickBody>? SelectedServicePayments,
-        IReadOnlyList<string>? SelectedRoutePathIds,
-        IReadOnlyList<string>? SelectedMerchandiseLineIds);
 
     [HttpGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/route-paths")]
     [ProducesResponseType(typeof(AgreementRoutePathsDto), StatusCodes.Status200OK)]

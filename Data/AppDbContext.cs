@@ -13,6 +13,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<StoredMediaRow> StoredMedia => Set<StoredMediaRow>();
     public DbSet<AuthSessionRow> AuthSessions => Set<AuthSessionRow>();
     public DbSet<AuthPendingOtpRow> AuthPendingOtps => Set<AuthPendingOtpRow>();
+    public DbSet<AuthPendingRegistrationRow> AuthPendingRegistrations => Set<AuthPendingRegistrationRow>();
+    public DbSet<AuthPendingEmailOtpRow> AuthPendingEmailOtps => Set<AuthPendingEmailOtpRow>();
+    public DbSet<AuthPendingPasswordResetRow> AuthPendingPasswordResets => Set<AuthPendingPasswordResetRow>();
     public DbSet<UserContactRow> UserContacts => Set<UserContactRow>();
     public DbSet<UserOfferInteractionRow> UserOfferInteractions => Set<UserOfferInteractionRow>();
     public DbSet<ChatThreadRow> ChatThreads => Set<ChatThreadRow>();

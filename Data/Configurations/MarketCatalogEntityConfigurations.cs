@@ -15,7 +15,17 @@ public sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAcco
         e.Property(x => x.Id).HasMaxLength(64);
         e.Property(x => x.PhoneDigits).HasMaxLength(32);
         e.Property(x => x.DisplayName).HasMaxLength(256);
+        e.Property(x => x.Username).HasMaxLength(32);
+        e.Property(x => x.PasswordHash).HasMaxLength(512);
         e.Property(x => x.Email).HasMaxLength(320);
+        e.Property(x => x.EmailVerifiedAt);
+        e.Property(x => x.PhoneVerifiedAt);
+        e.HasIndex(x => x.Username)
+            .IsUnique()
+            .HasFilter("\"Username\" IS NOT NULL");
+        e.HasIndex(x => x.Email)
+            .IsUnique()
+            .HasFilter("\"Email\" IS NOT NULL");
         e.Property(x => x.PhoneDisplay).HasMaxLength(64);
         e.Property(x => x.AvatarUrl).HasColumnType("text");
         e.Property(x => x.Instagram).HasMaxLength(256);
