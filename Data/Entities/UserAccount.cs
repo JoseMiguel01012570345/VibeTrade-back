@@ -13,7 +13,17 @@ public sealed class UserAccount
     /// <summary>Nombre para mostrar.</summary>
     public string DisplayName { get; set; } = "";
 
+    /// <summary>Usuario para login; único e inmutable tras guardarlo.</summary>
+    public string? Username { get; set; }
+
+    /// <summary>Hash de contraseña (PBKDF2).</summary>
+    public string? PasswordHash { get; set; }
+
     public string? Email { get; set; }
+
+    public DateTimeOffset? EmailVerifiedAt { get; set; }
+
+    public DateTimeOffset? PhoneVerifiedAt { get; set; }
 
     /// <summary>Teléfono formateado para UI.</summary>
     public string? PhoneDisplay { get; set; }

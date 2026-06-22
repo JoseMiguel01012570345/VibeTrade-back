@@ -19,8 +19,6 @@ public sealed class RecommendationsController(
     IGuestRecommendationService guestRecommendations,
     IGuestInteractionStore guestInteractions) : ControllerBase
 {
-    public sealed record TrackInteractionBody(string? OfferId, string? EventType);
-
     /// <summary>Lote de ofertas recomendadas para el usuario autenticado (<c>take</c> opcional).</summary>
     [HttpGet]
     [ProducesResponseType(typeof(RecommendationBatchResponse), StatusCodes.Status200OK)]
@@ -65,8 +63,6 @@ public sealed class RecommendationsController(
             cancellationToken);
         return NoContent();
     }
-
-    public sealed record TrackGuestInteractionBody(string? GuestId, string? OfferId, string? EventType);
 
     /// <summary>Feed de recomendaciones para un invitado (sin sesión).</summary>
     [HttpGet("guest")]

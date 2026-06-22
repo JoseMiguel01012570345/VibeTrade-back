@@ -18,15 +18,6 @@ public sealed class RouteLogisticsController(
     ICarrierLegRefundService carrierLegRefund,
     ISellerRouteStopDeliveryCustodyService sellerRouteCustody) : ControllerBase
 {
-    /// <summary>Cuerpo POST telemetría: coordenadas y metadatos; la velocidad la calcula el servidor entre muestras.</summary>
-    public sealed record PostTelemetryBody(
-        string RouteSheetId,
-        string RouteStopId,
-        double Lat,
-        double Lng,
-        DateTimeOffset ReportedAtUtc,
-        string SourceClientId);
-
     /// <summary>Transportista con ownership: push GPS para tracking en vivo.</summary>
     [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/telemetry")]
     [Consumes("application/json")]
@@ -65,8 +56,6 @@ public sealed class RouteLogisticsController(
 
         return Ok(r);
     }
-
-    public sealed record CedeOwnershipBody(string RouteSheetId, string RouteStopId);
 
     [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/ownership/cede")]
     [Consumes("application/json")]
@@ -177,8 +166,6 @@ public sealed class RouteLogisticsController(
         return Ok(rows);
     }
 
-    public sealed record UpsertEvidenceBody(string Text, List<VibeTrade.Backend.Data.Entities.ServiceEvidenceAttachmentBody>? Attachments, bool Submit);
-
     [HttpGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/evidence")]
     [ProducesResponseType(typeof(CarrierDeliveryEvidenceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -225,7 +212,7 @@ public sealed class RouteLogisticsController(
         string agreementId,
         [FromQuery] string routeSheetId,
         [FromQuery] string routeStopId,
-        [FromBody] UpsertEvidenceBody body,
+        [FromBody] UpsertCarrierDeliveryEvidenceRequest body,
         CancellationToken cancellationToken)
     {
         var userId = currentUser.GetUserId(Request);
@@ -238,7 +225,7 @@ public sealed class RouteLogisticsController(
                 agreementId.Trim(),
                 routeSheetId.Trim(),
                 routeStopId.Trim(),
-                new UpsertCarrierDeliveryEvidenceRequest(body.Text, body.Attachments, body.Submit),
+                body,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -252,8 +239,6 @@ public sealed class RouteLogisticsController(
         return Ok(data);
     }
 
-    public sealed record DecideEvidenceBody(string Decision);
-
     [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/evidence/decide")]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -266,7 +251,7 @@ public sealed class RouteLogisticsController(
         string agreementId,
         [FromQuery] string routeSheetId,
         [FromQuery] string routeStopId,
-        [FromBody] DecideEvidenceBody body,
+        [FromBody] DecideCarrierDeliveryEvidenceRequest body,
         CancellationToken cancellationToken)
     {
         var userId = currentUser.GetUserId(Request);
@@ -279,7 +264,7 @@ public sealed class RouteLogisticsController(
                 agreementId.Trim(),
                 routeSheetId.Trim(),
                 routeStopId.Trim(),
-                new DecideCarrierDeliveryEvidenceRequest(body.Decision),
+                body,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -323,8 +308,6 @@ public sealed class RouteLogisticsController(
         return Ok(new { ok = true });
     }
 
-    public sealed record SellerPauseDeliveryBody(string RouteSheetId, string RouteStopId, string Reason);
-
     [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/deliveries/seller-pause")]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -356,8 +339,6 @@ public sealed class RouteLogisticsController(
 
         return Ok(new { ok = true });
     }
-
-    public sealed record SellerResumeFromIdleBody(string RouteSheetId, string RouteStopId, string TargetCarrierUserId);
 
     [HttpPost("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/logistics/deliveries/seller-resume-from-idle")]
     [Consumes("application/json")]

@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
+using VibeTrade.Backend.Features.Chat.Dtos;
 
 namespace VibeTrade.Backend.Api;
 
@@ -12,8 +13,6 @@ namespace VibeTrade.Backend.Api;
 [Tags("Utils")]
 public sealed class LinkPreviewController(IHttpClientFactory httpFactory) : ControllerBase
 {
-    public sealed record LinkPreviewResponse(string Url, string? Title, string? Description, string? ImageUrl);
-
     [HttpGet]
     [ProducesResponseType(typeof(LinkPreviewResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

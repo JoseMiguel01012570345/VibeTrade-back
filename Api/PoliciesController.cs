@@ -72,8 +72,6 @@ public sealed class PoliciesController(
     /// <summary>
     /// Transportista (no comprador/vendedor del hilo): abandona la operación, des-suscribe tramos y limpia teléfonos en hoja.
     /// </summary>
-    public sealed record CarrierWithdrawBody(string Reason, string? TradeAgreementId = null);
-
     [HttpPost("threads/{threadId}/route-tramo-subscriptions/carrier-withdraw")]
     [Consumes("application/json")]
     [ProducesResponseType(typeof(CarrierWithdrawFromThreadResult), StatusCodes.Status200OK)]

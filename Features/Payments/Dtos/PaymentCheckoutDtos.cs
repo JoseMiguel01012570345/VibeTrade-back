@@ -26,3 +26,16 @@ public sealed record ServicePaymentPickDto(
     string ServiceItemId,
     int EntryMonth,
     int EntryDay);
+
+public sealed record ExecutePaymentBody(
+    string Currency,
+    string PaymentMethodId,
+    string? IdempotencyKey,
+    IReadOnlyList<ServicePaymentPickDto>? SelectedServicePayments,
+    IReadOnlyList<string>? SelectedRoutePathIds,
+    IReadOnlyList<string>? SelectedMerchandiseLineIds);
+
+public sealed record CheckoutBreakdownBody(
+    IReadOnlyList<ServicePaymentPickDto>? SelectedServicePayments,
+    IReadOnlyList<string>? SelectedRoutePathIds,
+    IReadOnlyList<string>? SelectedMerchandiseLineIds);

@@ -36,6 +36,47 @@ public sealed class AuthPendingOtpRowConfiguration : IEntityTypeConfiguration<Au
     }
 }
 
+public sealed class AuthPendingRegistrationRowConfiguration : IEntityTypeConfiguration<AuthPendingRegistrationRow>
+{
+    public void Configure(EntityTypeBuilder<AuthPendingRegistrationRow> e)
+    {
+        e.ToTable("auth_pending_registrations");
+        e.HasKey(x => x.RegistrationId);
+        e.Property(x => x.RegistrationId).HasMaxLength(64);
+        e.Property(x => x.PasswordHash).HasMaxLength(512);
+        e.Property(x => x.Email).HasMaxLength(320);
+        e.Property(x => x.PhoneDigits).HasMaxLength(32);
+        e.Property(x => x.PhoneDisplay).HasMaxLength(64);
+        e.HasIndex(x => x.ExpiresAt);
+    }
+}
+
+public sealed class AuthPendingEmailOtpRowConfiguration : IEntityTypeConfiguration<AuthPendingEmailOtpRow>
+{
+    public void Configure(EntityTypeBuilder<AuthPendingEmailOtpRow> e)
+    {
+        e.ToTable("auth_pending_email_otps");
+        e.HasKey(x => x.Key);
+        e.Property(x => x.Key).HasMaxLength(128);
+        e.Property(x => x.Purpose).HasMaxLength(32);
+        e.Property(x => x.Code).HasMaxLength(32);
+        e.HasIndex(x => x.ExpiresAt);
+    }
+}
+
+public sealed class AuthPendingPasswordResetRowConfiguration : IEntityTypeConfiguration<AuthPendingPasswordResetRow>
+{
+    public void Configure(EntityTypeBuilder<AuthPendingPasswordResetRow> e)
+    {
+        e.ToTable("auth_pending_password_resets");
+        e.HasKey(x => x.Email);
+        e.Property(x => x.Email).HasMaxLength(320);
+        e.Property(x => x.NewPasswordHash).HasMaxLength(512);
+        e.Property(x => x.Code).HasMaxLength(32);
+        e.HasIndex(x => x.ExpiresAt);
+    }
+}
+
 public sealed class UserContactRowConfiguration : IEntityTypeConfiguration<UserContactRow>
 {
     public void Configure(EntityTypeBuilder<UserContactRow> e)

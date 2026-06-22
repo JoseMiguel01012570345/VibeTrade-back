@@ -32,8 +32,6 @@ public sealed class ChatController(
     IChatExitPolicyRegistry chatExitPolicyRegistry)
     : ControllerBase
 {
-    public sealed record CreateThreadBody(string OfferId, bool? PurchaseIntent, bool? ForceNew);
-
     /// <summary>Crea o reutiliza el hilo comprador–vendedor para una oferta.</summary>
     /// <param name="body"><c>offerId</c> y opcional <c>purchaseIntent</c> (por defecto true).</param>
     /// <param name="cancellationToken">Token de cancelación.</param>
@@ -67,8 +65,6 @@ public sealed class ChatController(
 
         return Ok(dto);
     }
-
-    public sealed record CreateSocialGroupBody(IReadOnlyList<string>? MemberUserIds);
 
     /// <summary>Crea un hilo de mensajería entre tu cuenta y otros usuarios (chat directo o grupal; sin acuerdos ni rutas).</summary>
     [HttpPost("threads/social-group")]
@@ -128,8 +124,6 @@ public sealed class ChatController(
         var n = await chat.AckAllPendingIncomingDeliveredAsync(userId, cancellationToken);
         return Ok(new AckPendingDeliveryOnLoginResult(n));
     }
-
-    public sealed record AckPendingDeliveryOnLoginResult(int Applied);
 
     /// <summary>Obtiene el hilo visible para el usuario y la oferta indicada.</summary>
     [HttpGet("threads/by-offer/{offerId}")]
@@ -217,8 +211,6 @@ public sealed class ChatController(
         return Ok(list);
     }
 
-    public sealed record PatchSocialGroupTitleBody(string? Title);
-
     /// <summary>Solo quien creó el grupo puede cambiar el nombre mostrado.</summary>
     [HttpPatch("threads/{threadId}/social-title")]
     [Consumes("application/json")]
@@ -289,8 +281,6 @@ public sealed class ChatController(
             return NotFound(new { error = "not_found", message = "Hilo no encontrado o mensaje inválido." });
         return Ok(msg);
     }
-
-    public sealed record UpdateMessageStatusBody(string Status);
 
     /// <summary>Actualiza el estado de entrega/lectura de un mensaje (p. ej. <c>read</c>, <c>delivered</c>).</summary>
     [HttpPost("threads/{threadId}/messages/{messageId}/status")]
@@ -412,8 +402,6 @@ public sealed class ChatController(
         return Ok(list);
     }
 
-    public sealed record AcceptRouteTramoSubscriptionBody(string RouteSheetId, string CarrierUserId, string? StopId = null);
-
     /// <summary>
     /// Solo vendedor del hilo: confirma las suscripciones pendientes del transportista en la hoja publicada y notifica al carrier.
     /// </summary>
@@ -457,8 +445,6 @@ public sealed class ChatController(
         }
     }
 
-    public sealed record RejectRouteTramoSubscriptionBody(string RouteSheetId, string CarrierUserId, string? StopId = null);
-
     /// <summary>
     /// Solo vendedor del hilo: rechaza solicitudes pendientes del transportista y notifica con enlace a la oferta de ruta (<c>emo_*</c>).
     /// </summary>
@@ -492,12 +478,6 @@ public sealed class ChatController(
             return NotFound(new { error = "not_found", message = "No hay solicitudes pendientes que rechazar." });
         return Ok(new { rejectedCount = n.Value });
     }
-
-    public sealed record SellerExpelCarrierBody(
-        string CarrierUserId,
-        string Reason,
-        string? RouteSheetId = null,
-        string? StopId = null);
 
     /// <summary>
     /// Solo vendedor del hilo: retira a un transportista (un tramo si van <c>routeSheetId</c> y <c>stopId</c>, o toda la operación),
@@ -601,8 +581,6 @@ public sealed class ChatController(
         };
     }
 
-    public sealed record NotifyPreselectedBody(RouteSheetPreselectedInvite[]? Invites);
-
     /// <summary>
     /// Tras guardar la hoja: notifica solo por tramos incluidos en <c>invites</c> (teléfono nuevo o modificado en ese tramo).
     /// </summary>
@@ -646,10 +624,6 @@ public sealed class ChatController(
             return NotFound(new { error = "not_found", message = "Hilo o hoja no encontrados, o sin permiso." });
         return Ok(new NotifyPreselectedResult(n));
     }
-
-    public sealed record NotifyPreselectedResult(int NotifiedCount);
-
-    public sealed record CarrierPreselInviteBody(string RouteSheetId, string? StopId, bool Accepted);
 
     /// <summary>
     /// Transportista invitado vía teléfono en la hoja: <c>Accepted</c> true = suscripción y acceso al hilo;
@@ -746,8 +720,6 @@ public sealed class ChatController(
             _ => NotFound(new { error = "not_found", message = "Hoja no encontrada o sin permiso." }),
         };
     }
-
-    public sealed record RouteSheetEditCarrierResponseBody(bool Accept);
 
     /// <summary>
     /// Transportista con tramo confirmado: acusa recepción de la última edición de la hoja (aceptar o rechazar).
