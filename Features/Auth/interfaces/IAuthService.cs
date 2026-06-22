@@ -33,6 +33,7 @@ public interface IAuthService
     Task<RegisterStartResult?> StartRegistrationAsync(
         string password,
         string email,
+        string username,
         string phoneRaw,
         CancellationToken cancellationToken);
 
@@ -79,6 +80,8 @@ public interface IAuthService
     Task<bool> PhoneHasRegisteredAccountAsync(string? phoneRaw, CancellationToken cancellationToken = default);
 
     Task<bool> EmailHasRegisteredAccountAsync(string? email, CancellationToken cancellationToken = default);
+
+    Task<bool> UsernameHasRegisteredAccountAsync(string? username, CancellationToken cancellationToken = default);
 
     Task<string?> TrySetUsernameAsync(
         string userId,

@@ -9,6 +9,8 @@ public sealed class AuthPendingRegistrationRow
 
     public string Email { get; set; } = "";
 
+    public string Username { get; set; } = "";
+
     public string PhoneDigits { get; set; } = "";
 
     public string PhoneDisplay { get; set; } = "";

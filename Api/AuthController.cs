@@ -350,12 +350,20 @@ public sealed class AuthController(
         if (await auth.EmailHasRegisteredAccountAsync(email, cancellationToken))
             return Conflict(new { error = "email_taken", message = "Ese email ya está registrado." });
 
+        var username = (body.Username ?? "").Trim();
+        if (!AuthUtils.IsValidUsername(username))
+            return BadRequest(new { error = "invalid_username", message = "Usuario inválido (3–32 caracteres, letras, números o _)." });
+
+        if (await auth.UsernameHasRegisteredAccountAsync(username, cancellationToken))
+            return Conflict(new { error = "username_taken", message = "Ese nombre de usuario ya está en uso." });
+
         if (await auth.PhoneHasRegisteredAccountAsync(body.Phone, cancellationToken))
             return Conflict(new { error = "phone_taken", message = "Ese teléfono ya está registrado." });
 
         var result = await auth.StartRegistrationAsync(
             body.Password!,
             email,
+            username,
             body.Phone ?? "",
             cancellationToken);
         if (result is null)
