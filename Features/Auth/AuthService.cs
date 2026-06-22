@@ -255,6 +255,7 @@ public sealed class AuthService(
     public async Task<RegisterStartResult?> StartRegistrationAsync(
         string password,
         string email,
+        string username,
         string phoneRaw,
         CancellationToken cancellationToken)
     {
@@ -265,11 +266,18 @@ public sealed class AuthService(
         if (normalizedEmail.Length < 5 || !normalizedEmail.Contains('@'))
             return null;
 
+        var normalizedUsername = AuthUtils.NormalizeUsername(username);
+        if (normalizedUsername is null || !AuthUtils.IsValidUsername(normalizedUsername))
+            return null;
+
         var digits = AuthUtils.DigitsOnly(phoneRaw);
         if (digits.Length < 7)
             return null;
 
         if (await db.UserAccounts.AnyAsync(u => u.Email != null && u.Email.ToLower() == normalizedEmail, cancellationToken))
+            return null;
+
+        if (await UsernameHasRegisteredAccountAsync(normalizedUsername, cancellationToken))
             return null;
 
         if (await db.UserAccounts.AnyAsync(u => u.PhoneDigits == digits, cancellationToken))
@@ -284,6 +292,7 @@ public sealed class AuthService(
             RegistrationId = registrationId,
             PasswordHash = AuthUtils.HashPassword(password),
             Email = normalizedEmail,
+            Username = normalizedUsername,
             PhoneDigits = digits,
             PhoneDisplay = phoneRaw.Trim(),
             PhoneVerified = false,
@@ -369,7 +378,8 @@ public sealed class AuthService(
         var account = new UserAccount
         {
             Id = userId,
-            DisplayName = "Usuario sin nombre",
+            DisplayName = pending.Username,
+            Username = pending.Username,
             Email = pending.Email,
             PasswordHash = pending.PasswordHash,
             PhoneDigits = pending.PhoneDigits,
@@ -586,12 +596,7 @@ public sealed class AuthService(
         else
         {
             if (displayName is not null)
-            {
                 row.DisplayName = displayName;
-                var name = displayName.Trim();
-                if (AuthUtils.IsValidUsername(name))
-                    row.Username = name;
-            }
             if (email is not null)
                 row.Email = string.IsNullOrWhiteSpace(email) ? null : email;
             if (instagram is not null)
@@ -658,6 +663,19 @@ public sealed class AuthService(
             return false;
         return await db.UserAccounts.AsNoTracking()
             .AnyAsync(u => u.Email != null && u.Email.ToLower() == normalized, cancellationToken);
+    }
+
+    public async Task<bool> UsernameHasRegisteredAccountAsync(
+        string? username,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = AuthUtils.NormalizeUsername(username);
+        if (normalized is null)
+            return false;
+        return await db.UserAccounts.AsNoTracking()
+            .AnyAsync(
+                u => u.Username != null && u.Username.ToLower() == normalized.ToLower(),
+                cancellationToken);
     }
 
     public async Task<string?> TrySetUsernameAsync(

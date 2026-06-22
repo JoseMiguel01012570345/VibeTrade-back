@@ -29,7 +29,7 @@ public sealed record AddContactBody(string? Phone);
 
 public sealed record LoginBody(string? Email, string? Password);
 
-public sealed record RegisterBody(string? Password, string? Email, string? Phone);
+public sealed record RegisterBody(string? Password, string? Email, string? Username, string? Phone);
 
 public sealed record VerifyRegistrationBody(string? RegistrationId, string? Code);
 

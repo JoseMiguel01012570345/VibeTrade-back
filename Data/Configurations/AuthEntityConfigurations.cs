@@ -45,6 +45,7 @@ public sealed class AuthPendingRegistrationRowConfiguration : IEntityTypeConfigu
         e.Property(x => x.RegistrationId).HasMaxLength(64);
         e.Property(x => x.PasswordHash).HasMaxLength(512);
         e.Property(x => x.Email).HasMaxLength(320);
+        e.Property(x => x.Username).HasMaxLength(32);
         e.Property(x => x.PhoneDigits).HasMaxLength(32);
         e.Property(x => x.PhoneDisplay).HasMaxLength(64);
         e.HasIndex(x => x.ExpiresAt);
