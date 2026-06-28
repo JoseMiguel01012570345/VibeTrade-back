@@ -1,8 +1,8 @@
 using MediatR;
 using VibeTrade.Backend.Features.SavedOffers.Dtos;
 using VibeTrade.Backend.Features.SavedOffers.Interfaces;
-using VibeTrade.Backend.Features.SavedOffers.RemoveSavedOffer;
-using VibeTrade.Backend.Features.SavedOffers.SaveOffer;
+using VibeTrade.Backend.Features.SavedOffers.SavedOffersMediator.RemoveSavedOffer;
+using VibeTrade.Backend.Features.SavedOffers.SavedOffersMediator.SaveOffer;
 using VibeTrade.Backend.Infrastructure;
 
 namespace VibeTrade.Backend.Features.SavedOffers;

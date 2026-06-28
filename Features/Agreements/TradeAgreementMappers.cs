@@ -1,4 +1,4 @@
-using VibeTrade.Backend.Data.Entities;
+using System.Globalization;
 using VibeTrade.Backend.Features.Agreements.Dtos;
 
 namespace VibeTrade.Backend.Features.Agreements;
@@ -643,7 +643,7 @@ public static class TradeAgreementEntityToApiMapper
     {
         var daysByMonth = new Dictionary<string, List<int>>();
         foreach (var g in s.ScheduleDays.GroupBy(x => x.Month).OrderBy(x => x.Key))
-            daysByMonth[g.Key.ToString()] = g.Select(x => x.CalendarDay).Order().ToList();
+            daysByMonth[g.Key.ToString(CultureInfo.InvariantCulture)] = g.Select(x => x.CalendarDay).Order().ToList();
 
         var overrides = new Dictionary<string, TimeWindowApi>();
         foreach (var o in s.ScheduleOverrides)

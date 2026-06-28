@@ -1,4 +1,3 @@
-using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Agreements.Dtos;
 

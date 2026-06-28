@@ -4,7 +4,7 @@ namespace VibeTrade.Backend.Features.Logistics.Interfaces;
 public interface ISellerRouteStopDeliveryCustodyService
 {
     /// <summary>
-    /// Pone el tramo en <see cref="VibeTrade.Backend.Data.Entities.RouteStopDeliveryStates.IdleStoreCustody"/> y libera titular.
+    /// Pone el tramo en <see cref="RouteStopDeliveryStates.IdleStoreCustody"/> y libera titular.
     /// Solo un tramo en IDLE por hoja a la vez.
     /// </summary>
     Task<SellerRouteStopCustodyResult> PauseForStoreCustodyAsync(

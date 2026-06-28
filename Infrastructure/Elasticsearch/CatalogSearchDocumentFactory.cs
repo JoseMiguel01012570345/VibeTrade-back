@@ -1,6 +1,5 @@
 using System.Text;
 using Elastic.Clients.Elasticsearch;
-using VibeTrade.Backend.Data.Entities;
 
 using VibeTrade.Backend.Features.Search;
 using VibeTrade.Backend.Features.Search.Dtos;

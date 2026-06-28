@@ -137,7 +137,7 @@ internal static class CatalogSearchEmbeddingTextUtils
             ' ',
             items.Select(c =>
             {
-                var parts = new List<string> { c.Text, c.Question, c.Answer }
+                var parts = new[] { c.Text, c.Question, c.Answer }
                     .Where(s => !string.IsNullOrWhiteSpace(s))
                     .Select(s => s!);
                 return string.Join(' ', parts);

@@ -1,4 +1,3 @@
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Catalog.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 

@@ -1,7 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Auth.Interfaces;
 using VibeTrade.Backend.Features.Bootstrap.Dtos;
@@ -14,7 +13,7 @@ using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
-using VibeTrade.Backend.Features.SavedOffers.GetFilteredSavedOffers;
+using VibeTrade.Backend.Features.SavedOffers.SavedOffersMediator.GetFilteredSavedOffers;
 
 namespace VibeTrade.Backend.Features.Bootstrap;
 

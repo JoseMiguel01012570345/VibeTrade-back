@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Dtos;
 

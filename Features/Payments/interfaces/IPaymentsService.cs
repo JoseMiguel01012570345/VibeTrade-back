@@ -1,11 +1,11 @@
 namespace VibeTrade.Backend.Features.Payments.Interfaces;
 
-/// <summary>Pagos: Stripe (config, tarjetas, intents) y checkout/cobro de acuerdos en chat.</summary>
+/// <summary>Pagos: pasarela simulada, tarjetas demo y checkout/cobro de acuerdos en chat.</summary>
 public interface IPaymentsService
 {
-    StripeConfigDto GetStripeConfig();
+    PaymentGatewayConfigDto GetPaymentGatewayConfig();
 
-    Task<IReadOnlyList<StripeCardPaymentMethodDto>> ListCardPaymentMethodsAsync(
+    Task<IReadOnlyList<SavedCardPaymentMethodDto>> ListCardPaymentMethodsAsync(
         string userId,
         CancellationToken cancellationToken = default);
 
@@ -38,7 +38,7 @@ public interface IPaymentsService
         string threadId,
         string agreementId,
         string currencyLower,
-        string paymentMethodStripeId,
+        string paymentMethodId,
         string? idempotencyKey,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,

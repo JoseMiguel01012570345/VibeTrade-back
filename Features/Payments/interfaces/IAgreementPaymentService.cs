@@ -23,7 +23,7 @@ public interface IAgreementPaymentService
         string threadId,
         string agreementId,
         string currencyLower,
-        string paymentMethodStripeId,
+        string PaymentMethodId,
         string? idempotencyKey,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,

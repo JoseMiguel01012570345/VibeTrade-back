@@ -25,7 +25,7 @@ namespace VibeTrade.Backend.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.MarketWorkspaceRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.MarketWorkspaceRow", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -45,7 +45,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("market_workspaces", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreProductRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreProductRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -127,7 +127,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("store_products", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -180,7 +180,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("stores", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreServiceRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreServiceRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -248,7 +248,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("store_services", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserAccount", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Auth.Entities.UserAccount", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -305,9 +305,9 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("user_accounts", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreProductRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreProductRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.StoreRow", "Store")
+                    b.HasOne("VibeTrade.Backend.Features.Market.Entities.StoreRow", "Store")
                         .WithMany("Products")
                         .HasForeignKey("StoreId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -316,9 +316,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("Store");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.UserAccount", "Owner")
+                    b.HasOne("VibeTrade.Backend.Features.Auth.Entities.UserAccount", "Owner")
                         .WithMany("Stores")
                         .HasForeignKey("OwnerUserId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -327,9 +327,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("Owner");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreServiceRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreServiceRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.StoreRow", "Store")
+                    b.HasOne("VibeTrade.Backend.Features.Market.Entities.StoreRow", "Store")
                         .WithMany("Services")
                         .HasForeignKey("StoreId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -338,14 +338,14 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("Store");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreRow", b =>
                 {
                     b.Navigation("Products");
 
                     b.Navigation("Services");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserAccount", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Auth.Entities.UserAccount", b =>
                 {
                     b.Navigation("Stores");
                 });

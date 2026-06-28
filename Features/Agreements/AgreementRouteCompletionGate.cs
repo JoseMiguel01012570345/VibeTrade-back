@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Agreements;
 

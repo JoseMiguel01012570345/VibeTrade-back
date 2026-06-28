@@ -6,7 +6,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Agreements;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
@@ -16,8 +15,7 @@ using VibeTrade.Backend.Features.Logistics;
 using VibeTrade.Backend.Features.RouteSheets;
 using VibeTrade.Backend.Features.RouteSheets.Dtos;
 using VibeTrade.Backend.Features.RouteSheets.Interfaces;
-using Stripe;
-using VibeTrade.Backend.Infrastructure.Stripe;
+using VibeTrade.Backend.Features.Payments.Gateways;
 using static VibeTrade.Backend.Features.Payments.PaymentUtils;
 
 namespace VibeTrade.Backend.Features.Payments;
@@ -30,7 +28,8 @@ public sealed class PaymentsServiceCore(
     INotificationService notifications,
     IBroadcastingService broadcasting,
     IPaymentFeeReceiptEmailDispatcher paymentFeeReceiptEmail,
-    IStripeGateway stripe,
+    IPaymentGatewayManager gatewayManager,
+    SimulatedPaymentGateway simulatedGateway,
     ILogger<PaymentsServiceCore> logger)
     {
     private sealed record AgreementCheckoutTarget(
@@ -42,50 +41,32 @@ public sealed class PaymentsServiceCore(
         IReadOnlyList<string>? RoutePathPicks,
         IReadOnlyList<string>? MerchLinePicks);
 
-    public StripeConfigDto GetStripeConfig() => stripe.GetConfig();
+    public PaymentGatewayConfigDto GetPaymentGatewayConfig() => gatewayManager.GetConfig();
 
-    public async Task<IReadOnlyList<StripeCardPaymentMethodDto>> ListCardPaymentMethodsAsync(
+    public async Task<IReadOnlyList<SavedCardPaymentMethodDto>> ListCardPaymentMethodsAsync(
         string userId,
         CancellationToken cancellationToken = default)
     {
-        var u = await db.UserAccounts.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == userId.Trim(), cancellationToken)
+        var accountId = await ResolveBuyerPaymentAccountIdAsync(userId.Trim(), cancellationToken)
             .ConfigureAwait(false);
-        var cusId = u?.StripeCustomerId?.Trim();
-        if (string.IsNullOrWhiteSpace(cusId))
+        if (string.IsNullOrWhiteSpace(accountId))
             return [];
 
-        return await stripe.ListCardPaymentMethodsAsync(cusId, cancellationToken).ConfigureAwait(false);
+        return simulatedGateway.ListSavedCards(accountId);
     }
 
     public async Task<(bool Ok, object Problem, CreateSetupIntentResult? Data)> CreateSetupIntentAsync(
         string userId,
         CancellationToken cancellationToken = default)
     {
-        if (!stripe.GetConfig().Enabled && !stripe.SkipPaymentIntents)
-        {
-            return (false,
-                new
-                {
-                    error = "stripe_not_configured",
-                    message = "Falta STRIPE_RESTRICTED_KEY o STRIPE_SECRET_KEY en .env",
-                },
-                null);
-        }
-
-        var (u, customerId) = await EnsureStripeCustomerAsync(userId.Trim(), cancellationToken)
+        var (u, accountId) = await EnsurePaymentAccountAsync(userId.Trim(), cancellationToken)
             .ConfigureAwait(false);
-        if (u is null || string.IsNullOrWhiteSpace(customerId))
+        if (u is null || string.IsNullOrWhiteSpace(accountId))
         {
             return (false, new { error = "not_found", message = "Usuario no encontrado." }, null);
         }
 
-        var (ok, errorMessage, result) =
-            await stripe.CreateSetupIntentAsync(customerId, userId.Trim(), cancellationToken).ConfigureAwait(false);
-        if (!ok || result is null)
-            return (false, new { error = "stripe_error", message = errorMessage ?? "Stripe no devolvió client_secret." }, null);
-
-        return (true, null!, result);
+        return (true, null!, new CreateSetupIntentResult(SimulatedPaymentGateway.GenerateSetupToken()));
     }
 
     public async Task<(int StatusCode, object? Problem, CreatePaymentIntentResult? Data)> CreatePaymentIntentAsync(
@@ -95,7 +76,7 @@ public sealed class PaymentsServiceCore(
     {
         if (!string.Equals(
                 (body.Kind ?? "").Trim(),
-                PaymentsStripePaymentKinds.AgreementCheckout,
+                PaymentIntentKinds.AgreementCheckout,
                 StringComparison.OrdinalIgnoreCase))
         {
             return Err(StatusCodes.Status400BadRequest, "invalid_kind", "Tipo de cobro no soportado o no indicado.");
@@ -119,17 +100,11 @@ public sealed class PaymentsServiceCore(
         {
             return (
                 StatusCodes.Status400BadRequest,
-                new { error = dupPi.ErrorCode ?? "duplicate", message = dupPi.StripeErrorMessage ?? "" },
+                new { error = dupPi.ErrorCode ?? "duplicate", message = dupPi.PaymentErrorMessage ?? "" },
                 null);
         }
 
-        if (stripe.SkipPaymentIntents)
-        {
-            return Ok(new CreatePaymentIntentResult("", PaymentSkipped: true, qb.TotalMinor, target.CurrencyLower));
-        }
-
-        return await CreateAgreementStripePaymentIntentAsync(buyer, target, qb, cancellationToken)
-            .ConfigureAwait(false);
+        return Ok(new CreatePaymentIntentResult("", PaymentSkipped: true, qb.TotalMinor, target.CurrencyLower));
     }
 
     public async Task<BreakdownDto?> GetCheckoutBreakdownAsync(
@@ -229,14 +204,14 @@ public sealed class PaymentsServiceCore(
             .OrderByDescending(x => x.CreatedAtUtc)
             .Select(x =>
                 new AgreementPaymentStatusDto(x.Currency, x.Status, x.TotalAmountMinor,
-                    x.StripePaymentIntentId ?? "", x.CompletedAtUtc))
+                    x.GatewayTransactionId ?? "", x.CompletedAtUtc))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
     }
 
     public async Task<AgreementExecutePaymentResultDto?> ExecuteCurrencyPaymentAsync(
         string buyerUserId, string threadId, string agreementId, string currencyLower,
-        string paymentMethodStripeId, string? idempotencyKey,
+        string PaymentMethodId, string? idempotencyKey,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,
         IReadOnlyList<string>? selectedMerchandiseLineIds = null,
@@ -250,7 +225,7 @@ public sealed class PaymentsServiceCore(
             if (!await BuyerMayExecuteAgreementPaymentAsync(buyerUserId, threadId, cancellationToken).ConfigureAwait(false))
                 return null;
             var cur = currencyLower.Trim().ToLowerInvariant();
-            var pmId = paymentMethodStripeId.Trim();
+            var pmId = PaymentMethodId.Trim();
             if (cur.Length is < 3 or > 8 || pmId.Length < 12)
                 return ExecutePaymentErr.InvalidParams();
             var ik = (idempotencyKey ?? "").Trim();
@@ -299,29 +274,31 @@ public sealed class PaymentsServiceCore(
                 logger.LogWarning(
                     "ExecuteCurrencyPayment checkout invalid: thread={ThreadId} agreement={AgreementId} currency={Currency} routePaths={RoutePaths} error={Error}",
                     threadId.Trim(), agreementId.Trim(), cur, routePathSummary,
-                    breakdown.Errors.FirstOrDefault() ?? "(none)");
-                return ExecutePaymentErr.CheckoutInvalid(breakdown.Errors.FirstOrDefault());
+                    breakdown.Errors.Count > 0 ? breakdown.Errors[0] : "(none)");
+                return ExecutePaymentErr.CheckoutInvalid(
+                    breakdown.Errors.Count > 0 ? breakdown.Errors[0] : null);
             }
 
-            var custId = await ResolveBuyerStripeCustomerIdAsync(buyerUserId.Trim(), cancellationToken).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(custId))
+            var accountId = await ResolveBuyerPaymentAccountIdAsync(buyerUserId.Trim(), cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(accountId))
             {
                 logger.LogWarning(
-                    "ExecuteCurrencyPayment stripe customer missing: buyer={BuyerId} thread={ThreadId} agreement={AgreementId}",
+                    "ExecuteCurrencyPayment payment account missing: buyer={BuyerId} thread={ThreadId} agreement={AgreementId}",
                     buyerUserId.Trim(), threadId.Trim(), agreementId.Trim());
-                return ExecutePaymentErr.StripeNoCustomer();
+                return ExecutePaymentErr.PaymentAccountMissing();
             }
 
             logger.LogInformation(
-                "ExecuteCurrencyPayment start: buyer={BuyerId} thread={ThreadId} agreement={AgreementId} currency={Currency} routeSheetId={RouteSheetId} routePaths={RoutePaths} skipStripeIntents={Skip}",
+                "ExecuteCurrencyPayment start: buyer={BuyerId} thread={ThreadId} agreement={AgreementId} currency={Currency} routeSheetId={RouteSheetId} routePaths={RoutePaths} gateway={Gateway}",
                 buyerUserId.Trim(), threadId.Trim(), agreementId.Trim(), cur,
                 (agr.RouteSheetId ?? "").Trim(),
                 routePathSummary,
-                stripe.SkipPaymentIntents);
+                gatewayManager.GetConfig().GatewayId);
 
             var pay = AgreementCheckoutExecutor.NewRow(threadId.Trim(), agr.Id.Trim(), buyerUserId.Trim(), cur, qb, pmId,
                 ik.Length >= 8 ? ik : null);
-            var result = await AgreementCheckoutExecutor.PersistAndChargeAsync(db, stripe, pay, qb, pmId, custId!, cancellationToken)
+            var result = await AgreementCheckoutExecutor.PersistAndChargeAsync(
+                    db, gatewayManager, simulatedGateway, pay, qb, pmId, accountId!, cancellationToken)
                 .ConfigureAwait(false);
             if (result is { Succeeded: true, AgreementCurrencyPaymentId: { } pid })
             {
@@ -334,8 +311,8 @@ public sealed class PaymentsServiceCore(
             else
             {
                 logger.LogInformation(
-                    "ExecuteCurrencyPayment finished without success side-effects: accepted={Accepted} thread={ThreadId} errorCode={ErrorCode} stripeMsg={StripeMsg}",
-                    result.Accepted, threadId.Trim(), result.ErrorCode ?? "", result.StripeErrorMessage ?? "");
+                    "ExecuteCurrencyPayment finished without success side-effects: Accepted={Accepted} ThreadId={ThreadId} ErrorCode={ErrorCode} PaymentMsg={PaymentMsg}",
+                    result.Accepted, threadId.Trim(), result.ErrorCode ?? "", result.PaymentErrorMessage ?? "");
             }
 
             return result;
@@ -549,11 +526,11 @@ public sealed class PaymentsServiceCore(
         return null;
     }
 
-    private async Task<string?> ResolveBuyerStripeCustomerIdAsync(string buyerUserId, CancellationToken cancellationToken)
+    private async Task<string?> ResolveBuyerPaymentAccountIdAsync(string buyerUserId, CancellationToken cancellationToken)
     {
         var ua = await db.UserAccounts.AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == buyerUserId, cancellationToken).ConfigureAwait(false);
-        return ua?.StripeCustomerId?.Trim();
+        return ua?.PaymentAccountId?.Trim();
     }
 
     private async Task PersistSucceededAgreementCurrencyPaymentSideEffectsAsync(
@@ -597,9 +574,9 @@ public sealed class PaymentsServiceCore(
         internal static AgreementExecutePaymentResultDto CheckoutInvalid(string? detail) =>
             new("", false, null, detail ?? "No se pudo validar el desglose.", false, "checkout_invalid");
 
-        internal static AgreementExecutePaymentResultDto StripeNoCustomer() =>
-            new("", false, null, "Necesitas vincular tus tarjetas (cliente Stripe ausente).", false,
-                "stripe_no_customer");
+        internal static AgreementExecutePaymentResultDto PaymentAccountMissing() =>
+            new("", false, null, "Necesitas vincular tus tarjetas (cuenta de pago ausente).", false,
+                "payment_account_missing");
 
         internal static AgreementExecutePaymentResultDto AlreadyPaidCurrency() =>
             new("", false, null, "Ya existe un cobro exitoso para esa moneda.", false, "already_paid");
@@ -882,7 +859,7 @@ public sealed class PaymentsServiceCore(
             storeDisplayName = (st?.Name ?? "").Trim();
         }
 
-        var estimated = qb.StripeFeeMinor;
+        var estimated = qb.ProcessorFeeMinor;
 
         var lines = qb.Lines.Select(l => new ChatPaymentFeeReceiptLineDto
         {
@@ -898,10 +875,10 @@ public sealed class PaymentsServiceCore(
             CurrencyLower = currencyLower,
             SubtotalMinor = payRow.SubtotalAmountMinor,
             ClimateMinor = payRow.ClimateAmountMinor,
-            StripeFeeMinorActual = payRow.StripeFeeAmountMinor,
-            StripeFeeMinorEstimated = estimated,
+            ProcessorFeeMinorActual = payRow.ProcessorFeeAmountMinor,
+            ProcessorFeeMinorEstimated = estimated,
             TotalChargedMinor = payRow.TotalAmountMinor,
-            StripePricingUrl = StripePricing.PricingPage,
+            PaymentFeePolicyUrl = PaymentFeePolicyLinks.PricingPage,
             Lines = lines,
             InvoiceIssuerPlatform = "VibeTrade",
             InvoiceStoreName = storeDisplayName,
@@ -978,7 +955,7 @@ public sealed class PaymentsServiceCore(
 
         if (!breakdown.Ok)
         {
-            var msg = breakdown.Errors.FirstOrDefault() ?? "No se pudo validar el desglose.";
+            var msg = breakdown.Errors.Count > 0 ? breakdown.Errors[0] : "No se pudo validar el desglose.";
             return (null, Err(StatusCodes.Status400BadRequest, "checkout_invalid", msg));
         }
 
@@ -996,38 +973,6 @@ public sealed class PaymentsServiceCore(
         return (qb, null);
     }
 
-    private async Task<(int StatusCode, object? Problem, CreatePaymentIntentResult? Data)>
-        CreateAgreementStripePaymentIntentAsync(
-            string buyerUserId,
-            AgreementCheckoutTarget t,
-            CurrencyTotalsDto qb,
-            CancellationToken cancellationToken)
-    {
-        var (_, customerId) = await EnsureStripeCustomerAsync(buyerUserId, cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(customerId))
-        {
-            return Err(
-                StatusCodes.Status400BadRequest,
-                "no_saved_cards",
-                "No hay tarjetas configuradas. Añade una tarjeta en Configurar antes de pagar.");
-        }
-
-        var (ok, errorCode, errorMessage, result) = await stripe.CreateCheckoutPaymentIntentAsync(
-                buyerUserId,
-                customerId,
-                t.PaymentMethodId,
-                t.ThreadId,
-                t.AgreementId,
-                t.CurrencyLower,
-                qb.TotalMinor,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (!ok || result is null)
-            return Err(StatusCodes.Status400BadRequest, errorCode ?? "stripe_error", errorMessage ?? "Error de Stripe.");
-
-        return Ok(result);
-    }
-
     private static IReadOnlyList<ServicePaymentPickDto>? MapServicePicks(
         IReadOnlyList<AgreementCheckoutPaymentIntentItemDto>? items)
     {
@@ -1043,7 +988,7 @@ public sealed class PaymentsServiceCore(
         return list.Count > 0 ? list : null;
     }
 
-    private async Task<(UserAccount? user, string? customerId)> EnsureStripeCustomerAsync(
+    private async Task<(UserAccount? user, string? accountId)> EnsurePaymentAccountAsync(
         string userId,
         CancellationToken cancellationToken)
     {
@@ -1052,76 +997,12 @@ public sealed class PaymentsServiceCore(
         if (u is null)
             return (null, null);
 
-        var existing = (u.StripeCustomerId ?? "").Trim();
+        var existing = (u.PaymentAccountId ?? "").Trim();
         if (existing.Length > 0)
             return (u, existing);
 
-        if (stripe.SkipPaymentIntents)
-        {
-            u.StripeCustomerId = stripe.GenerateSkipModeCustomerId();
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            return (u, u.StripeCustomerId);
-        }
-
-        var customerId = await stripe.CreateCustomerAsync(
-                userId,
-                (u.DisplayName ?? "").Trim() is { Length: > 0 } dn ? dn : null,
-                (u.Email ?? "").Trim() is { Length: > 0 } em ? em : null,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(customerId))
-            return (u, null);
-
-        u.StripeCustomerId = customerId.Trim();
+        u.PaymentAccountId = SimulatedPaymentGateway.AccountIdForUser(userId);
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return (u, u.StripeCustomerId);
-    }
-
-    public async Task<HandleStripeWebhookResult> HandleStripeWebhookAsync(
-        string json,
-        string stripeSignature,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-            return HandleStripeWebhookResult.InvalidPayload();
-
-        var webhookSecret = StripeEnv.StripeWebhookSecret();
-        if (string.IsNullOrWhiteSpace(webhookSecret))
-            return HandleStripeWebhookResult.NotConfigured();
-
-        Stripe.Event stripeEvent;
-        try
-        {
-            stripeEvent = Stripe.EventUtility.ConstructEvent(json, stripeSignature, webhookSecret);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Stripe webhook signature verification failed.");
-            return HandleStripeWebhookResult.InvalidSignature();
-        }
-
-        if (!string.Equals(stripeEvent.Type, "payment_intent.succeeded", StringComparison.Ordinal))
-            return HandleStripeWebhookResult.Ignored(stripeEvent.Type);
-
-        if (stripeEvent.Data.Object is not Stripe.PaymentIntent intent)
-            return HandleStripeWebhookResult.InvalidPayload();
-
-        var piId = (intent.Id ?? "").Trim();
-        if (piId.Length < 8)
-            return HandleStripeWebhookResult.InvalidPayload();
-
-        var row = await db.AgreementCurrencyPayments
-            .FirstOrDefaultAsync(x => x.StripePaymentIntentId == piId, cancellationToken)
-            .ConfigureAwait(false);
-        if (row is null)
-            return HandleStripeWebhookResult.PaymentNotFound(piId);
-
-        if (row.Status == AgreementPaymentStatuses.Succeeded)
-            return HandleStripeWebhookResult.AlreadyProcessed(piId);
-
-        row.Status = AgreementPaymentStatuses.Succeeded;
-        row.CompletedAtUtc = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return HandleStripeWebhookResult.Processed(piId);
+        return (u, u.PaymentAccountId);
     }
 }

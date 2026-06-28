@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -46,7 +45,7 @@ public static class ChatMediaUrlRules
     public static bool IsAllowedPersisted(string url)
     {
         url = (url ?? "").Trim();
-        if (url.Length == 0 || !url.StartsWith("/", StringComparison.Ordinal))
+        if (url.Length == 0 || !url.StartsWith('/'))
             return false;
         if (url.Contains("..", StringComparison.Ordinal))
             return false;

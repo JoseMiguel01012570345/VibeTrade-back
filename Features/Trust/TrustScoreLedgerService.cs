@@ -1,8 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Trust.GetTrustLedger;
+using VibeTrade.Backend.Features.Trust.TrustMediator.GetTrustLedger;
 
 namespace VibeTrade.Backend.Features.Trust;
 

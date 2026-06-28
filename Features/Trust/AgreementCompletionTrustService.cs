@@ -1,5 +1,5 @@
 using MediatR;
-using VibeTrade.Backend.Features.Trust.ApplyCompletionBonus;
+using VibeTrade.Backend.Features.Trust.TrustMediator.ApplyCompletionBonus;
 
 namespace VibeTrade.Backend.Features.Trust;
 

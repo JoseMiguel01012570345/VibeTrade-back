@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Data.Configurations;
 

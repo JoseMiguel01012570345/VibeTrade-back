@@ -1,20 +1,18 @@
 using MediatR;
-using VibeTrade.Backend.Features.Payments.ConfirmPayment;
-using VibeTrade.Backend.Features.Payments.CreateCheckout;
-using VibeTrade.Backend.Features.Payments.HandleStripeWebhook;
+using VibeTrade.Backend.Features.Payments.PaymentsMediator.ConfirmPayment;
+using VibeTrade.Backend.Features.Payments.PaymentsMediator.CreateCheckout;
+using VibeTrade.Backend.Features.Payments.Dtos;
 using VibeTrade.Backend.Features.Payments.Interfaces;
 
 namespace VibeTrade.Backend.Features.Payments;
 
 public sealed class PaymentsService(IMediator mediator, PaymentsServiceCore core)
     : IPaymentsService,
-        IStripeUserPaymentService,
-        IStripePaymentIntentService,
         IAgreementPaymentService
 {
-    public StripeConfigDto GetStripeConfig() => core.GetStripeConfig();
+    public PaymentGatewayConfigDto GetPaymentGatewayConfig() => core.GetPaymentGatewayConfig();
 
-    public Task<IReadOnlyList<StripeCardPaymentMethodDto>> ListCardPaymentMethodsAsync(
+    public Task<IReadOnlyList<SavedCardPaymentMethodDto>> ListCardPaymentMethodsAsync(
         string userId,
         CancellationToken cancellationToken = default) =>
         core.ListCardPaymentMethodsAsync(userId, cancellationToken);
@@ -60,7 +58,7 @@ public sealed class PaymentsService(IMediator mediator, PaymentsServiceCore core
         string threadId,
         string agreementId,
         string currencyLower,
-        string paymentMethodStripeId,
+        string PaymentMethodId,
         string? idempotencyKey,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,
@@ -72,16 +70,10 @@ public sealed class PaymentsService(IMediator mediator, PaymentsServiceCore core
                 threadId,
                 agreementId,
                 currencyLower,
-                paymentMethodStripeId,
+                PaymentMethodId,
                 idempotencyKey,
                 selectedServicePayments,
                 selectedRoutePathIds,
                 selectedMerchandiseLineIds),
             cancellationToken);
-
-    public Task<HandleStripeWebhookResult> HandleStripeWebhookAsync(
-        string json,
-        string stripeSignature,
-        CancellationToken cancellationToken = default) =>
-        mediator.Send(new HandleStripeWebhookCommand(json, stripeSignature), cancellationToken);
 }

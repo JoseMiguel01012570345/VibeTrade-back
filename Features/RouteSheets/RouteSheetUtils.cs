@@ -1,17 +1,15 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.RouteSheets.Dtos;
 
 namespace VibeTrade.Backend.Features.RouteSheets;
 
-public static class RouteSheetUtils
+public static partial class RouteSheetUtils
 {
     /// <summary>Mismo patrón que <c>ROUTE_ESTIMADO_ISO_LOCAL_RE</c> en el front: <c>YYYY-MM-DDTHH:mm</c>.</summary>
-    private static readonly Regex EstimadoIsoLocal = new(
-        @"^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$",
-        RegexOptions.Compiled);
+    [GeneratedRegex(@"^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$", RegexOptions.None)]
+    private static partial Regex EstimadoIsoLocal();
 
     public static RouteSheetPayload ClonePayload(RouteSheetPayload source) =>
         JsonSerializer.Deserialize<RouteSheetPayload>(
@@ -313,7 +311,7 @@ public static class RouteSheetUtils
     {
         local = default;
         var t = (raw ?? "").Trim();
-        var m = EstimadoIsoLocal.Match(t);
+        var m = EstimadoIsoLocal().Match(t);
         if (!m.Success)
             return false;
         return DateTime.TryParseExact(

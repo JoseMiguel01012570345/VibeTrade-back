@@ -1,5 +1,5 @@
 using MediatR;
-using VibeTrade.Backend.Features.EmergentOffers.GetCarrierSubscription;
+using VibeTrade.Backend.Features.EmergentOffers.EmergentOffersMediator.GetCarrierSubscription;
 using VibeTrade.Backend.Features.EmergentOffers.Interfaces;
 
 namespace VibeTrade.Backend.Features.EmergentOffers;

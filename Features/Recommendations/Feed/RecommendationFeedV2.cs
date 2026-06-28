@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Recommendations;
@@ -628,7 +627,7 @@ public sealed class RecommendationFeedV2(
             _ => Math.Max(0.25d, s.Weight),
         };
 
-    private void AddCommentTokens(
+    private static void AddCommentTokens(
         string offerId,
         IReadOnlyList<OfferQaComment> items,
         double seedWeight,

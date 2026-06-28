@@ -3,7 +3,6 @@ using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
@@ -724,6 +723,7 @@ public sealed class PartySoftLeaveCoordinator(
                 title = aid;
 
             sb.AppendLine(
+                CultureInfo.InvariantCulture,
                 $"• «{title}» · servicio · mes {sp.EntryMonth} día {sp.EntryDay} · {FormatServicePaymentAmountForNotice(sp)}");
         }
 
@@ -747,6 +747,7 @@ public sealed class PartySoftLeaveCoordinator(
             }
 
             sb.AppendLine(
+                CultureInfo.InvariantCulture,
                 $"• «{title}» · mercadería · {lineLabel} · {FormatMerchandisePaymentAmountForNotice(ml)}");
         }
 

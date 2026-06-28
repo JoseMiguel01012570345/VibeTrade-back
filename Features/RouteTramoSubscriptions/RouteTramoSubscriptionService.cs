@@ -1,10 +1,10 @@
 using MediatR;
-using VibeTrade.Backend.Features.RouteTramoSubscriptions.AcceptPending;
+using VibeTrade.Backend.Features.RouteTramoSubscriptions.RouteTramoSubscriptionsMediator.AcceptPending;
 using VibeTrade.Backend.Features.RouteTramoSubscriptions.Dtos;
 using VibeTrade.Backend.Features.RouteTramoSubscriptions.Interfaces;
-using VibeTrade.Backend.Features.RouteTramoSubscriptions.ListByThread;
-using VibeTrade.Backend.Features.RouteTramoSubscriptions.Subscribe;
-using VibeTrade.Backend.Features.RouteTramoSubscriptions.Unsubscribe;
+using VibeTrade.Backend.Features.RouteTramoSubscriptions.RouteTramoSubscriptionsMediator.ListByThread;
+using VibeTrade.Backend.Features.RouteTramoSubscriptions.RouteTramoSubscriptionsMediator.Subscribe;
+using VibeTrade.Backend.Features.RouteTramoSubscriptions.RouteTramoSubscriptionsMediator.Unsubscribe;
 
 namespace VibeTrade.Backend.Features.RouteTramoSubscriptions;
 

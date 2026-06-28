@@ -2,7 +2,6 @@ using System.Linq;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Auth.Dtos;
 using VibeTrade.Backend.Features.Market;

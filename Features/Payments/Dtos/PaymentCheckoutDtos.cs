@@ -13,7 +13,7 @@ public sealed record CurrencyTotalsDto(
     string CurrencyLower,
     long SubtotalMinor,
     long ClimateMinor,
-    long StripeFeeMinor,
+    long ProcessorFeeMinor,
     long TotalMinor,
     IReadOnlyList<BasisLineDto> Lines);
 

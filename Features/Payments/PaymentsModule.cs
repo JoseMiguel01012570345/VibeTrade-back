@@ -1,3 +1,4 @@
+using VibeTrade.Backend.Features.Payments.Gateways;
 using VibeTrade.Backend.Features.Payments.Interfaces;
 
 namespace VibeTrade.Backend.Features.Payments;
@@ -6,12 +7,12 @@ public static class PaymentsModule
 {
     public static IServiceCollection AddPaymentsFeature(this IServiceCollection services)
     {
+        services.AddSingleton<SimulatedPaymentGateway>();
+        services.AddSingleton<IPaymentGatewayManager, PaymentGatewayManager>();
         services.AddScoped<PaymentsServiceCore>();
         services.AddScoped<PaymentsService>();
         services.AddScoped<IPaymentsService, PaymentsService>();
         services.AddScoped<IRoutePathCheckoutQueryService, RoutePathCheckoutQueryService>();
-        services.AddScoped<IStripeUserPaymentService, PaymentsService>();
-        services.AddScoped<IStripePaymentIntentService, PaymentsService>();
         services.AddScoped<IAgreementPaymentService, PaymentsService>();
         services.AddScoped<IPaymentFeeReceiptEmailDispatcher, PaymentFeeReceiptEmailDispatcher>();
         return services;
@@ -19,10 +20,10 @@ public static class PaymentsModule
 
     public static WebApplication MapPaymentsEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/v1/payments/stripe/config", GetStripeConfig).WithTags("Payments");
-        app.MapGet("/api/v1/payments/stripe/payment-methods", GetStripePaymentMethodsAsync).WithTags("Payments");
-        app.MapPost("/api/v1/payments/stripe/setup-intents", PostStripeSetupIntentAsync).WithTags("Payments");
-        app.MapPost("/api/v1/payments/stripe/payment-intents", PostStripePaymentIntentAsync).WithTags("Payments");
+        app.MapGet("/api/v1/payments/gateway/config", GetPaymentGatewayConfig).WithTags("Payments");
+        app.MapGet("/api/v1/payments/gateway/payment-methods", GetPaymentMethodsAsync).WithTags("Payments");
+        app.MapPost("/api/v1/payments/gateway/setup-intents", PostSetupIntentAsync).WithTags("Payments");
+        app.MapPost("/api/v1/payments/gateway/payment-intents", PostPaymentIntentAsync).WithTags("Payments");
         app.MapGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/checkout", GetAgreementCheckoutAsync).WithTags("Payments");
         app.MapGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/payments", ListAgreementPaymentsAsync).WithTags("Payments");
         app.MapGet("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/route-paths", GetAgreementRoutePathsAsync).WithTags("Payments");
@@ -32,15 +33,15 @@ public static class PaymentsModule
         return app;
     }
 
-    private static IResult GetStripeConfig(HttpRequest request, IPaymentsService payments, ICurrentUserAccessor currentUser)
+    private static IResult GetPaymentGatewayConfig(HttpRequest request, IPaymentsService payments, ICurrentUserAccessor currentUser)
     {
         var userId = currentUser.GetUserId(request);
         if (userId is null)
             return Results.Unauthorized();
-        return Results.Ok(payments.GetStripeConfig());
+        return Results.Ok(payments.GetPaymentGatewayConfig());
     }
 
-    private static async Task<IResult> GetStripePaymentMethodsAsync(
+    private static async Task<IResult> GetPaymentMethodsAsync(
         HttpRequest request,
         IPaymentsService payments,
         ICurrentUserAccessor currentUser,
@@ -55,7 +56,7 @@ public static class PaymentsModule
         return Results.Ok(list);
     }
 
-    private static async Task<IResult> PostStripeSetupIntentAsync(
+    private static async Task<IResult> PostSetupIntentAsync(
         HttpRequest request,
         IPaymentsService payments,
         ICurrentUserAccessor currentUser,
@@ -72,7 +73,7 @@ public static class PaymentsModule
         return Results.Ok(data);
     }
 
-    private static async Task<IResult> PostStripePaymentIntentAsync(
+    private static async Task<IResult> PostPaymentIntentAsync(
         CreatePaymentIntentBody body,
         HttpRequest request,
         IPaymentsService payments,

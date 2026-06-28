@@ -7,7 +7,6 @@ using Elastic.Clients.Elasticsearch.Mapping;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 
 using VibeTrade.Backend.Features.Search;
 using VibeTrade.Backend.Features.Search.Dtos;
@@ -67,14 +66,14 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
                             .Keyword(k => k.Categories)
                             .Text(t => t.Name)
                             .Text(t => t.SearchText)
-                            .GeoPoint(g => g.Location)
-                            .GeoPoint(g => g.VtGeoPoint)
+                            .GeoPoint(g => g.Location!)
+                            .GeoPoint(g => g.VtGeoPoint!)
                             .IntegerNumber(n => n.TrustScore)
                             .LongNumber(n => n.PublishedProducts)
                             .LongNumber(n => n.PublishedServices);
                         if (_opt.SemanticVectorDimensions > 0)
                         {
-                            p.DenseVector(d => d.NameSemanticVector, dv => dv
+                            p.DenseVector(d => d.NameSemanticVector!, dv => dv
                                 .Dims(_opt.SemanticVectorDimensions)
                                 .Similarity(DenseVectorSimilarity.Cosine)
                                 .Index(true));

@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Agreements.Interfaces;
 using VibeTrade.Backend.Features.Payments.Gateways;
 

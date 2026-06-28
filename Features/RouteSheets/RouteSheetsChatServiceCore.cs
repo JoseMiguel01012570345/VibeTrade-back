@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Auth;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Agreements;
 using VibeTrade.Backend.Features.RouteSheets.Dtos;
 using VibeTrade.Backend.Features.RouteSheets.Interfaces;
@@ -649,11 +648,13 @@ public sealed class RouteSheetsChatServiceCore(
         }
 
         row.DeletedAtUtc = retractNow;
-        row.DeletedByUserId = userId.Trim();
+        row.DeletedByUserId = (userId ?? "").Trim();
         row.PublishedToPlatform = false;
-        var p = row.Payload;
-        p.PublicadaPlataforma = false;
-        row.Payload = p;
+        if (row.Payload is { } payload)
+        {
+            payload.PublicadaPlataforma = false;
+            row.Payload = payload;
+        }
 
         var emRow0 = await db.EmergentOffers.AsNoTracking()
             .FirstOrDefaultAsync(
@@ -665,12 +666,12 @@ public sealed class RouteSheetsChatServiceCore(
         await db.SaveChangesAsync(cancellationToken);
 
         await routeSheetThreadNotifications.NotifyAfterRouteSheetDeletedAsync(
-            userId.Trim(),
+            (userId ?? "").Trim(),
             threadId,
             rsId,
             t.SellerUserId,
             t.OfferId,
-            row.Payload.Titulo,
+            row.Payload?.Titulo,
             nConfirmed,
             subs.Count,
             storeTrustBalanceAfterDelete,

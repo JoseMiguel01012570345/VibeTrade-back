@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Logistics.Interfaces;
 using VibeTrade.Backend.Features.Notifications;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
@@ -1180,15 +1179,17 @@ public sealed class RouteTramoSubscriptionServiceCore(
 
         foreach (var stop in stops)
         {
-            var sid = (stop.Id ?? "").Trim();
+            if (stop is null)
+                continue;
+
+            var routeStop = stop;
+            var sid = (routeStop.Id ?? "").Trim();
             if (sid.Length < 1)
                 continue;
 
-            string? stopFp = null;
-            if (stop is not null)
-                stopFp = RouteSheetEditAckComputation.RouteStopFingerprint(stop);
+            string? stopFp = RouteSheetEditAckComputation.RouteStopFingerprint(routeStop);
 
-            var (invSvc, invLabel) = await ResolvePreselInvitedStoreServiceAsync(uid, stop, cancellationToken);
+            var (invSvc, invLabel) = await ResolvePreselInvitedStoreServiceAsync(uid, routeStop, cancellationToken);
             preselMetaStops.Add((sid, invSvc));
 
             var existing = await db.RouteTramoSubscriptions
@@ -1208,7 +1209,7 @@ public sealed class RouteTramoSubscriptionServiceCore(
                     ThreadId = tid,
                     RouteSheetId = rsid,
                     StopId = sid,
-                    StopOrden = stop.Orden,
+                    StopOrden = routeStop.Orden,
                     CarrierUserId = uid,
                     CarrierPhoneSnapshot = phoneSnap,
                     StoreServiceId = invSvc,
@@ -1223,7 +1224,7 @@ public sealed class RouteTramoSubscriptionServiceCore(
             else
             {
                 subRow = existing;
-                subRow.StopOrden = stop.Orden;
+                subRow.StopOrden = routeStop.Orden;
                 subRow.StoreServiceId = invSvc;
                 subRow.TransportServiceLabel = invLabel;
                 subRow.Status = "confirmed";

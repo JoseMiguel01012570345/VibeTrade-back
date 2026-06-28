@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market;
 
@@ -202,7 +201,7 @@ internal static class MarketCatalogPhotoRules
 
     public static bool IsRootRelativeStaticImageUrl(string u)
     {
-        if (!u.StartsWith("/", StringComparison.Ordinal) ||
+        if (!u.StartsWith('/') ||
             u.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
             return false;
         var lower = u.ToLowerInvariant();
@@ -354,23 +353,25 @@ internal static class MarketCatalogStoreDuplicateGuard
     }
 }
 
-internal static class MarketCatalogTransportServiceRules
+internal static partial class MarketCatalogTransportServiceRules
 {
-    private static readonly Regex TransportTaxonomy = new(
+    [GeneratedRegex(
         @"transportista|log[ií]stica|logistica|transporte|flete|fulfillment|cadena|env[ií]o|envio|última milla|ultima milla",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex TransportTaxonomy();
 
-    private static readonly Regex ServiceTransportHint = new(
+    [GeneratedRegex(
         @"transporte|log[ií]stica|logistica|flete|transport|cadena|fulfillment|última milla|ultima milla|picking|env[ií]o|almacenaje",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ServiceTransportHint();
 
     public static bool QualifiesAsTransport(string? category, string? tipoServicio)
     {
         var cat = (category ?? "").Trim();
         var tipo = (tipoServicio ?? "").Trim();
-        if (cat.Length > 0 && TransportTaxonomy.IsMatch(cat)) return true;
-        if (tipo.Length > 0 && ServiceTransportHint.IsMatch(tipo)) return true;
-        if (cat.Length > 0 && ServiceTransportHint.IsMatch(cat)) return true;
+        if (cat.Length > 0 && TransportTaxonomy().IsMatch(cat)) return true;
+        if (tipo.Length > 0 && ServiceTransportHint().IsMatch(tipo)) return true;
+        if (cat.Length > 0 && ServiceTransportHint().IsMatch(cat)) return true;
         return false;
     }
 
@@ -378,13 +379,16 @@ internal static class MarketCatalogTransportServiceRules
         photoUrls is { Count: > 0 } && photoUrls.Any(s => !string.IsNullOrWhiteSpace(s));
 }
 
-internal static class MarketStoreNameNormalizer
+internal static partial class MarketStoreNameNormalizer
 {
+    [GeneratedRegex(@"\s+", RegexOptions.None)]
+    private static partial Regex WhitespaceCollapse();
+
     public static string? Normalize(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
             return null;
-        var collapsed = Regex.Replace(name.Trim(), @"\s+", " ");
+        var collapsed = WhitespaceCollapse().Replace(name.Trim(), " ");
         if (collapsed.Length == 0)
             return null;
         return collapsed.ToLowerInvariant();

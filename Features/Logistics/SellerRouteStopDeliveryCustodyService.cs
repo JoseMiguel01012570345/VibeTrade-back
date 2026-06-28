@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Logistics.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;

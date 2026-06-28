@@ -1,4 +1,3 @@
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.RouteSheets.Dtos;
 
 namespace VibeTrade.Backend.Features.RouteTramoSubscriptions.Dtos;

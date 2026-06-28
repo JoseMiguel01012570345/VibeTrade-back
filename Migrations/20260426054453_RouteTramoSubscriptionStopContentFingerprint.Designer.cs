@@ -25,7 +25,7 @@ namespace VibeTrade.Backend.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AuthPendingOtpRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Auth.Entities.AuthPendingOtpRow", b =>
                 {
                     b.Property<string>("PhoneDigits")
                         .HasMaxLength(32)
@@ -52,7 +52,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("auth_pending_otps", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.AuthSessionRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Auth.Entities.AuthSessionRow", b =>
                 {
                     b.Property<string>("Token")
                         .HasMaxLength(64)
@@ -75,7 +75,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("auth_sessions", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatMessageRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Chat.Entities.ChatMessageRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -120,7 +120,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("chat_messages", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatNotificationRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Chat.Entities.ChatNotificationRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -186,7 +186,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("chat_notifications", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatRouteSheetRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Chat.Entities.ChatRouteSheetRow", b =>
                 {
                     b.Property<string>("ThreadId")
                         .HasMaxLength(64)
@@ -221,7 +221,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("chat_route_sheets", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatThreadRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Chat.Entities.ChatThreadRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -295,7 +295,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("chat_threads", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.EmergentOfferRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.EmergentOffers.Entities.EmergentOfferRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -354,7 +354,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("emergent_offers", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.MarketWorkspaceRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.MarketWorkspaceRow", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -374,7 +374,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("market_workspaces", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.OfferLikeRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Offers.Entities.OfferLikeRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -405,7 +405,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("offer_likes", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.OfferQaCommentLikeRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Offers.Entities.OfferQaCommentLikeRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -441,7 +441,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("offer_qa_comment_likes", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.RouteTramoSubscriptionRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.RouteTramoSubscriptions.Entities.RouteTramoSubscriptionRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(48)
@@ -507,7 +507,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("route_tramo_subscriptions", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreProductRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreProductRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -610,7 +610,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("store_products", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -680,7 +680,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("stores", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreServiceRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreServiceRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -769,7 +769,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("store_services", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoredMediaRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoredMediaRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -800,7 +800,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("stored_media", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementMerchandiseLineRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementMerchandiseLineRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -883,7 +883,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_merchandise_lines", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementMerchandiseMetaRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementMerchandiseMetaRow", b =>
                 {
                     b.Property<string>("TradeAgreementId")
                         .HasMaxLength(64)
@@ -922,7 +922,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_merchandise_metas", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -997,7 +997,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreements", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceDependenciaRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceDependenciaRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -1022,7 +1022,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_service_dependencias", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(80)
@@ -1148,7 +1148,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_service_items", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceMonedaRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceMonedaRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -1174,7 +1174,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_service_monedas", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServicePaymentEntryRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServicePaymentEntryRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -1211,7 +1211,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_service_payment_entries", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServicePaymentMonthRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServicePaymentMonthRow", b =>
                 {
                     b.Property<string>("ServiceItemId")
                         .HasMaxLength(80)
@@ -1225,7 +1225,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_service_payment_months", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceRiesgoRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceRiesgoRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -1250,7 +1250,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_service_riesgos", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleDayRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceScheduleDayRow", b =>
                 {
                     b.Property<string>("ServiceItemId")
                         .HasMaxLength(80)
@@ -1267,7 +1267,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_service_schedule_days", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleMonthRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceScheduleMonthRow", b =>
                 {
                     b.Property<string>("ServiceItemId")
                         .HasMaxLength(80)
@@ -1281,7 +1281,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_service_schedule_months", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleOverrideRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceScheduleOverrideRow", b =>
                 {
                     b.Property<string>("ServiceItemId")
                         .HasMaxLength(80)
@@ -1308,7 +1308,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_service_schedule_overrides", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceTerminacionCausaRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceTerminacionCausaRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -1333,7 +1333,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trade_agreement_service_terminacion_causas", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TrustScoreLedgerRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Trust.Entities.TrustScoreLedgerRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -1370,7 +1370,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("trust_score_ledger", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserAccount", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Auth.Entities.UserAccount", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -1430,7 +1430,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("user_accounts", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserContactRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Auth.Entities.UserContactRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -1465,7 +1465,7 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("user_contacts", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserOfferInteractionRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Recommendations.Entities.UserOfferInteractionRow", b =>
                 {
                     b.Property<string>("Id")
                         .HasMaxLength(64)
@@ -1504,9 +1504,9 @@ namespace VibeTrade.Backend.Migrations
                     b.ToTable("user_offer_interactions", (string)null);
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatMessageRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Chat.Entities.ChatMessageRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", "Thread")
+                    b.HasOne("VibeTrade.Backend.Features.Chat.Entities.ChatThreadRow", "Thread")
                         .WithMany("Messages")
                         .HasForeignKey("ThreadId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1515,27 +1515,27 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("Thread");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatRouteSheetRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Chat.Entities.ChatRouteSheetRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", null)
+                    b.HasOne("VibeTrade.Backend.Features.Chat.Entities.ChatThreadRow", null)
                         .WithMany()
                         .HasForeignKey("ThreadId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.RouteTramoSubscriptionRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.RouteTramoSubscriptions.Entities.RouteTramoSubscriptionRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", null)
+                    b.HasOne("VibeTrade.Backend.Features.Chat.Entities.ChatThreadRow", null)
                         .WithMany()
                         .HasForeignKey("ThreadId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreProductRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreProductRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.StoreRow", "Store")
+                    b.HasOne("VibeTrade.Backend.Features.Market.Entities.StoreRow", "Store")
                         .WithMany("Products")
                         .HasForeignKey("StoreId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1544,9 +1544,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("Store");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.UserAccount", "Owner")
+                    b.HasOne("VibeTrade.Backend.Features.Auth.Entities.UserAccount", "Owner")
                         .WithMany("Stores")
                         .HasForeignKey("OwnerUserId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -1555,9 +1555,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("Owner");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreServiceRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreServiceRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.StoreRow", "Store")
+                    b.HasOne("VibeTrade.Backend.Features.Market.Entities.StoreRow", "Store")
                         .WithMany("Services")
                         .HasForeignKey("StoreId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1566,9 +1566,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("Store");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementMerchandiseLineRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementMerchandiseLineRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementRow", "TradeAgreement")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementRow", "TradeAgreement")
                         .WithMany("MerchandiseLines")
                         .HasForeignKey("TradeAgreementId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1577,20 +1577,20 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("TradeAgreement");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementMerchandiseMetaRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementMerchandiseMetaRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementRow", "TradeAgreement")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementRow", "TradeAgreement")
                         .WithOne("MerchandiseMeta")
-                        .HasForeignKey("VibeTrade.Backend.Data.Entities.TradeAgreementMerchandiseMetaRow", "TradeAgreementId")
+                        .HasForeignKey("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementMerchandiseMetaRow", "TradeAgreementId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("TradeAgreement");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.ChatThreadRow", "Thread")
+                    b.HasOne("VibeTrade.Backend.Features.Chat.Entities.ChatThreadRow", "Thread")
                         .WithMany("TradeAgreements")
                         .HasForeignKey("ThreadId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1599,9 +1599,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("Thread");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceDependenciaRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceDependenciaRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", "ServiceItem")
                         .WithMany("DependenciaItems")
                         .HasForeignKey("ServiceItemId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1610,9 +1610,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("ServiceItem");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementRow", "TradeAgreement")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementRow", "TradeAgreement")
                         .WithMany("ServiceItems")
                         .HasForeignKey("TradeAgreementId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1621,9 +1621,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("TradeAgreement");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceMonedaRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceMonedaRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", "ServiceItem")
                         .WithMany("MonedasAceptadas")
                         .HasForeignKey("ServiceItemId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1632,9 +1632,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("ServiceItem");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServicePaymentEntryRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServicePaymentEntryRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", "ServiceItem")
                         .WithMany("PaymentEntries")
                         .HasForeignKey("ServiceItemId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1643,9 +1643,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("ServiceItem");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServicePaymentMonthRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServicePaymentMonthRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", "ServiceItem")
                         .WithMany("PaymentMonths")
                         .HasForeignKey("ServiceItemId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1654,9 +1654,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("ServiceItem");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceRiesgoRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceRiesgoRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", "ServiceItem")
                         .WithMany("RiesgoItems")
                         .HasForeignKey("ServiceItemId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1665,9 +1665,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("ServiceItem");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleDayRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceScheduleDayRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", "ServiceItem")
                         .WithMany("ScheduleDays")
                         .HasForeignKey("ServiceItemId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1676,9 +1676,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("ServiceItem");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleMonthRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceScheduleMonthRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", "ServiceItem")
                         .WithMany("ScheduleMonths")
                         .HasForeignKey("ServiceItemId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1687,9 +1687,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("ServiceItem");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceScheduleOverrideRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceScheduleOverrideRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", "ServiceItem")
                         .WithMany("ScheduleOverrides")
                         .HasForeignKey("ServiceItemId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1698,9 +1698,9 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("ServiceItem");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceTerminacionCausaRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceTerminacionCausaRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", "ServiceItem")
+                    b.HasOne("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", "ServiceItem")
                         .WithMany("TerminacionCausas")
                         .HasForeignKey("ServiceItemId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1709,36 +1709,36 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("ServiceItem");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserContactRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Auth.Entities.UserContactRow", b =>
                 {
-                    b.HasOne("VibeTrade.Backend.Data.Entities.UserAccount", null)
+                    b.HasOne("VibeTrade.Backend.Features.Auth.Entities.UserAccount", null)
                         .WithMany()
                         .HasForeignKey("ContactUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("VibeTrade.Backend.Data.Entities.UserAccount", null)
+                    b.HasOne("VibeTrade.Backend.Features.Auth.Entities.UserAccount", null)
                         .WithMany()
                         .HasForeignKey("OwnerUserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.ChatThreadRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Chat.Entities.ChatThreadRow", b =>
                 {
                     b.Navigation("Messages");
 
                     b.Navigation("TradeAgreements");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.StoreRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.StoreRow", b =>
                 {
                     b.Navigation("Products");
 
                     b.Navigation("Services");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementRow", b =>
                 {
                     b.Navigation("MerchandiseLines");
 
@@ -1747,7 +1747,7 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("ServiceItems");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.TradeAgreementServiceItemRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementServiceItemRow", b =>
                 {
                     b.Navigation("DependenciaItems");
 
@@ -1768,7 +1768,7 @@ namespace VibeTrade.Backend.Migrations
                     b.Navigation("TerminacionCausas");
                 });
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.UserAccount", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Auth.Entities.UserAccount", b =>
                 {
                     b.Navigation("Stores");
                 });

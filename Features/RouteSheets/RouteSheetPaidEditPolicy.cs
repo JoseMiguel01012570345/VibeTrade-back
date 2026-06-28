@@ -109,23 +109,44 @@ public static class RouteSheetPaidEditPolicy
         return true;
     }
 
-    private static bool SheetHeaderUnchanged(RouteSheetPayload oldSheet, RouteSheetPayload newSheet) =>
-        string.Equals((oldSheet.Titulo ?? "").Trim(), (newSheet.Titulo ?? "").Trim(), StringComparison.Ordinal)
-        && string.Equals((oldSheet.MercanciasResumen ?? "").Trim(), (newSheet.MercanciasResumen ?? "").Trim(), StringComparison.Ordinal)
-        && string.Equals((oldSheet.NotasGenerales ?? "").Trim(), (newSheet.NotasGenerales ?? "").Trim(), StringComparison.Ordinal)
-        && string.Equals((oldSheet.MonedaPago ?? "").Trim(), (newSheet.MonedaPago ?? "").Trim(), StringComparison.Ordinal)
-        && string.Equals((oldSheet.Estado ?? "").Trim(), (newSheet.Estado ?? "").Trim(), StringComparison.OrdinalIgnoreCase)
-        && oldSheet.PublicadaPlataforma == newSheet.PublicadaPlataforma;
+    private static bool SheetHeaderUnchanged(RouteSheetPayload oldSheet, RouteSheetPayload newSheet)
+    {
+        if (!SheetHeaderCoreUnchanged(oldSheet, newSheet))
+            return false;
+
+        return oldSheet.PublicadaPlataforma == newSheet.PublicadaPlataforma;
+    }
 
     private static bool SheetHeaderUnchangedExcludingPublish(RouteSheetPayload oldSheet, RouteSheetPayload newSheet) =>
-        string.Equals((oldSheet.Titulo ?? "").Trim(), (newSheet.Titulo ?? "").Trim(), StringComparison.Ordinal)
-        && string.Equals((oldSheet.MercanciasResumen ?? "").Trim(), (newSheet.MercanciasResumen ?? "").Trim(), StringComparison.Ordinal)
-        && string.Equals((oldSheet.NotasGenerales ?? "").Trim(), (newSheet.NotasGenerales ?? "").Trim(), StringComparison.Ordinal)
-        && string.Equals((oldSheet.MonedaPago ?? "").Trim(), (newSheet.MonedaPago ?? "").Trim(), StringComparison.Ordinal)
-        && string.Equals((oldSheet.Estado ?? "").Trim(), (newSheet.Estado ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
+        SheetHeaderCoreUnchanged(oldSheet, newSheet);
 
-    private static bool CarrierContactFieldsEqual(RouteStopPayload oldP, RouteStopPayload newP) =>
-        string.Equals((oldP.TelefonoTransportista ?? "").Trim(), (newP.TelefonoTransportista ?? "").Trim(), StringComparison.Ordinal)
-        && string.Equals((oldP.TransportInvitedStoreServiceId ?? "").Trim(), (newP.TransportInvitedStoreServiceId ?? "").Trim(), StringComparison.Ordinal)
-        && string.Equals((oldP.TransportInvitedServiceSummary ?? "").Trim(), (newP.TransportInvitedServiceSummary ?? "").Trim(), StringComparison.Ordinal);
+    private static bool SheetHeaderCoreUnchanged(RouteSheetPayload oldSheet, RouteSheetPayload newSheet)
+    {
+        if (!TrimmedEqual(oldSheet.Titulo, newSheet.Titulo))
+            return false;
+        if (!TrimmedEqual(oldSheet.MercanciasResumen, newSheet.MercanciasResumen))
+            return false;
+        if (!TrimmedEqual(oldSheet.NotasGenerales, newSheet.NotasGenerales))
+            return false;
+        if (!TrimmedEqual(oldSheet.MonedaPago, newSheet.MonedaPago))
+            return false;
+
+        return TrimmedEqual(oldSheet.Estado, newSheet.Estado, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CarrierContactFieldsEqual(RouteStopPayload oldP, RouteStopPayload newP)
+    {
+        if (!TrimmedEqual(oldP.TelefonoTransportista, newP.TelefonoTransportista))
+            return false;
+        if (!TrimmedEqual(oldP.TransportInvitedStoreServiceId, newP.TransportInvitedStoreServiceId))
+            return false;
+
+        return TrimmedEqual(oldP.TransportInvitedServiceSummary, newP.TransportInvitedServiceSummary);
+    }
+
+    private static bool TrimmedEqual(
+        string? left,
+        string? right,
+        StringComparison comparison = StringComparison.Ordinal) =>
+        string.Equals((left ?? "").Trim(), (right ?? "").Trim(), comparison);
 }

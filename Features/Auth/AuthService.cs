@@ -1,14 +1,13 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth.Dtos;
 using VibeTrade.Backend.Features.Auth.Interfaces;
-using VibeTrade.Backend.Features.Auth.Login;
-using VibeTrade.Backend.Features.Auth.Register;
-using VibeTrade.Backend.Features.Auth.SendOtp;
+using VibeTrade.Backend.Features.Auth.AuthMediator.Login;
+using VibeTrade.Backend.Features.Auth.AuthMediator.Register;
+using VibeTrade.Backend.Features.Auth.AuthMediator.SendOtp;
 using VibeTrade.Backend.Features.Auth.Shared;
-using VibeTrade.Backend.Features.Auth.VerifyOtp;
+using VibeTrade.Backend.Features.Auth.AuthMediator.VerifyOtp;
 
 namespace VibeTrade.Backend.Features.Auth;
 

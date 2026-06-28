@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
@@ -187,7 +186,7 @@ public sealed class RecommendationService(
         RecommendationBatchOfferLoader.BuildOffersViewInOrderAsync(db, offerService, idsInOrder, cancellationToken);
 
     /// <summary>
-    /// Recomputa <see cref="Data.Entities.StoreProductRow.PopularityWeight"/> / <see cref="Data.Entities.StoreServiceRow.PopularityWeight"/>; solo <see cref="AppDbContext"/> para evitar ciclo DI con <see cref="IOfferService"/>.
+    /// Recomputa <see cref="StoreProductRow.PopularityWeight"/> / <see cref="StoreServiceRow.PopularityWeight"/>; solo <see cref="AppDbContext"/> para evitar ciclo DI con <see cref="IOfferService"/>.
     /// </summary>
     public sealed class OfferPopularityWeightService(AppDbContext db) : IOfferPopularityWeightService
     {

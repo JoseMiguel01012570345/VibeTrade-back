@@ -1,6 +1,6 @@
 using MediatR;
 using VibeTrade.Backend.Features.EmergentOffers.Interfaces;
-using VibeTrade.Backend.Features.EmergentOffers.RequestRouteTramoSubscription;
+using VibeTrade.Backend.Features.EmergentOffers.EmergentOffersMediator.RequestRouteTramoSubscription;
 
 namespace VibeTrade.Backend.Features.EmergentOffers;
 

@@ -29,7 +29,7 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     public async Task JoinThread(string threadId)
     {
         var userId = await GetConnectionUserIdForHubCallAsync(
-            Context.ConnectionAborted, migrateOnUserIdChange: true);
+            migrateOnUserIdChange: true, Context.ConnectionAborted);
         if (string.IsNullOrEmpty(userId))
             throw new HubException("Unauthorized");
 
@@ -62,7 +62,7 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     public async Task JoinOffer(string offerId)
     {
         if (string.IsNullOrEmpty(await GetConnectionUserIdForHubCallAsync(
-                Context.ConnectionAborted, migrateOnUserIdChange: true)))
+                migrateOnUserIdChange: true, Context.ConnectionAborted)))
             throw new HubException("Unauthorized");
         var oid = (offerId ?? "").Trim();
         if (oid.Length < 2)
@@ -73,7 +73,7 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     public async Task LeaveOffer(string offerId)
     {
         if (string.IsNullOrEmpty(await GetConnectionUserIdForHubCallAsync(
-                Context.ConnectionAborted, migrateOnUserIdChange: false)))
+                migrateOnUserIdChange: false, Context.ConnectionAborted)))
             return;
         var oid = (offerId ?? "").Trim();
         if (oid.Length < 2)
@@ -85,7 +85,7 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     public async Task NotifyOthersUserLeftChat(string threadId)
     {
         var userId = await GetConnectionUserIdForHubCallAsync(
-            Context.ConnectionAborted, migrateOnUserIdChange: true);
+            migrateOnUserIdChange: true, Context.ConnectionAborted);
         if (string.IsNullOrEmpty(userId))
             throw new HubException("Unauthorized");
 
@@ -138,8 +138,8 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     /// Si el token válido resuelve a un id distinto del cache, migra la conexión a <c>user:{id}</c>.
     /// </summary>
     private async Task<string?> GetConnectionUserIdForHubCallAsync(
-        CancellationToken cancellationToken,
-        bool migrateOnUserIdChange)
+        bool migrateOnUserIdChange,
+        CancellationToken cancellationToken)
     {
         var http = Context.GetHttpContext();
         if (http is not null

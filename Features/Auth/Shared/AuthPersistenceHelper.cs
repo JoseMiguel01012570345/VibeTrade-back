@@ -1,6 +1,6 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth.Dtos;
 
 namespace VibeTrade.Backend.Features.Auth.Shared;
@@ -13,7 +13,7 @@ internal static class AuthPersistenceHelper
     internal const int RegistrationCodeLength = 7;
 
     internal static string GenerateCode() =>
-        Random.Shared.Next(1_000_000, 9_999_999).ToString();
+        Random.Shared.Next(1_000_000, 9_999_999).ToString(CultureInfo.InvariantCulture);
 
     internal static string? DevCodeMaybe(IConfiguration configuration, IHostEnvironment hostEnvironment, string code)
     {

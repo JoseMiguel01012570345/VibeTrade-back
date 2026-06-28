@@ -1,5 +1,3 @@
-using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Data.JsonModels;
 using VibeTrade.Backend.Features.Payments;
 
 namespace VibeTrade.Backend.Features.Agreements;

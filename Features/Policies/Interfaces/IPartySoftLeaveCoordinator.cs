@@ -1,4 +1,3 @@
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Policies.Dtos;
 
 namespace VibeTrade.Backend.Features.Policies.Interfaces;

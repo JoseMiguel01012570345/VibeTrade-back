@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Agreements.Dtos;
 using VibeTrade.Backend.Features.Payments;
 

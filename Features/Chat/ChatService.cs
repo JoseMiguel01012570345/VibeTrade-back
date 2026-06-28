@@ -1,10 +1,9 @@
 using MediatR;
-using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Features.Chat.AddParticipant;
-using VibeTrade.Backend.Features.Chat.CreateThread;
+using VibeTrade.Backend.Features.Chat.ChatMediator.AddParticipant;
+using VibeTrade.Backend.Features.Chat.ChatMediator.CreateThread;
 using VibeTrade.Backend.Features.Chat.Interfaces;
-using VibeTrade.Backend.Features.Chat.ListMessages;
-using VibeTrade.Backend.Features.Chat.SendMessage;
+using VibeTrade.Backend.Features.Chat.ChatMediator.ListMessages;
+using VibeTrade.Backend.Features.Chat.ChatMediator.SendMessage;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 
 namespace VibeTrade.Backend.Features.Chat;

@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Payments;
 using VibeTrade.Backend.Features.Payments.Gateways;
 

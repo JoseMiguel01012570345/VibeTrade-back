@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.RouteTramoSubscriptions;
 using VibeTrade.Backend.Features.RouteTramoSubscriptions.Dtos;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;

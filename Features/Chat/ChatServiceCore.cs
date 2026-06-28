@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Dtos;
 using VibeTrade.Backend.Features.Chat.Infrastructure;
 using VibeTrade.Backend.Features.Market.Interfaces;
@@ -920,16 +919,23 @@ public sealed class ChatServiceCore(
         IReadOnlyList<ChatImageDto>? parsedImages = null;
         string? imgCaption = null;
         ChatEmbeddedAudioDto? imgEmbedded = null;
-        if (body.Images is { Count: > 0 })
-            ChatPostPayloadValidation.TryParseAndValidateImagePayload(body, out parsedImages, out imgCaption, out imgEmbedded);
+        if (body.Images is { Count: > 0 }
+            && !ChatPostPayloadValidation.TryParseAndValidateImagePayload(
+                body, out parsedImages, out imgCaption, out imgEmbedded))
+        {
+            throw new InvalidOperationException("Invalid image payload.");
+        }
 
         IReadOnlyList<ChatDocumentDto>? documents = null;
         string? docsCaption = null;
         ChatEmbeddedAudioDto? docsEmbedded = null;
         if (body.Documents is { Count: > 0 })
         {
-            ChatPostPayloadValidation.TryParseAndValidateDocsBundlePayload(
-                body, out documents, out docsCaption, out docsEmbedded);
+            if (!ChatPostPayloadValidation.TryParseAndValidateDocsBundlePayload(
+                    body, out documents, out docsCaption, out docsEmbedded))
+            {
+                throw new InvalidOperationException("Invalid documents payload.");
+            }
         }
         else if (!string.IsNullOrWhiteSpace(body.Name)
             && body.Name.Length <= 500
@@ -1213,7 +1219,7 @@ public sealed class ChatServiceCore(
         return true;
     }
 
-    private bool SellerThreadAlreadyHasOfferQaAnswer(IReadOnlyList<ChatMessageRow> sellerMsgs, string qaId) =>
+    private static bool SellerThreadAlreadyHasOfferQaAnswer(IReadOnlyList<ChatMessageRow> sellerMsgs, string qaId) =>
         sellerMsgs.Any(m => m.Payload is ChatUnifiedMessagePayload u && u.OfferQaId == qaId);
 
     private ChatMessageRow CreateAndStageOfferQaAnswerMessageRow(

@@ -2,7 +2,6 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Feed;
@@ -108,7 +107,7 @@ public sealed class MarketCatalogStoreSearchService(
         return new StoreAutocompleteResponse(merged);
     }
 
-    private (string query, int take, IReadOnlyList<string> kindList, string[] catParts, string[] catLowerParts)
+    private static (string query, int take, IReadOnlyList<string> kindList, string[] catParts, string[] catLowerParts)
         PreprocessAutocompleteInputs(string? q, string? category, string? kinds, int? limit)
     {
         var query = (q ?? "").Trim();

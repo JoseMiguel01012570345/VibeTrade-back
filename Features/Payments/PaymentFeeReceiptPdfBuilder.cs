@@ -85,15 +85,15 @@ public static class PaymentFeeReceiptPdfBuilder
                         });
                         sum.Item().PaddingTop(2).Row(r =>
                         {
-                            r.RelativeItem().Text("Tarifa Stripe liquidación (referencia)").FontSize(10);
-                            r.ConstantItem(120).AlignRight().Text(Money(p.StripeFeeMinorActual)).FontSize(10);
+                            r.RelativeItem().Text("Tarifa de procesador liquidación (referencia)").FontSize(10);
+                            r.ConstantItem(120).AlignRight().Text(Money(p.ProcessorFeeMinorActual)).FontSize(10);
                         });
                         sum.Item().PaddingTop(2).Row(r =>
                         {
-                            r.RelativeItem().Text("Tarifa Stripe estimada antes del cobro (referencia)")
+                            r.RelativeItem().Text("Tarifa de procesador estimada antes del cobro (referencia)")
                                 .FontSize(9)
                                 .FontColor(Colors.Grey.Darken1);
-                            r.ConstantItem(120).AlignRight().Text(Money(p.StripeFeeMinorEstimated)).FontSize(9)
+                            r.ConstantItem(120).AlignRight().Text(Money(p.ProcessorFeeMinorEstimated)).FontSize(9)
                                 .FontColor(Colors.Grey.Darken1);
                         });
                         sum.Item().PaddingTop(6).Row(r =>
@@ -104,10 +104,10 @@ public static class PaymentFeeReceiptPdfBuilder
                         });
                     });
 
-                    var pricing = (p.StripePricingUrl ?? "").Trim();
+                    var pricing = (p.PaymentFeePolicyUrl ?? "").Trim();
                     if (pricing.Length > 0)
                     {
-                        col.Item().PaddingTop(20).Text("Políticas y precios Stripe").SemiBold().FontSize(10);
+                        col.Item().PaddingTop(20).Text("Políticas de tarifas de procesamiento").SemiBold().FontSize(10);
                         col.Item().PaddingTop(2).Hyperlink(pricing).Text(pricing).FontSize(9)
                             .FontColor(Colors.Blue.Medium);
                     }

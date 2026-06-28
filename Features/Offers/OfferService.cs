@@ -1,11 +1,10 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Offers.Interfaces;
-using VibeTrade.Backend.Features.Offers.ToggleOfferLike;
+using VibeTrade.Backend.Features.Offers.OffersMediator.ToggleOfferLike;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
 namespace VibeTrade.Backend.Features.Offers;

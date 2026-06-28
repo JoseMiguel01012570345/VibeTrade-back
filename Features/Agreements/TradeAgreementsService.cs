@@ -1,7 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth.Interfaces;
 using VibeTrade.Backend.Features.Agreements.Dtos;
 using VibeTrade.Backend.Features.Agreements.Interfaces;
