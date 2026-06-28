@@ -86,7 +86,7 @@ internal static class StoreSearchCategoryParser
             .ToList();
 }
 
-/// <summary>Helpers de texto para <see cref="VibeTrade.Backend.Features.Search.Elasticsearch.CatalogSearchDocumentFactory"/> (embedding / campo SearchText).</summary>
+/// <summary>Helpers de texto para <see cref="VibeTrade.Backend.Infrastructure.Elasticsearch.CatalogSearchDocumentFactory"/> (embedding / campo SearchText).</summary>
 internal static class CatalogSearchEmbeddingTextUtils
 {
     internal const int MaxFieldChars = 6000;

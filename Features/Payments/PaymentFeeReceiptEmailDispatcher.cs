@@ -4,7 +4,6 @@ using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
 using VibeTrade.Backend.Infrastructure.Email;
 using VibeTrade.Backend.Infrastructure.Email.Interfaces;
-using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Features.Payments;
 

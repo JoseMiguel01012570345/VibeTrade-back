@@ -13,4 +13,6 @@ public enum RouteSheetMutationResult
     RouteCurrencyMerchandiseMismatch,
     /// <summary>No se puede publicar una hoja ya marcada como entregada.</summary>
     CannotPublishDeliveredSheet,
+    /// <summary>No se puede publicar en plataforma sin vincular la hoja a un acuerdo.</summary>
+    CannotPublishWithoutAgreementLink,
 }

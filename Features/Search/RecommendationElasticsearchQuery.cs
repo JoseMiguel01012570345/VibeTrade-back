@@ -1,18 +1,20 @@
 using Elastic.Clients.Elasticsearch;
 using Elastic.Clients.Elasticsearch.QueryDsl;
 using Microsoft.Extensions.Options;
+using VibeTrade.Backend.Infrastructure.Elasticsearch;
 
 namespace VibeTrade.Backend.Features.Search;
 
 public sealed class RecommendationElasticsearchQuery(
     IOptions<ElasticsearchStoreSearchOptions> options,
+    IElasticsearchSearchClient searchClient,
     ILogger<RecommendationElasticsearchQuery> logger)
     : IRecommendationElasticsearchQuery
 {
     private readonly ElasticsearchStoreSearchOptions _opt = options.Value;
-    private readonly ElasticsearchClient? _client = ElasticsearchStoreSearchClientFactory.TryCreate(options.Value);
+    private readonly ElasticsearchClient? _client = searchClient.Client;
 
-    public bool IsConfigured => _client is not null;
+    public bool IsConfigured => searchClient.IsConfigured;
 
     public async Task<IReadOnlyList<RecommendationElasticsearchHit>> SearchOffersAsync(
         string query,

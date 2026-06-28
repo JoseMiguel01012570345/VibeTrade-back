@@ -1,3 +1,4 @@
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
@@ -13,15 +14,14 @@ using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
-using VibeTrade.Backend.Features.SavedOffers;
-using VibeTrade.Backend.Features.SavedOffers.Interfaces;
+using VibeTrade.Backend.Features.SavedOffers.GetFilteredSavedOffers;
 
 namespace VibeTrade.Backend.Features.Bootstrap;
 
 public sealed class BootstrapService(
     IMarketWorkspaceService marketWorkspace,
     AppDbContext db,
-    ISavedOffersService savedOffers,
+    IMediator mediator,
     IRecommendationService recommendations,
     IChatService chat,
     IRouteSheetChatService routeSheets,
@@ -76,7 +76,7 @@ public sealed class BootstrapService(
 
         var savedList = viewerUser is null
             ? Array.Empty<string>()
-            : (await savedOffers.GetFilteredForBootstrapAsync(viewerUser.Id, cancellationToken)).ToArray();
+            : (await mediator.Send(new GetFilteredSavedOffersQuery(viewerUser.Id), cancellationToken)).ToArray();
         var recommendationFeed = viewerUser is null
             ? RecommendationBatchResponse.Empty(RecommendationUtils.DefaultBatchSize, RecommendationUtils.ScoreThreshold)
             : await recommendations.GetBatchAsync(

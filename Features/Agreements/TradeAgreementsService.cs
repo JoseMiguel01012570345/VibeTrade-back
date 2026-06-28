@@ -1,3 +1,4 @@
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
@@ -7,7 +8,9 @@ using VibeTrade.Backend.Features.Agreements.Interfaces;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Logistics.Interfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+using VibeTrade.Backend.Features.Notifications.NotificationDtos;
 using VibeTrade.Backend.Features.RouteSheets.Dtos;
+using VibeTrade.Backend.Features.Shared.Contracts.Events;
 using VibeTrade.Backend.Features.Trust.Interfaces;
 
 namespace VibeTrade.Backend.Features.Agreements;
@@ -16,6 +19,7 @@ public sealed partial class TradeAgreementService(
     AppDbContext db,
     IChatService chat,
     IChatThreadSystemMessageService threadSystemMessages,
+    IMediator mediator,
     INotificationService notifications,
     ITrustScoreLedgerService trustLedger) : ITradeAgreementService
 {
@@ -276,6 +280,8 @@ public sealed partial class TradeAgreementService(
             var sellerUid = (t.SellerUserId ?? "").Trim();
             if (sellerUid.Length >= 2)
             {
+                var preview =
+                    $"El comprador rechazó «{ag.Title}» después de una aceptación previa; la confianza de la tienda se ajustó en {demoPenaltyPts} pts (demo).";
                 await notifications.NotifySellerStoreTrustPenaltyAsync(
                     new SellerStoreTrustPenaltyNotificationArgs(
                         sellerUid,
@@ -283,7 +289,19 @@ public sealed partial class TradeAgreementService(
                         (t.OfferId ?? "").Trim(),
                         penaltyDeltaNotify,
                         penaltyBalanceAfter,
-                        $"El comprador rechazó «{ag.Title}» después de una aceptación previa; la confianza de la tienda se ajustó en {demoPenaltyPts} pts (demo)."),
+                        preview),
+                    cancellationToken);
+            }
+        }
+
+        if (accept)
+        {
+            var buyerUid = (t.BuyerUserId ?? "").Trim();
+            var sellerUid = (t.SellerUserId ?? "").Trim();
+            if (buyerUid.Length >= 2 && sellerUid.Length >= 2)
+            {
+                await mediator.Publish(
+                    new AgreementSignedEvent(ag.Id, buyerUid, sellerUid, threadId),
                     cancellationToken);
             }
         }

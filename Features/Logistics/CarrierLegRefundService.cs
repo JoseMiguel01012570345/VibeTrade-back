@@ -2,8 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Stripe;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-
-namespace VibeTrade.Backend.Features.Logistics;
+using VibeTrade.Backend.Infrastructure.Stripe;
 
 public sealed class CarrierLegRefundService(
     IChatService chat,
@@ -70,8 +69,8 @@ public sealed class CarrierLegRefundService(
         if (row is null || row.AmountMinor <= 0)
             return (false, "no_charge");
 
-        var serverKey = PaymentStripeEnv.StripeServerApiKey();
-        var skipStripe = PaymentStripeEnv.SkipStripePaymentIntentCreate();
+        var serverKey = StripeEnv.StripeServerApiKey();
+        var skipStripe = StripeEnv.SkipStripePaymentIntentCreate();
         if (!skipStripe && string.IsNullOrWhiteSpace(serverKey))
             return (false, "stripe_not_configured");
 

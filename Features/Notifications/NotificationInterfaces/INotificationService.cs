@@ -59,6 +59,14 @@ public interface INotificationService
         SellerStoreTrustPenaltyNotificationArgs request,
         CancellationToken cancellationToken = default);
 
+    Task NotifyUserAsync(
+        string userId,
+        string title,
+        string body,
+        string? threadId = null,
+        string? deepLink = null,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ChatNotificationDto>> ListNotificationsAsync(
         string userId,
         DateTimeOffset? fromUtc = null,
@@ -103,5 +111,14 @@ public interface INotificationService
         string threadId,
         bool isSeller,
         string reasonTrim,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Publica <see cref="UserNotificationRequestedEvent"/>; persiste y emite hub vía MediatR.</summary>
+    Task RequestUserNotificationAsync(
+        string userId,
+        string title,
+        string body,
+        string? threadId = null,
+        string? deepLink = null,
         CancellationToken cancellationToken = default);
 }

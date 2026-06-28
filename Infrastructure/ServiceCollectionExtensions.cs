@@ -3,49 +3,27 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
-using VibeTrade.Backend.Api.Swagger;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Features.Auth;
-using VibeTrade.Backend.Features.Auth.Interfaces;
-using VibeTrade.Backend.Features.Bootstrap;
-using VibeTrade.Backend.Features.Bootstrap.Interfaces;
-using VibeTrade.Backend.Features.Chat;
-using VibeTrade.Backend.Features.Chat.Interfaces;
-using VibeTrade.Backend.Features.RouteSheets;
 using VibeTrade.Backend.Features.Agreements;
-using VibeTrade.Backend.Features.Agreements.Interfaces;
-using VibeTrade.Backend.Features.Notifications;
-using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
-using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+using VibeTrade.Backend.Features.Auth;
+using VibeTrade.Backend.Features.Bootstrap;
+using VibeTrade.Backend.Features.Catalog;
+using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.EmergentOffers;
-using VibeTrade.Backend.Features.EmergentOffers.Interfaces;
 using VibeTrade.Backend.Features.Logistics;
-using VibeTrade.Backend.Features.Logistics.Interfaces;
 using VibeTrade.Backend.Features.Market;
-using VibeTrade.Backend.Features.Market.Interfaces;
+using VibeTrade.Backend.Features.Notifications;
 using VibeTrade.Backend.Features.Payments;
-using VibeTrade.Backend.Features.Payments.Interfaces;
 using VibeTrade.Backend.Features.Policies;
-using VibeTrade.Backend.Features.Policies.Interfaces;
 using VibeTrade.Backend.Features.Recommendations;
-using VibeTrade.Backend.Features.Recommendations.Feed;
-using VibeTrade.Backend.Features.Recommendations.Guest;
-using VibeTrade.Backend.Features.Recommendations.Interfaces;
+using VibeTrade.Backend.Features.RouteSheets;
+using VibeTrade.Backend.Features.RouteTramoSubscriptions;
 using VibeTrade.Backend.Features.Routing;
-using VibeTrade.Backend.Features.Routing.Interfaces;
 using VibeTrade.Backend.Features.SavedOffers;
-using VibeTrade.Backend.Features.SavedOffers.Interfaces;
 using VibeTrade.Backend.Features.Search;
-using VibeTrade.Backend.Features.Search.Catalog;
-using VibeTrade.Backend.Features.Search.Elasticsearch;
-using VibeTrade.Backend.Features.Search.Interfaces;
 using VibeTrade.Backend.Features.Trust;
-using VibeTrade.Backend.Features.Trust.Interfaces;
-using VibeTrade.Backend.Infrastructure;
-using VibeTrade.Backend.Infrastructure.Email;
-using VibeTrade.Backend.Infrastructure.Email.Interfaces;
+using VibeTrade.Backend.Infrastructure.Swagger;
 
 namespace VibeTrade.Backend.Infrastructure;
 
@@ -66,109 +44,37 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddVibeTradeFeatures(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddScoped<IMarketCatalogSyncService, CatalogService>();
-        services.AddScoped<IOfferPopularityWeightService, RecommendationService.OfferPopularityWeightService>();
-        services.AddScoped<IRecommendationService, RecommendationService>();
-        services.AddScoped<IOfferService, OfferService>();
-        services.AddScoped<IMarketWorkspaceService, MarketService>();
-        services.AddScoped<IMarketCatalogStoreSearchService, MarketCatalogStoreSearchService>();
-        services.AddScoped<IBootstrapService, BootstrapService>();
-        services.AddScoped<IGuestBootstrapService, GuestBootstrapService>();
-        services.AddScoped<ISavedOffersService, SavedOffersService>();
-        services.AddScoped<IEmergentOfferCarrierSubscriptionService, EmergentOfferCarrierSubscriptionService>();
-        services.AddScoped<IEmergentRouteTramoSubscriptionRequestService, EmergentRouteTramoSubscriptionRequestService>();
-        services.AddScoped<IRecommendationElasticsearchQuery, RecommendationElasticsearchQuery>();
-        services.AddScoped<RecommendationFeedV2>();
-        services.AddSingleton<IGuestInteractionStore, GuestInteractionStore>();
-        services.AddScoped<IGuestRecommendationService, GuestRecommendationService>();
-        services.AddScoped<IAuthService, AuthService>();
-        services.AddScoped<ITrustScoreLedgerService, TrustScoreLedgerService>();
-        services.AddScoped<AgreementCompletionTrustService>();
-        services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
-        services.AddScoped<IThreadAccessControlService, ThreadAccessControlService>();
-        services.AddScoped<INotificationService, NotificationService>();
-        services.AddScoped<IRouteTramoSubscriptionNotificationService, RouteTramoSubscriptionNotificationService>();
-        services.AddScoped<IRouteSheetThreadNotificationService, RouteSheetThreadNotificationService>();
-        services.AddScoped<IBroadcastingService, BroadcastingService>();
-        services.AddScoped<ISignalRBroadcastService>(sp => sp.GetRequiredService<IBroadcastingService>());
-        services.AddScoped<ChatService>();
-        services.AddScoped<IChatMessageInserter>(sp => sp.GetRequiredService<ChatService>());
-        services.AddScoped<IChatThreadSystemMessageService>(sp =>
-        {
-            var lazyInserter = new Lazy<IChatMessageInserter>(() => sp.GetRequiredService<ChatService>());
-            return new ChatThreadSystemMessageService(
-                sp.GetRequiredService<AppDbContext>(),
-                sp.GetRequiredService<IThreadAccessControlService>(),
-                lazyInserter);
-        });
-        services.AddScoped<IChatService>(sp => sp.GetRequiredService<ChatService>());
-        services.AddScoped<IThreadManagementService>(sp => sp.GetRequiredService<ChatService>());
-        services.AddScoped<IMessageHandlingService>(sp => sp.GetRequiredService<ChatService>());
-        services.AddScoped<IParticipantManagementService>(sp => sp.GetRequiredService<ChatService>());
-        services.AddScoped<IOfferRelationService>(sp => sp.GetRequiredService<ChatService>());
-        services.AddScoped<PartySoftLeaveCoordinator>();
-        services.AddScoped<IChatExitOperationsService>(sp => sp.GetRequiredService<PartySoftLeaveCoordinator>());
-        services.AddScoped<IChatExitPolicyRegistry>(sp => sp.GetRequiredService<PartySoftLeaveCoordinator>());
-        services.AddScoped<IPartySoftLeaveCoordinator>(sp => sp.GetRequiredService<PartySoftLeaveCoordinator>());
-        services.AddScoped<IRouteSheetChatService, RouteSheetChatService>();
-        services.AddScoped<IRouteTramoSubscriptionService, RouteTramoSubscriptionService>();
-        services.AddScoped<ITradeAgreementService, TradeAgreementService>();
-        services.AddScoped<IPaymentsService, PaymentsService>();
-        services.AddScoped<IRoutePathCheckoutQueryService, RoutePathCheckoutQueryService>();
-        services.AddScoped<IStripeUserPaymentService, PaymentsService>();
-        services.AddScoped<IStripePaymentIntentService, PaymentsService>();
-        services.AddScoped<IAgreementPaymentService, PaymentsService>();
-        services.AddScoped<ICarrierTelemetryService, CarrierTelemetryService>();
-        services.AddScoped<ICarrierOwnershipService, CarrierOwnershipService>();
-        services.AddScoped<ICarrierDeliveryEvidenceService, CarrierDeliveryEvidenceService>();
-        services.AddScoped<ICarrierLegRefundService, CarrierLegRefundService>();
-        services.AddScoped<ISellerRouteStopDeliveryCustodyService, SellerRouteStopDeliveryCustodyService>();
-        services.AddHostedService<CarrierEvidenceDeadlineWatcher>();
-        services.AddScoped<IAgreementServiceEvidenceService, AgreementServiceEvidenceService>();
-        services.AddScoped<IAgreementMerchandiseEvidenceService, AgreementMerchandiseEvidenceService>();
-        services.Configure<EmailSmtpOptions>(
-            configuration.GetSection(EmailSmtpOptions.SectionName));
-        services.AddScoped<IEmailSender, SmtpEmailSender>();
-        services.AddScoped<IPaymentFeeReceiptEmailDispatcher, PaymentFeeReceiptEmailDispatcher>();
-        services.Configure<RoutingOptions>(
-            configuration.GetSection(RoutingOptions.SectionName));
-        services.AddHttpClient<IDrivingLegRoutingService, GraphHopperDrivingLegService>((sp, client) =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(60);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("VibeTradeBackend/1.0");
-            var opt = sp.GetRequiredService<IOptions<RoutingOptions>>().Value;
-            var baseUrl = (opt.GraphHopperBaseUrl ?? "").Trim();
-            if (baseUrl.Length == 0)
-                return;
-            if (!baseUrl.EndsWith('/'))
-                baseUrl += "/";
-            if (Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
-                client.BaseAddress = uri;
-        });
-        services.AddHttpClient("linkPreview", c =>
-        {
-            c.Timeout = TimeSpan.FromSeconds(8);
-            c.DefaultRequestHeaders.UserAgent.ParseAdd("VibeTradeLinkPreview/1.0");
-        });
-        services.AddMemoryCache();
+        services
+            .AddInfrastructureFeature(configuration)
+            .AddCatalogFeature()
+            .AddMarketFeature()
+            .AddSearchFeature(configuration)
+            .AddRecommendationsFeature()
+            .AddBootstrapFeature()
+            .AddSavedOffersFeature()
+            .AddEmergentOffersFeature()
+            .AddAuthFeature()
+            .AddTrustFeature()
+            .AddChatFeature()
+            .AddNotificationsFeature()
+            .AddPoliciesFeature()
+            .AddRouteSheetsFeature()
+            .AddRouteTramoSubscriptionsFeature()
+            .AddAgreementsFeature()
+            .AddPaymentsFeature()
+            .AddLogisticsFeature()
+            .AddRoutingFeature(configuration);
 
-        services.Configure<ElasticsearchStoreSearchOptions>(
-            configuration.GetSection(ElasticsearchStoreSearchOptions.SectionName));
-        services.AddSingleton<IStoreSearchTextEmbeddingService, StoreSearchMlNetTfIdfEmbeddingService>();
-        services.AddScoped<IElasticsearchStoreSearchQuery, ElasticsearchStoreSearchQuery>();
-        services.AddScoped<IStoreSearchIndexWriter, ElasticsearchStoreSearchIndexWriter>();
-        services.AddScoped<ICatalogSearchLiveIndexSync, CatalogSearchLiveIndexSync>();
         return services;
     }
 
     public static IServiceCollection AddVibeTradeApi(this IServiceCollection services)
     {
-        services.AddControllers()
-            .AddJsonOptions(o =>
-            {
-                o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-                o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
-            });
+        services.ConfigureHttpJsonOptions(o =>
+        {
+            o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+            o.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+        });
 
         services.AddSignalR();
         services.AddEndpointsApiExplorer();
@@ -217,7 +123,7 @@ public static class ServiceCollectionExtensions
 
             var xml = Path.Combine(AppContext.BaseDirectory, $"{Assembly.GetExecutingAssembly().GetName().Name}.xml");
             if (File.Exists(xml))
-                o.IncludeXmlComments(xml, includeControllerXmlComments: true);
+                o.IncludeXmlComments(xml);
             o.DocumentFilter<TagDescriptionsDocumentFilter>();
         });
 

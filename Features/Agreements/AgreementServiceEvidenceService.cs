@@ -3,7 +3,7 @@ using Stripe;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Agreements.Interfaces;
-using VibeTrade.Backend.Features.Payments;
+using VibeTrade.Backend.Infrastructure.Stripe;
 
 namespace VibeTrade.Backend.Features.Agreements;
 
@@ -11,6 +11,7 @@ public sealed class AgreementServiceEvidenceService(
     IChatService chat,
     IChatThreadSystemMessageService threadSystemMessages,
     AgreementCompletionTrustService completionTrust,
+    IStripeGateway stripe,
     AppDbContext db) : IAgreementServiceEvidenceService
 {
     public async Task<(int StatusCode, IReadOnlyList<AgreementServicePaymentWithEvidenceDto>? Data)> ListAsync(
@@ -292,7 +293,7 @@ public sealed class AgreementServiceEvidenceService(
         if (customerId.Length == 0)
             return (StatusCodes.Status400BadRequest, "Configura tarjetas de pago en tu perfil antes de recibir el depósito.");
 
-        var skipStripePayout = PaymentStripeEnv.SkipStripePaymentIntentCreate();
+        var skipStripePayout = stripe.SkipPaymentIntents;
         var now = DateTimeOffset.UtcNow;
 
         // Demo / dev: VIBETRADE_SKIP_PAYMENT_INTENTS — sin Transfer Stripe (mismo criterio que cobros con PaymentIntent).
@@ -321,17 +322,21 @@ public sealed class AgreementServiceEvidenceService(
                 "Tu cuenta debe tener una cuenta Stripe Connect (acct_) asociada como destino del giro.");
 
         var pmResolve =
-            await AgreementCheckoutExecutor.ResolveCustomerPaymentMethodAsync(pmId, customerId, cancellationToken)
+            await AgreementCheckoutExecutor.ResolveCustomerPaymentMethodAsync(stripe, pmId, customerId, cancellationToken)
                 .ConfigureAwait(false);
         if (!pmResolve.Success)
             return (StatusCodes.Status400BadRequest, pmResolve.ErrorMessage);
 
-        var pm = pmResolve.PaymentMethod!;
-        var card = pm.Card;
-        if (card is null)
+        if (string.IsNullOrWhiteSpace(pmResolve.PaymentMethodId)
+            || string.IsNullOrWhiteSpace(pmResolve.CardLast4))
             return (StatusCodes.Status400BadRequest, "El método de depósito debe ser una tarjeta.");
 
         var curLower = pay.Currency.Trim().ToLowerInvariant();
+        var serverKey = StripeEnv.StripeServerApiKey();
+        if (string.IsNullOrWhiteSpace(serverKey))
+            return (StatusCodes.Status400BadRequest, "Falta configurar STRIPE_* en el servidor.");
+        StripeConfiguration.ApiKey = serverKey;
+
         Transfer transfer;
         try
         {
@@ -348,7 +353,7 @@ public sealed class AgreementServiceEvidenceService(
                         ["agreement_service_payment_id"] = pay.Id,
                         ["seller_user_id"] = uid,
                         ["thread_id"] = tid,
-                        ["seller_payment_method_id"] = pm.Id,
+                        ["seller_payment_method_id"] = pmResolve.PaymentMethodId!,
                     },
                     TransferGroup = string.IsNullOrWhiteSpace(pay.AgreementCurrencyPaymentId)
                         ? $"agr_{aid}"
@@ -368,10 +373,10 @@ public sealed class AgreementServiceEvidenceService(
         if (string.IsNullOrWhiteSpace(transfer.Id))
             return (StatusCodes.Status400BadRequest, "Stripe no devolvió un id de transferencia.");
 
-        pay.SellerPayoutPaymentMethodStripeId = pm.Id;
+        pay.SellerPayoutPaymentMethodStripeId = pmResolve.PaymentMethodId!;
         pay.SellerPayoutRecordedAtUtc = now;
-        pay.SellerPayoutCardBrandSnapshot = (card.Brand ?? "").Trim();
-        pay.SellerPayoutCardLast4Snapshot = (card.Last4 ?? "").Trim();
+        pay.SellerPayoutCardBrandSnapshot = (pmResolve.CardBrand ?? "").Trim();
+        pay.SellerPayoutCardLast4Snapshot = (pmResolve.CardLast4 ?? "").Trim();
         pay.SellerPayoutStripeTransferId = transfer.Id.Trim();
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

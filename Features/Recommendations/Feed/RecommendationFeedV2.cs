@@ -6,7 +6,7 @@ using VibeTrade.Backend.Features.Market.Interfaces;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Search.Catalog;
-using VibeTrade.Backend.Features.Search.Elasticsearch;
+using VibeTrade.Backend.Features.Search.Dtos;
 using VibeTrade.Backend.Features.Search.Interfaces;
 
 namespace VibeTrade.Backend.Features.Recommendations.Feed;

@@ -43,8 +43,8 @@ global using VibeTrade.Backend.Features.Trust;
 global using VibeTrade.Backend.Features.Search.Interfaces;
 global using VibeTrade.Backend.Features.Search.Dtos;
 global using VibeTrade.Backend.Features.Search;
-global using VibeTrade.Backend.Features.Search.Elasticsearch;
 global using VibeTrade.Backend.Features.Search.Catalog;
+global using VibeTrade.Backend.Infrastructure.Elasticsearch;
 global using VibeTrade.Backend.Features.Payments;
 global using VibeTrade.Backend.Features.Payments.Dtos;
 global using VibeTrade.Backend.Features.Payments.Interfaces;
@@ -53,5 +53,7 @@ global using VibeTrade.Backend.Features.Routing.Dtos;
 global using VibeTrade.Backend.Features.SavedOffers.Interfaces;
 global using VibeTrade.Backend.Infrastructure.Email.Interfaces;
 global using VibeTrade.Backend.Infrastructure.Interfaces;
-global using VibeTrade.Backend.Utils;
+global using VibeTrade.Backend.Features.Chat.Domain;
+global using VibeTrade.Backend.Infrastructure.Auth;
+global using VibeTrade.Backend.Infrastructure.Http;
 

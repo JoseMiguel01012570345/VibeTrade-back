@@ -11,6 +11,7 @@ using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.Policies.Dtos;
 using VibeTrade.Backend.Features.Policies.Interfaces;
 using VibeTrade.Backend.Features.Trust.Interfaces;
+using VibeTrade.Backend.Infrastructure.Stripe;
 
 namespace VibeTrade.Backend.Features.Policies;
 
@@ -612,8 +613,8 @@ public sealed class PartySoftLeaveCoordinator(
         if (cpIds.Count == 0)
             return new PartySoftLeavePaymentPrep(false, "stripe_refund_failed", false, false, null);
 
-        var serverKey = PaymentStripeEnv.StripeServerApiKey();
-        var skipStripe = PaymentStripeEnv.SkipStripePaymentIntentCreate();
+        var serverKey = StripeEnv.StripeServerApiKey();
+        var skipStripe = StripeEnv.SkipStripePaymentIntentCreate();
         if (!skipStripe && string.IsNullOrWhiteSpace(serverKey))
             return new PartySoftLeavePaymentPrep(false, "stripe_refund_failed", false, false, null);
 

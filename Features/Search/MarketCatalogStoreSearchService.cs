@@ -8,7 +8,7 @@ using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
-using VibeTrade.Backend.Features.Search.Elasticsearch;
+using VibeTrade.Backend.Features.Search.Dtos;
 using VibeTrade.Backend.Features.Search.Interfaces;
 
 namespace VibeTrade.Backend.Features.Search;

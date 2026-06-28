@@ -5,8 +5,9 @@ using VibeTrade.Backend.Data.Entities;
 
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
-using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingDtos;
+using VibeTrade.Backend.Features.Notifications.NotificationDtos;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 
 namespace VibeTrade.Backend.Features.Logistics;
 

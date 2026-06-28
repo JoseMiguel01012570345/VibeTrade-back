@@ -1,4 +1,5 @@
 using VibeTrade.Backend.Infrastructure;
+using VibeTrade.Backend.Infrastructure.Mediator;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.LoadVibeTradeEnvironment();
@@ -11,6 +12,7 @@ builder.WebHost.ConfigureKestrel(o =>
 
 builder.Services
     .AddVibeTradePersistence()
+    .AddVibeTradeMediatR()
     .AddVibeTradeFeatures(builder.Configuration)
     .AddVibeTradeApi();
 

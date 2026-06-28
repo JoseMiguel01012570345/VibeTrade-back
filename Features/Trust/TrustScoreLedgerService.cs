@@ -1,10 +1,12 @@
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Features.Trust.GetTrustLedger;
 
 namespace VibeTrade.Backend.Features.Trust;
 
-public sealed class TrustScoreLedgerService(AppDbContext db) : ITrustScoreLedgerService
+public sealed class TrustScoreLedgerService(AppDbContext db, IMediator mediator) : ITrustScoreLedgerService
 {
     private static string NewId() => "thl_" + Guid.NewGuid().ToString("N")[..16];
 
@@ -36,28 +38,10 @@ public sealed class TrustScoreLedgerService(AppDbContext db) : ITrustScoreLedger
         });
     }
 
-    public async Task<IReadOnlyList<TrustHistoryItemDto>> ListForSubjectAsync(
+    public Task<IReadOnlyList<TrustHistoryItemDto>> ListForSubjectAsync(
         string subjectType,
         string subjectId,
         int limit,
-        CancellationToken cancellationToken = default)
-    {
-        var st = (subjectType ?? "").Trim();
-        var sid = (subjectId ?? "").Trim();
-        if (st.Length < 2 || sid.Length < 2)
-            return [];
-        var take = Math.Clamp(limit, 1, 200);
-        var rows = await db.TrustScoreLedgerRows.AsNoTracking()
-            .Where(x => x.SubjectType == st && x.SubjectId == sid)
-            .OrderByDescending(x => x.CreatedAtUtc)
-            .Take(take)
-            .Select(x => new TrustHistoryItemDto(
-                x.Id,
-                x.CreatedAtUtc,
-                x.Delta,
-                x.BalanceAfter,
-                x.Reason))
-            .ToListAsync(cancellationToken);
-        return rows;
-    }
+        CancellationToken cancellationToken = default) =>
+        mediator.Send(new GetTrustLedgerQuery(subjectType, subjectId, limit), cancellationToken);
 }

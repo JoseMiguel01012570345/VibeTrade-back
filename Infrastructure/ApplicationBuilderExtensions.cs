@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Chat;
+using VibeTrade.Backend.Infrastructure.Api;
 using VibeTrade.Backend.Infrastructure.DemoData;
 
 namespace VibeTrade.Backend.Infrastructure;
@@ -65,7 +66,7 @@ public static class ApplicationBuilderExtensions
             });
         }
 
-        app.MapControllers();
+        app.MapVibeTradeFeatureEndpoints();
         app.MapHub<ChatHub>("/ws/chat").RequireCors("Dev");
 
         return app;

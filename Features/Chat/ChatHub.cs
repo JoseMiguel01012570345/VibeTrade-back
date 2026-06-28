@@ -3,7 +3,6 @@ using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Auth.Interfaces;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
-using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Features.Chat;
 

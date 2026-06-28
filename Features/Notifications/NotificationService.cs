@@ -1,3 +1,4 @@
+using MediatR;
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -6,11 +7,12 @@ using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Notifications.NotificationDtos;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+using VibeTrade.Backend.Features.Shared.Contracts.Events;
 
 namespace VibeTrade.Backend.Features.Notifications;
 
 /// <summary>In-app notifications, listado/marcado y filas <see cref="ChatNotificationRow"/> (SignalR <c>notificationCreated</c>).</summary>
-public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hub) : INotificationService
+public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hub, IMediator mediator) : INotificationService
 {
     public async Task NotifyOfferCommentAsync(
         OfferCommentNotificationArgs request,
@@ -632,6 +634,53 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             cancellationToken);
     }
 
+    public async Task NotifyUserAsync(
+        string userId,
+        string title,
+        string body,
+        string? threadId = null,
+        string? deepLink = null,
+        CancellationToken cancellationToken = default)
+    {
+        var rid = (userId ?? "").Trim();
+        if (rid.Length < 2)
+            return;
+
+        var tid = (threadId ?? "").Trim();
+        var preview = NotificationUtils.TruncatePreview(body);
+        var meta = string.IsNullOrWhiteSpace(deepLink)
+            ? null
+            : NotificationUtils.SerializeMeta(new { deepLink = deepLink.Trim() });
+        var now = DateTimeOffset.UtcNow;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = rid,
+            ThreadId = tid.Length >= 4 ? tid : null,
+            MessageId = null,
+            OfferId = null,
+            MessagePreview = preview,
+            AuthorStoreName = NotificationUtils.TruncatePreview((title ?? "").Trim(), maxLength: 120),
+            AuthorTrustScore = 0,
+            SenderUserId = rid,
+            CreatedAtUtc = now,
+            ReadAtUtc = null,
+            Kind = "user_notification",
+            MetaJson = meta,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
+            "notificationCreated",
+            new
+            {
+                kind = "user_notification",
+                threadId = tid.Length >= 4 ? tid : null,
+                deepLink = string.IsNullOrWhiteSpace(deepLink) ? null : deepLink.Trim(),
+            },
+            cancellationToken);
+    }
+
     public async Task NotifySellerStoreTrustPenaltyAsync(
         SellerStoreTrustPenaltyNotificationArgs request,
         CancellationToken cancellationToken = default)
@@ -893,4 +942,15 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             : $"El comprador salió del chat con un acuerdo ya aceptado. Motivo declarado: {reasonTrim}";
         return await threadSystemMessages.PostSystemThreadNoticeAsync(userId, threadId, notice, cancellationToken) is not null;
     }
+
+    public Task RequestUserNotificationAsync(
+        string userId,
+        string title,
+        string body,
+        string? threadId = null,
+        string? deepLink = null,
+        CancellationToken cancellationToken = default) =>
+        mediator.Publish(
+            new UserNotificationRequestedEvent(userId, title, body, threadId, deepLink),
+            cancellationToken);
 }

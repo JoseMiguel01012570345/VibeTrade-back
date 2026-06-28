@@ -1,15 +1,18 @@
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Offers.Interfaces;
+using VibeTrade.Backend.Features.Offers.ToggleOfferLike;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
 
 namespace VibeTrade.Backend.Features.Offers;
 
 public sealed class OfferService(
     AppDbContext db,
+    IMediator mediator,
     IOfferPopularityWeightService popularityWeight) : IOfferService
 {
     public async Task<bool> OfferExistsAsync(string offerId, CancellationToken cancellationToken = default)
@@ -195,36 +198,8 @@ public sealed class OfferService(
         string likerKey,
         CancellationToken cancellationToken = default)
     {
-        var oid = (offerId ?? "").Trim();
-        if (oid.Length < 2 || string.IsNullOrEmpty(likerKey))
-            return (false, 0);
-
-        if (!await OfferExistsAsync(oid, cancellationToken))
-            return (false, 0);
-
-        var existing = await db.OfferLikes
-            .FirstOrDefaultAsync(x => x.OfferId == oid && x.LikerKey == likerKey, cancellationToken);
-
-        if (existing is not null)
-        {
-            db.OfferLikes.Remove(existing);
-            await db.SaveChangesAsync(cancellationToken);
-            await popularityWeight.RecomputeAsync(oid, cancellationToken);
-            var c = await db.OfferLikes.CountAsync(x => x.OfferId == oid, cancellationToken);
-            return (false, c);
-        }
-
-        db.OfferLikes.Add(new OfferLikeRow
-        {
-            Id = OfferUtils.NewId("olk_"),
-            OfferId = oid,
-            LikerKey = likerKey,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-        });
-        await db.SaveChangesAsync(cancellationToken);
-        await popularityWeight.RecomputeAsync(oid, cancellationToken);
-        var c2 = await db.OfferLikes.CountAsync(x => x.OfferId == oid, cancellationToken);
-        return (true, c2);
+        var result = await mediator.Send(new ToggleOfferLikeCommand(offerId, likerKey), cancellationToken);
+        return (result.Liked, result.LikeCount);
     }
 
     public async Task<(bool Liked, int LikeCount)> ToggleQaCommentLikeAsync(

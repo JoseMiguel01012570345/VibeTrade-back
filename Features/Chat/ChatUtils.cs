@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Utils;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 
 namespace VibeTrade.Backend.Features.Chat;
