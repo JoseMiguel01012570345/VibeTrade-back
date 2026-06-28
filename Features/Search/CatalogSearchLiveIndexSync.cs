@@ -7,20 +7,21 @@ namespace VibeTrade.Backend.Features.Search;
 /// </summary>
 public sealed class CatalogSearchLiveIndexSync(IStoreSearchIndexWriter writer) : ICatalogSearchLiveIndexSync
 {
-    public Task SyncStoreAsync(string storeId, CancellationToken cancellationToken = default)
+    public async Task SyncStoreAsync(string storeId, CancellationToken cancellationToken = default)
     {
         var sid = (storeId ?? "").Trim();
         if (sid.Length < 2)
-            return Task.CompletedTask;
-        return writer.UpsertStoresAsync([sid], cancellationToken);
+            return;
+        await writer.EnsureIndexAsync(cancellationToken);
+        await writer.UpsertStoresAsync([sid], cancellationToken);
     }
 
-    public Task SyncStoresAsync(
+    public async Task SyncStoresAsync(
         IReadOnlyCollection<string> storeIds,
         CancellationToken cancellationToken = default)
     {
         if (storeIds.Count == 0)
-            return Task.CompletedTask;
+            return;
 
         var ids = storeIds
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -29,8 +30,9 @@ public sealed class CatalogSearchLiveIndexSync(IStoreSearchIndexWriter writer) :
             .Distinct(StringComparer.Ordinal)
             .ToList();
         if (ids.Count == 0)
-            return Task.CompletedTask;
+            return;
 
-        return writer.UpsertStoresAsync(ids, cancellationToken);
+        await writer.EnsureIndexAsync(cancellationToken);
+        await writer.UpsertStoresAsync(ids, cancellationToken);
     }
 }

@@ -1,9 +1,7 @@
-namespace VibeTrade.Backend.Features.Market.Dtos;
+namespace VibeTrade.Backend.Data.JsonModels;
 
 /// <summary>
 /// Un ítem del array de comentarios/preguntas públicas de una oferta (columna jsonb <c>OfferQaJson</c>).
-/// Alineado con el contrato del cliente (<c>qa</c> en ofertas). Los campos <c>likeCount</c> / <c>viewerLiked</c>
-/// solo existen en respuestas API enriquecidas, no en persistencia.
 /// </summary>
 public sealed class OfferQaComment
 {

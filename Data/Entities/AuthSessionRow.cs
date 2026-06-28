@@ -1,5 +1,3 @@
-using VibeTrade.Backend.Features.Auth.Dtos;
-
 namespace VibeTrade.Backend.Data.Entities;
 
 /// <summary>Token de sesión Bearer tras OTP; perfil materializado (jsonb: <c>UserJson</c>).</summary>

@@ -81,7 +81,7 @@ public static class AgreementsModule
             return Results.BadRequest(new
             {
                 error = writeErr,
-                message = TradeAgreementService.MultipleAgreementCurrenciesMessage,
+                message = AgreementCheckoutCurrency.MultipleAgreementCurrenciesMessage,
             });
         if (created is null)
             return Results.NotFound(new { error = "not_found", message = "No se pudo crear el acuerdo." });
@@ -111,7 +111,7 @@ public static class AgreementsModule
             return Results.BadRequest(new
             {
                 error = writeErr,
-                message = TradeAgreementService.MultipleAgreementCurrenciesMessage,
+                message = AgreementCheckoutCurrency.MultipleAgreementCurrenciesMessage,
             });
         if (updated is null)
             return Results.NotFound(new { error = "not_found", message = "No se pudo actualizar el acuerdo." });
@@ -195,7 +195,7 @@ public static class AgreementsModule
             return Results.BadRequest(new
             {
                 error = respondErr,
-                message = TradeAgreementService.MultipleAgreementCurrenciesMessage,
+                message = AgreementCheckoutCurrency.MultipleAgreementCurrenciesMessage,
             });
         if (updated is null)
             return Results.NotFound(new { error = "not_found", message = "No se pudo registrar la respuesta." });

@@ -1,14 +1,24 @@
 using System.Text.Json.Serialization;
 
-namespace VibeTrade.Backend.Features.Chat.Dtos;
+namespace VibeTrade.Backend.Data.JsonModels;
 
 /// <summary>
-/// Reconocimientos de entrega/lectura por destinatario cuando el hilo tiene más de 2 participantes
-/// (comprador, vendedor, transportista(s)). Persistido en <see cref="VibeTrade.Backend.Data.Entities.ChatMessageRow.GroupReceiptsJson"/>.
+/// Estado de entrega/lectura del mensaje. Fechas asociadas en UTC en <see cref="Entities.ChatMessageRow"/>.
+/// </summary>
+public enum ChatMessageStatus
+{
+    Pending = 0,
+    Sent = 1,
+    Delivered = 2,
+    Read = 3,
+    Error = 4,
+}
+
+/// <summary>
+/// Reconocimientos de entrega/lectura por destinatario en hilos con más de 2 participantes.
 /// </summary>
 public sealed class ChatMessageGroupReceipts
 {
-    /// <summary>Destinatarios al enviar; usado para saber cuándo está completo el reparto o la lectura.</summary>
     [JsonPropertyName("expectedRecipientIds")]
     public List<string> ExpectedRecipientIds { get; set; } = new();
 

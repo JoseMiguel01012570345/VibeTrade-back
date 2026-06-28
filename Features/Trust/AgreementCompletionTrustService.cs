@@ -3,7 +3,7 @@ using VibeTrade.Backend.Features.Trust.ApplyCompletionBonus;
 
 namespace VibeTrade.Backend.Features.Trust;
 
-public sealed class AgreementCompletionTrustService(IMediator mediator)
+public sealed class AgreementCompletionTrustService(IMediator mediator) : IAgreementCompletionTrustService
 {
     public Task TryApplyCompletionBonusesAsync(
         string threadId,

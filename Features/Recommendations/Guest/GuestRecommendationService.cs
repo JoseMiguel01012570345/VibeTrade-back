@@ -111,7 +111,7 @@ public sealed class GuestRecommendationService(
             .ToListAsync(cancellationToken);
         var o = new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
         foreach (var row in rows)
-            o[row.Id] = StoreProfileWorkspaceData.FromStoreRow(row);
+            o[row.Id] = StoreProfileWorkspaceMapping.FromStoreRow(row);
         return o;
     }
 }

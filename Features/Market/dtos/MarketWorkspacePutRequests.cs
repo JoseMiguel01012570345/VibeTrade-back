@@ -23,12 +23,6 @@ public sealed record WorkspaceStorePutRequest
     public string? WebsiteUrl { get; init; }
 }
 
-public sealed record StoreLocationPointBody
-{
-    public double Lat { get; init; }
-    public double Lng { get; init; }
-}
-
 /// <summary>Parche de workspace: <c>stores</c> y/o <c>storeCatalogs</c> por id de tienda.</summary>
 public sealed record WorkspaceStoreCatalogsPutRequest
 {

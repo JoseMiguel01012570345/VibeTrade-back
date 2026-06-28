@@ -1,10 +1,11 @@
 using VibeTrade.Backend.Data.Entities;
+using VibeTrade.Backend.Data.JsonModels;
 using VibeTrade.Backend.Features.Payments;
-using VibeTrade.Backend.Features.RouteSheets.Dtos;
 
 namespace VibeTrade.Backend.Features.Agreements;
 
-public sealed partial class TradeAgreementService
+/// <summary>Reglas de moneda única en checkout de acuerdos (sin acoplar otras features al servicio).</summary>
+public static class AgreementCheckoutCurrency
 {
     public const string MultipleAgreementCurrenciesMessage =
         "El acuerdo debe cobrarse en una sola moneda; unifica mercadería, servicios y transporte.";

@@ -402,7 +402,7 @@ public static partial class ChatModule
             return Results.Ok(new { acceptedCount = n.Value });
         }
         catch (InvalidOperationException ex)
-            when (ex.Message == RouteTramoSubscriptionService.AcceptCarrierPendingConflictMessage)
+            when (ex.Message == RouteTramoSubscriptionPolicy.AcceptCarrierPendingConflictMessage)
         {
             return Results.Conflict(new { error = "tramo_already_confirmed", message = ex.Message });
         }
@@ -517,7 +517,7 @@ public static partial class ChatModule
             RouteSheetMutationResult.RouteCurrencyMerchandiseMismatch => Results.BadRequest(new
             {
                 error = "route_currency_merchandise_mismatch",
-                message = TradeAgreementService.RouteStopCurrencyMismatchMessage,
+                message = AgreementCheckoutCurrency.RouteStopCurrencyMismatchMessage,
             }),
             RouteSheetMutationResult.CannotPublishDeliveredSheet => Results.Conflict(new
             {

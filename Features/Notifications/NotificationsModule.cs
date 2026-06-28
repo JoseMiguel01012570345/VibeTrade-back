@@ -1,3 +1,7 @@
+using VibeTrade.Backend.Data;
+using VibeTrade.Backend.Features.Chat.Interfaces;
+using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+
 namespace VibeTrade.Backend.Features.Notifications;
 
 public static class NotificationsModule
@@ -9,6 +13,14 @@ public static class NotificationsModule
         services.AddScoped<IRouteSheetThreadNotificationService, RouteSheetThreadNotificationService>();
         services.AddScoped<IBroadcastingService, BroadcastingService>();
         services.AddScoped<ISignalRBroadcastService>(sp => sp.GetRequiredService<IBroadcastingService>());
+        services.AddScoped<IChatThreadSystemMessageService>(sp =>
+        {
+            var lazyInserter = new Lazy<IChatMessageInserter>(() => sp.GetRequiredService<IChatMessageInserter>());
+            return new ChatThreadSystemMessageService(
+                sp.GetRequiredService<AppDbContext>(),
+                sp.GetRequiredService<IThreadAccessControlService>(),
+                lazyInserter);
+        });
         return services;
     }
 

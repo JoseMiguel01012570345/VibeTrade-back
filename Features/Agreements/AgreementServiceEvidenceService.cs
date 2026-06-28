@@ -10,7 +10,7 @@ namespace VibeTrade.Backend.Features.Agreements;
 public sealed class AgreementServiceEvidenceService(
     IChatService chat,
     IChatThreadSystemMessageService threadSystemMessages,
-    AgreementCompletionTrustService completionTrust,
+    IAgreementCompletionTrustService completionTrust,
     IStripeGateway stripe,
     AppDbContext db) : IAgreementServiceEvidenceService
 {

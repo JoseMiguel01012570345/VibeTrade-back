@@ -182,7 +182,7 @@ public sealed class CatalogService(
         var o = new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
         var list = await db.Stores.AsNoTracking().ToListAsync(cancellationToken);
         foreach (var s in list)
-            o[s.Id] = StoreProfileWorkspaceData.FromStoreRow(s);
+            o[s.Id] = StoreProfileWorkspaceMapping.FromStoreRow(s);
         return o;
     }
 
@@ -222,7 +222,7 @@ public sealed class CatalogService(
 
         return new StoreWithCatalogDetailView
         {
-            Store = StoreProfileWorkspaceData.FromStoreRow(store),
+            Store = StoreProfileWorkspaceMapping.FromStoreRow(store),
             Catalog = new StoreCatalogBlockView
             {
                 Pitch = store.Pitch,
@@ -355,8 +355,8 @@ public sealed class CatalogService(
         var store = await db.Stores.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == storeId, cancellationToken);
         var storeData = store is null
-            ? StoreProfileWorkspaceData.MinimalStub(storeId)
-            : StoreProfileWorkspaceData.FromStoreRow(store);
+            ? StoreProfileWorkspaceMapping.MinimalStub(storeId)
+            : StoreProfileWorkspaceMapping.FromStoreRow(store);
         return new PublicOfferCardSnapshot(offerView, storeData);
     }
 
@@ -746,7 +746,7 @@ public sealed class CatalogService(
         if (offerKeys.Count == 0)
             return;
 
-        var fromDb = await MarketService.GetPersistedWorkspaceAsync(db, cancellationToken);
+        var fromDb = await MarketWorkspacePersistence.GetPersistedWorkspaceAsync(db, cancellationToken);
         if (fromDb is null)
             return;
 
@@ -759,8 +759,8 @@ public sealed class CatalogService(
         var slim = CloneWorkspaceState(merged);
         slim.Stores = new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
         slim.StoreCatalogs = new Dictionary<string, StoreCatalogBlockView>(StringComparer.Ordinal);
-        MarketService.ValidateWorkspaceForPersist(slim);
-        await MarketService.SavePersistedWorkspaceAsync(db, slim, cancellationToken);
+        MarketWorkspacePersistence.ValidateWorkspaceForPersist(slim);
+        await MarketWorkspacePersistence.SavePersistedWorkspaceAsync(db, slim, cancellationToken);
     }
 
     private static MarketWorkspaceState CloneWorkspaceState(MarketWorkspaceState s) =>

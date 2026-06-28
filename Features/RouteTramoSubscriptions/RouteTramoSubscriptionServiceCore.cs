@@ -20,7 +20,7 @@ public sealed class RouteTramoSubscriptionServiceCore(
 {
     /// <summary>Mensaje de <see cref="InvalidOperationException"/> cuando no se puede confirmar: otro transportista ya ocupa los tramos.</summary>
     public const string AcceptCarrierPendingConflictMessage =
-        "Los tramos pendientes de este transportista ya tienen otro transportista confirmado.";
+        RouteTramoSubscriptionPolicy.AcceptCarrierPendingConflictMessage;
 
     /// <summary>Mensaje cuando el tramo ya fue entregado (evidencia aceptada).</summary>
     public const string StopDeliveredSubscriptionBlockedMessage =
@@ -369,7 +369,7 @@ public sealed class RouteTramoSubscriptionServiceCore(
             $"Confirmaste el servicio de transporte de {carrierLabel} en esta operación. Abrí el chat para coordinar la hoja de ruta.";
 
         var acceptedMeta =
-            RouteTramoSubscriptionNotificationService.BuildAcceptMetaJson(k.RouteSheetId, k.CarrierId, metaStops);
+            RouteTramoSubscriptionNotificationMeta.BuildAcceptMetaJson(k.RouteSheetId, k.CarrierId, metaStops);
 
         await tramoNotifications.NotifyTramoSubscriptionAcceptedAndBroadcastAsync(
             new RouteTramoSubscriptionAcceptedNotificationArgs(
@@ -1262,7 +1262,7 @@ public sealed class RouteTramoSubscriptionServiceCore(
             $"Confirmaste el servicio de transporte de {carrierLabel} en esta operación. Abrí el chat para coordinar la hoja de ruta.";
 
         var preselAcceptedMeta =
-            RouteTramoSubscriptionNotificationService.BuildAcceptMetaJson(rsid, uid, preselMetaStops);
+            RouteTramoSubscriptionNotificationMeta.BuildAcceptMetaJson(rsid, uid, preselMetaStops);
 
         await tramoNotifications.NotifyPreselAcceptAndBroadcastAsync(
             new RouteTramoSubscriptionAcceptedNotificationArgs(

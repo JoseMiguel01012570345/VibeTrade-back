@@ -12,7 +12,7 @@ public static class TrustModule
     public static IServiceCollection AddTrustFeature(this IServiceCollection services)
     {
         services.AddScoped<ITrustScoreLedgerService, TrustScoreLedgerService>();
-        services.AddScoped<AgreementCompletionTrustService>();
+        services.AddScoped<IAgreementCompletionTrustService, AgreementCompletionTrustService>();
         return services;
     }
 

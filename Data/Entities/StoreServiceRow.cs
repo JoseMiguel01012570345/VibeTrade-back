@@ -1,7 +1,3 @@
-using VibeTrade.Backend.Features.Market;
-using VibeTrade.Backend.Features.Market.Dtos;
-using VibeTrade.Backend.Features.Market.Interfaces;
-
 namespace VibeTrade.Backend.Data.Entities;
 
 /// <summary>Servicio de catálogo de una tienda.</summary>

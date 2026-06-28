@@ -565,11 +565,11 @@ public sealed class RouteSheetsChatServiceCore(
         if (ag is null)
             return null;
 
-        if (!TradeAgreementService.TryResolveSingleAgreementCurrency(
+        if (!AgreementCheckoutCurrency.TryResolveSingleAgreementCurrency(
                 ag, payload, out var merchCur, out _))
             return RouteSheetMutationResult.RouteCurrencyMerchandiseMismatch;
 
-        if (TradeAgreementService.ValidateRoutePayloadCurrency(payload, merchCur!) is not null)
+        if (AgreementCheckoutCurrency.ValidateRoutePayloadCurrency(payload, merchCur!) is not null)
             return RouteSheetMutationResult.RouteCurrencyMerchandiseMismatch;
 
         return null;
@@ -1108,7 +1108,7 @@ public sealed class RouteSheetsChatServiceCore(
             return;
         }
 
-        var snap = EmergentRouteSheetSnapshot.FromRouteSheet(payload);
+        var snap = EmergentRouteSheetSnapshotBuilder.FromRouteSheet(payload);
         var now = DateTimeOffset.UtcNow;
         var emergent = await db.EmergentOffers.FirstOrDefaultAsync(
             e => e.ThreadId == thread.Id && e.RouteSheetId == routeSheetId,

@@ -13,6 +13,7 @@ using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.EmergentOffers;
 using VibeTrade.Backend.Features.Logistics;
 using VibeTrade.Backend.Features.Market;
+using VibeTrade.Backend.Features.Offers;
 using VibeTrade.Backend.Features.Notifications;
 using VibeTrade.Backend.Features.Payments;
 using VibeTrade.Backend.Features.Policies;
@@ -47,6 +48,7 @@ public static class ServiceCollectionExtensions
         services
             .AddInfrastructureFeature(configuration)
             .AddCatalogFeature()
+            .AddOffersFeature()
             .AddMarketFeature()
             .AddSearchFeature(configuration)
             .AddRecommendationsFeature()

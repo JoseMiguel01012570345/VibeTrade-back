@@ -1,5 +1,3 @@
-using VibeTrade.Backend.Features.Market.Dtos;
-
 namespace VibeTrade.Backend.Data.Entities;
 
 /// <summary>Snapshot del mercado (jsonb: columna <c>Payload</c>).</summary>

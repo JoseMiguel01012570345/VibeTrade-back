@@ -12,7 +12,7 @@ public sealed class RouteTramoSubscriptionService(IMediator mediator, RouteTramo
     : IRouteTramoSubscriptionService
 {
     public const string AcceptCarrierPendingConflictMessage =
-        RouteTramoSubscriptionServiceCore.AcceptCarrierPendingConflictMessage;
+        RouteTramoSubscriptionPolicy.AcceptCarrierPendingConflictMessage;
 
     public const string StopDeliveredSubscriptionBlockedMessage =
         RouteTramoSubscriptionServiceCore.StopDeliveredSubscriptionBlockedMessage;

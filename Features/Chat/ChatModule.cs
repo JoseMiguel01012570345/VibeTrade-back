@@ -13,14 +13,6 @@ public static partial class ChatModule
         services.AddScoped<ChatServiceCore>();
         services.AddScoped<ChatService>();
         services.AddScoped<IChatMessageInserter>(sp => sp.GetRequiredService<ChatService>());
-        services.AddScoped<IChatThreadSystemMessageService>(sp =>
-        {
-            var lazyInserter = new Lazy<IChatMessageInserter>(() => sp.GetRequiredService<ChatService>());
-            return new ChatThreadSystemMessageService(
-                sp.GetRequiredService<AppDbContext>(),
-                sp.GetRequiredService<IThreadAccessControlService>(),
-                lazyInserter);
-        });
         services.AddScoped<IChatService>(sp => sp.GetRequiredService<ChatService>());
         services.AddScoped<IThreadManagementService>(sp => sp.GetRequiredService<ChatService>());
         services.AddScoped<IMessageHandlingService>(sp => sp.GetRequiredService<ChatService>());

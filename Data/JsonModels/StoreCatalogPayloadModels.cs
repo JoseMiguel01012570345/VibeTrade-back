@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace VibeTrade.Backend.Features.Catalog.Dtos;
+namespace VibeTrade.Backend.Data.JsonModels;
 
 /// <summary>Adjunto en <see cref="StoreCustomFieldBody"/> (mismo contrato que en cliente).</summary>
 public sealed record StoreCustomAttachmentBody

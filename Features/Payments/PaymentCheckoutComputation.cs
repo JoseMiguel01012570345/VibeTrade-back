@@ -37,7 +37,7 @@ public static class PaymentCheckoutComputation
         IReadOnlySet<string>? confirmedRouteStopIds = null)
     {
         var errs = ValidateAgreementForCheckout(ag);
-        if (!TradeAgreementService.TryResolveSingleAgreementCurrency(
+        if (!AgreementCheckoutCurrency.TryResolveSingleAgreementCurrency(
                 ag, routeSheetPayload, out _, out var currencyErr))
         {
             if (currencyErr is not null)
@@ -87,7 +87,7 @@ public static class PaymentCheckoutComputation
 
         var byCurrency = BuildTotalsByCurrency(buckets);
         if (buckets.Count > 1)
-            errs.Add(TradeAgreementService.MultipleAgreementCurrenciesMessage);
+            errs.Add(AgreementCheckoutCurrency.MultipleAgreementCurrenciesMessage);
         if (byCurrency.Count == 0 && errs.Count == 0)
             errs.Add("No hay importes para cobrar en este acuerdo.");
 
@@ -367,14 +367,14 @@ public static class PaymentCheckoutComputation
 
         if (ag.IncludeMerchandise)
         {
-            if (!TradeAgreementService.TryResolveSingleAgreementCurrency(
+            if (!AgreementCheckoutCurrency.TryResolveSingleAgreementCurrency(
                     ag, routeSheetPayload, out var merchCur, out var merchErr))
             {
                 if (merchErr is not null) errs.Add(merchErr);
                 return;
             }
 
-            var currencyErr = TradeAgreementService.ValidateRoutePayloadCurrency(
+            var currencyErr = AgreementCheckoutCurrency.ValidateRoutePayloadCurrency(
                 routeSheetPayload, merchCur!);
             if (currencyErr is not null)
             {

@@ -115,6 +115,7 @@ public sealed class ElasticsearchStoreSearchIndexWriter(
         if (string.IsNullOrEmpty(debugInformation))
             return false;
         return debugInformation.Contains("cannot be changed from type", StringComparison.OrdinalIgnoreCase)
+            || debugInformation.Contains("can't merge", StringComparison.OrdinalIgnoreCase)
             || (debugInformation.Contains("illegal_argument_exception", StringComparison.OrdinalIgnoreCase)
                 && debugInformation.Contains("mapper", StringComparison.OrdinalIgnoreCase)
                 && debugInformation.Contains("cannot be changed", StringComparison.OrdinalIgnoreCase));

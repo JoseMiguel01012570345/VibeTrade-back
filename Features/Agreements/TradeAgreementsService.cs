@@ -236,7 +236,7 @@ public sealed partial class TradeAgreementService(
         {
             var routePayload = await LoadRoutePayloadForAgreementAsync(ag, cancellationToken)
                 .ConfigureAwait(false);
-            if (!TryResolveSingleAgreementCurrency(ag, routePayload, out _, out _))
+            if (!AgreementCheckoutCurrency.TryResolveSingleAgreementCurrency(ag, routePayload, out _, out _))
                 return (null, TradeAgreementWriteErrors.SingleAgreementCurrency);
         }
 
@@ -478,12 +478,12 @@ public sealed partial class TradeAgreementService(
 
             var prevForRollback = ag.RouteSheetId;
             ag.RouteSheetId = incoming;
-            if (!TryResolveSingleAgreementCurrency(ag, routeRow.Payload, out _, out var linkCurErr))
+            if (!AgreementCheckoutCurrency.TryResolveSingleAgreementCurrency(ag, routeRow.Payload, out _, out var linkCurErr))
             {
                 ag.RouteSheetId = prevForRollback;
                 return Fail(
                     StatusCodes.Status400BadRequest,
-                    linkCurErr ?? MultipleAgreementCurrenciesMessage);
+                    linkCurErr ?? AgreementCheckoutCurrency.MultipleAgreementCurrenciesMessage);
             }
         }
 
@@ -735,7 +735,7 @@ public sealed partial class TradeAgreementService(
     {
         var routePayload = await LoadRoutePayloadForAgreementAsync(ag, cancellationToken)
             .ConfigureAwait(false);
-        if (!TryResolveSingleAgreementCurrency(ag, routePayload, out _, out var err))
+        if (!AgreementCheckoutCurrency.TryResolveSingleAgreementCurrency(ag, routePayload, out _, out var err))
             return err;
 
         return null;

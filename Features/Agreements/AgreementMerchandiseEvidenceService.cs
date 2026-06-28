@@ -9,7 +9,7 @@ namespace VibeTrade.Backend.Features.Agreements;
 public sealed class AgreementMerchandiseEvidenceService(
     IChatService chat,
     IChatThreadSystemMessageService threadSystemMessages,
-    AgreementCompletionTrustService completionTrust,
+    IAgreementCompletionTrustService completionTrust,
     AppDbContext db) : IAgreementMerchandiseEvidenceService
 {
     public async Task<(int StatusCode, IReadOnlyList<AgreementMerchandiseLinePaymentWithEvidenceDto>? Data)> ListAsync(
