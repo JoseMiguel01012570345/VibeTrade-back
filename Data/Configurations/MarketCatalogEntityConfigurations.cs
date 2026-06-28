@@ -31,8 +31,8 @@ public sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAcco
         e.Property(x => x.Instagram).HasMaxLength(256);
         e.Property(x => x.Telegram).HasMaxLength(256);
         e.Property(x => x.XAccount).HasMaxLength(256);
-        e.Property(x => x.StripeCustomerId).HasMaxLength(96);
-        e.Property(x => x.StripeConnectedAccountId).HasMaxLength(64);
+        e.Property(x => x.PaymentAccountId).HasColumnName("StripeCustomerId").HasMaxLength(96);
+        e.Property(x => x.PayoutDestinationAccountId).HasColumnName("StripeConnectedAccountId").HasMaxLength(64);
         e.Property(x => x.SavedOfferIds)
             .HasColumnName("SavedOfferIdsJson")
             .HasColumnType("jsonb")

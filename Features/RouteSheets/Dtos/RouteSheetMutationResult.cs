@@ -5,7 +5,7 @@ public enum RouteSheetMutationResult
 {
     Ok,
     NotFoundOrForbidden,
-    /// <summary>Hoja vinculada a un acuerdo con cobros Stripe exitosos.</summary>
+    /// <summary>Hoja vinculada a un acuerdo con cobros exitosos.</summary>
     LockedByPaidAgreement,
     /// <summary>Ya existen tantas hojas activas como acuerdos aceptados sin cobro exitoso; no se puede crear una más.</summary>
     ExceedsUnpaidAgreementLimit,

@@ -2,16 +2,15 @@ using System.Globalization;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using Stripe;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+using VibeTrade.Backend.Features.Payments.Gateways;
 using VibeTrade.Backend.Features.Policies.Dtos;
 using VibeTrade.Backend.Features.Policies.Interfaces;
 using VibeTrade.Backend.Features.Trust.Interfaces;
-using VibeTrade.Backend.Infrastructure.Stripe;
 
 namespace VibeTrade.Backend.Features.Policies;
 
@@ -30,7 +29,8 @@ public sealed class PartySoftLeaveCoordinator(
     ITrustScoreLedgerService trustLedger,
     INotificationService notifications,
     IBroadcastingService broadcasting,
-    IChatThreadSystemMessageService threadSystemMessages) : IPartySoftLeaveCoordinator, IChatExitOperationsService, IChatExitPolicyRegistry
+    IChatThreadSystemMessageService threadSystemMessages,
+    IPaymentGatewayManager gatewayManager) : IPartySoftLeaveCoordinator, IChatExitOperationsService, IChatExitPolicyRegistry
 {
     private static readonly ChatExitPolicyDefinition[] All =
     [
@@ -101,11 +101,11 @@ public sealed class PartySoftLeaveCoordinator(
             "No puedes salir del chat mientras haya entregas de ruta activas en este acuerdo (tramos pagados / en curso). Coordina la evidencia o el reembolso elegible con la contraparte.",
             "Entrega de ruta activa (vendedor)."),
         new(
-            "stripe_refund_failed",
+            "payment_refund_failed",
             "party",
             StatusCodes.Status502BadGateway,
             "No se pudieron reembolsar los pagos retenidos en este momento. Reintenta en unos minutos o contacta soporte.",
-            "Fallo de reembolso Stripe al salir el vendedor."),
+            "Fallo de reembolso al salir el vendedor."),
         new(
             "carrier_holds_ownership",
             "carrier",
@@ -611,17 +611,7 @@ public sealed class PartySoftLeaveCoordinator(
             .ToList();
 
         if (cpIds.Count == 0)
-            return new PartySoftLeavePaymentPrep(false, "stripe_refund_failed", false, false, null);
-
-        var serverKey = StripeEnv.StripeServerApiKey();
-        var skipStripe = StripeEnv.SkipStripePaymentIntentCreate();
-        if (!skipStripe && string.IsNullOrWhiteSpace(serverKey))
-            return new PartySoftLeavePaymentPrep(false, "stripe_refund_failed", false, false, null);
-
-        if (!skipStripe)
-            StripeConfiguration.ApiKey = serverKey;
-
-        var refundSvc = new RefundService();
+            return new PartySoftLeavePaymentPrep(false, "payment_refund_failed", false, false, null);
 
         foreach (var cpId in cpIds)
         {
@@ -629,7 +619,7 @@ public sealed class PartySoftLeaveCoordinator(
                 .FirstOrDefaultAsync(x => x.Id == cpId, cancellationToken)
                 .ConfigureAwait(false);
             if (cp is null)
-                return new PartySoftLeavePaymentPrep(false, "stripe_refund_failed", false, false, null);
+                return new PartySoftLeavePaymentPrep(false, "payment_refund_failed", false, false, null);
             if (!string.Equals(cp.Status, AgreementPaymentStatuses.Succeeded, StringComparison.OrdinalIgnoreCase))
                 continue;
 
@@ -645,29 +635,23 @@ public sealed class PartySoftLeaveCoordinator(
             if (refundMinorTotal <= 0)
                 continue;
 
-            var piId = (cp.StripePaymentIntentId ?? "").Trim();
-            if (piId.Length < 8)
-                return new PartySoftLeavePaymentPrep(false, "stripe_refund_failed", false, false, null);
+            var txnId = (cp.GatewayTransactionId ?? "").Trim();
+            if (txnId.Length < 8)
+                return new PartySoftLeavePaymentPrep(false, "payment_refund_failed", false, false, null);
 
-            if (!skipStripe && !piId.StartsWith("skipped_", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    var refundOpts = new RefundCreateOptions { PaymentIntent = piId };
-                    if (refundMinorTotal < cp.TotalAmountMinor)
-                        refundOpts.Amount = refundMinorTotal;
+            var refund = await gatewayManager.GetGateway().TransferAsync(
+                    new PaymentTransferRequest(
+                        SimulatedPaymentGateway.PlatformAccountId,
+                        SimulatedPaymentGateway.AccountIdForUser(cp.BuyerUserId),
+                        cp.Currency.Trim().ToLowerInvariant(),
+                        refundMinorTotal,
+                        Description: $"Reembolso soft-leave {cp.Id}",
+                        IdempotencyKey: $"soft_leave_refund_{cp.Id}"),
+                    cancellationToken)
+                .ConfigureAwait(false);
 
-                    await refundSvc.CreateAsync(
-                            refundOpts,
-                            requestOptions: null,
-                            cancellationToken: cancellationToken)
-                        .ConfigureAwait(false);
-                }
-                catch (StripeException)
-                {
-                    return new PartySoftLeavePaymentPrep(false, "stripe_refund_failed", false, false, null);
-                }
-            }
+            if (!refund.Success)
+                return new PartySoftLeavePaymentPrep(false, "payment_refund_failed", false, false, null);
 
             if (refundMinorTotal >= cp.TotalAmountMinor)
                 cp.Status = AgreementPaymentStatuses.Refunded;
@@ -776,7 +760,7 @@ public sealed class PartySoftLeaveCoordinator(
             curLower = "usd";
 
         var curUp = curLower.ToUpperInvariant();
-        var pow = PaymentCheckoutComputation.StripeMinorDecimals(curLower);
+        var pow = PaymentCheckoutComputation.CurrencyMinorDecimals(curLower);
         var major = pow == 0 ? sp.AmountMinor : sp.AmountMinor / 100m;
         var culture = CultureInfo.GetCultureInfo("es-ES");
         var num = pow == 0 ? major.ToString("N0", culture) : major.ToString("N2", culture);
@@ -790,7 +774,7 @@ public sealed class PartySoftLeaveCoordinator(
             curLower = "usd";
 
         var curUp = curLower.ToUpperInvariant();
-        var pow = PaymentCheckoutComputation.StripeMinorDecimals(curLower);
+        var pow = PaymentCheckoutComputation.CurrencyMinorDecimals(curLower);
         var major = pow == 0 ? ml.AmountMinor : ml.AmountMinor / 100m;
         var culture = CultureInfo.GetCultureInfo("es-ES");
         var num = pow == 0 ? major.ToString("N0", culture) : major.ToString("N2", culture);

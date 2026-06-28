@@ -34,7 +34,7 @@ public sealed class TradeAgreementApiResponse
     public string? RouteSheetId { get; set; }
     public string? RouteSheetUrl { get; set; }
 
-    /// <summary>Hay al menos un cobro Stripe exitoso asociado a este acuerdo (bloquea edición).</summary>
+    /// <summary>Hay al menos un cobro exitoso asociado a este acuerdo (bloquea edición).</summary>
     [JsonPropertyName("hasSucceededPayments")]
     public bool HasSucceededPayments { get; set; }
 

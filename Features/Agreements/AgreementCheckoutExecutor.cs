@@ -4,16 +4,15 @@ using Npgsql;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Payments;
-using VibeTrade.Backend.Features.Payments.Interfaces;
-using VibeTrade.Backend.Infrastructure.Stripe;
+using VibeTrade.Backend.Features.Payments.Gateways;
 
 namespace VibeTrade.Backend.Features.Agreements;
 
 /// <summary>
-/// Resultado de resolver PaymentMethod Stripe de un customer.
-/// <see cref="Accepted"/>: igual que cobro acuerdo, true si el error permite reintento (p. ej. PM).
+/// Resultado de resolver un método de pago del comprador.
+/// <see cref="Accepted"/>: true si el error permite reintento (p. ej. PM).
 /// </summary>
-internal readonly record struct StripeCustomerPaymentMethodResolve(
+internal readonly record struct CustomerPaymentMethodResolve(
     bool Success,
     string? PaymentMethodId,
     string? CardBrand,
@@ -24,20 +23,13 @@ internal readonly record struct StripeCustomerPaymentMethodResolve(
 
 internal static class AgreementCheckoutExecutor
 {
-    /// <summary>
-    /// Clave servidor, GetAsync del PM y titularidad del PM respecto al customer.
-    /// Misma secuencia que en <see cref="PersistAndChargeAsync"/> antes del PaymentIntent.
-    /// </summary>
-    internal static async Task<StripeCustomerPaymentMethodResolve> ResolveCustomerPaymentMethodAsync(
-        IStripeGateway stripe,
+    internal static CustomerPaymentMethodResolve ResolveCustomerPaymentMethod(
+        SimulatedPaymentGateway gateway,
         string paymentMethodId,
-        string stripeCustomerId,
-        CancellationToken cancellationToken)
+        string payerAccountId)
     {
-        var resolved = await stripe.ResolveCustomerPaymentMethodAsync(
-                paymentMethodId, stripeCustomerId, cancellationToken)
-            .ConfigureAwait(false);
-        return new StripeCustomerPaymentMethodResolve(
+        var resolved = gateway.ResolvePaymentMethod(paymentMethodId, payerAccountId);
+        return new CustomerPaymentMethodResolve(
             resolved.Success,
             resolved.PaymentMethodId,
             resolved.CardBrand,
@@ -81,7 +73,7 @@ internal static class AgreementCheckoutExecutor
         string buyerUserId,
         string currencyLower,
         CurrencyTotalsDto qb,
-        string paymentMethodStripeId,
+        string paymentMethodId,
         string? idempotencyKey)
         => new()
         {
@@ -92,11 +84,11 @@ internal static class AgreementCheckoutExecutor
             Currency = currencyLower,
             SubtotalAmountMinor = qb.SubtotalMinor,
             ClimateAmountMinor = qb.ClimateMinor,
-            StripeFeeAmountMinor = qb.StripeFeeMinor,
+            ProcessorFeeAmountMinor = qb.ProcessorFeeMinor,
             TotalAmountMinor = qb.TotalMinor,
-            StripePaymentIntentId = null,
+            GatewayTransactionId = null,
             Status = AgreementPaymentStatuses.Pending,
-            PaymentMethodStripeId = paymentMethodStripeId,
+            PaymentMethodId = paymentMethodId,
             ClientIdempotencyKey =
                 string.IsNullOrWhiteSpace(idempotencyKey) || idempotencyKey.Length < 8
                     ? null
@@ -189,17 +181,14 @@ internal static class AgreementCheckoutExecutor
 
     internal static AgreementExecutePaymentResultDto FromDup(AgreementCurrencyPaymentRow dup)
         => new(
-            dup.StripePaymentIntentId ?? "",
+            dup.GatewayTransactionId ?? "",
             dup.Status == AgreementPaymentStatuses.Succeeded,
             dup.ClientSecretForConfirmation,
-            dup.StripeErrorMessage,
+            dup.PaymentErrorMessage,
             true,
             null,
             dup.Id);
 
-    /// <summary>
-    /// Persist row; on unique idempotency race (parallel duplicate requests), detach and return the existing row result.
-    /// </summary>
     private static async Task<AgreementExecutePaymentResultDto?> SavePaymentRowResolvingIdempotencyRaceAsync(
         AppDbContext db,
         AgreementCurrencyPaymentRow pay,
@@ -229,105 +218,68 @@ internal static class AgreementCheckoutExecutor
 
     internal static async Task<AgreementExecutePaymentResultDto> PersistAndChargeAsync(
         AppDbContext db,
-        IStripeGateway stripe,
+        IPaymentGatewayManager gatewayManager,
+        SimulatedPaymentGateway simulatedGateway,
         AgreementCurrencyPaymentRow pay,
         CurrencyTotalsDto qb,
         string paymentMethodId,
-        string stripeCustomerId,
+        string payerAccountId,
         CancellationToken ct)
     {
-        // VIBETRADE_SKIP_PAYMENT_INTENTS=true en .env → cobro simulado sin Stripe (StripeEnv.SkipStripePaymentIntentCreate).
-        if (stripe.SkipPaymentIntents)
-        {
-            var tail = pay.Id.Length >= 12 ? pay.Id.Substring(pay.Id.Length - 12) : pay.Id;
-            pay.StripePaymentIntentId = $"skipped_{tail}";
-            pay.Status = AgreementPaymentStatuses.Succeeded;
-            pay.CompletedAtUtc = DateTimeOffset.UtcNow;
-            AttachSplits(pay, qb);
-            AttachMerchandiseLineSplits(pay, qb);
-            await AttachPendingMerchandiseEvidencesAsync(db, pay, ct).ConfigureAwait(false);
-            db.AgreementCurrencyPayments.Add(pay);
-            var skipDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
-            if (skipDup is not null)
-                return skipDup;
-            return Ok(pay.StripePaymentIntentId!, pay.Id);
-        }
-
-        var pmResolve = await ResolveCustomerPaymentMethodAsync(stripe, paymentMethodId, stripeCustomerId, ct)
-            .ConfigureAwait(false);
+        var pmResolve = ResolveCustomerPaymentMethod(simulatedGateway, paymentMethodId, payerAccountId);
         if (!pmResolve.Success)
             return Err(pmResolve.ErrorMessage!, pmResolve.Accepted, pmResolve.ErrorCode!);
 
-        var charge = await stripe.CreateAndConfirmPaymentIntentAsync(
-                stripeCustomerId,
-                paymentMethodId,
-                pay.TradeAgreementId,
-                pay.Currency,
-                qb.TotalMinor,
+        var gateway = gatewayManager.GetGateway();
+        var transfer = await gateway.TransferAsync(
+                new PaymentTransferRequest(
+                    payerAccountId,
+                    SimulatedPaymentGateway.PlatformAccountId,
+                    pay.Currency,
+                    qb.TotalMinor,
+                    Description: $"VibeTrade acuerdo {pay.TradeAgreementId}",
+                    IdempotencyKey: pay.ClientIdempotencyKey,
+                    Metadata: new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["agreement_id"] = pay.TradeAgreementId,
+                        ["thread_id"] = pay.ThreadId,
+                        ["buyer_user_id"] = pay.BuyerUserId,
+                        ["payment_method_id"] = pmResolve.PaymentMethodId ?? paymentMethodId,
+                    }),
                 ct)
             .ConfigureAwait(false);
-        if (!charge.Success)
+
+        if (!transfer.Success)
         {
             pay.Status = AgreementPaymentStatuses.Failed;
-            pay.StripeErrorMessage = charge.ErrorMessage;
+            pay.PaymentErrorMessage = transfer.ErrorMessage;
             pay.CompletedAtUtc = DateTimeOffset.UtcNow;
             db.AgreementCurrencyPayments.Add(pay);
             var chargeFailDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
             if (chargeFailDup is not null)
                 return chargeFailDup;
-            return Err(pay.StripeErrorMessage ?? "", charge.Accepted, charge.ErrorCode ?? "stripe_charge_failed");
+            return Err(
+                pay.PaymentErrorMessage ?? "No se pudo completar el cobro.",
+                true,
+                transfer.ErrorCode ?? "payment_charge_failed");
         }
 
-        pay.StripePaymentIntentId = charge.PaymentIntentId ?? "";
-        pay.ClientSecretForConfirmation =
-            charge.Status is "requires_action" or "requires_confirmation" ? charge.ClientSecret : null;
-
-        if (string.Equals(charge.Status, "succeeded", StringComparison.OrdinalIgnoreCase))
-        {
-            var estimatedStripe = qb.StripeFeeMinor;
-            var actualStripe = charge.ActualFeeMinor
-                               ?? await stripe.GetActualStripeFeeMinorAsync(
-                                   pay.StripePaymentIntentId, estimatedStripe, ct).ConfigureAwait(false)
-                               ?? estimatedStripe;
-
-            pay.StripeFeeAmountMinor = actualStripe;
-            pay.Status = AgreementPaymentStatuses.Succeeded;
-            pay.CompletedAtUtc = DateTimeOffset.UtcNow;
-            AttachSplits(pay, qb);
-            AttachMerchandiseLineSplits(pay, qb);
-            await AttachPendingMerchandiseEvidencesAsync(db, pay, ct).ConfigureAwait(false);
-            db.AgreementCurrencyPayments.Add(pay);
-            var okDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
-            if (okDup is not null)
-                return okDup;
-            return Ok(pay.StripePaymentIntentId ?? "", pay.Id);
-        }
-
-        if (charge.Status is "requires_action" or "requires_confirmation")
-        {
-            pay.Status = AgreementPaymentStatuses.RequiresConfirmation;
-            db.AgreementCurrencyPayments.Add(pay);
-            var confirmDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
-            if (confirmDup is not null)
-                return confirmDup;
-            return new AgreementExecutePaymentResultDto(pay.StripePaymentIntentId!, false,
-                pay.ClientSecretForConfirmation, null,
-                true, "requires_confirmation", pay.Id);
-        }
-
-        pay.Status = AgreementPaymentStatuses.Failed;
-        pay.StripeErrorMessage = $"pi:{charge.Status}";
+        pay.GatewayTransactionId = transfer.TransactionId ?? "";
+        pay.ProcessorFeeAmountMinor = qb.ProcessorFeeMinor;
+        pay.Status = AgreementPaymentStatuses.Succeeded;
         pay.CompletedAtUtc = DateTimeOffset.UtcNow;
+        AttachSplits(pay, qb);
+        AttachMerchandiseLineSplits(pay, qb);
+        await AttachPendingMerchandiseEvidencesAsync(db, pay, ct).ConfigureAwait(false);
         db.AgreementCurrencyPayments.Add(pay);
-        var badDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
-        if (badDup is not null)
-            return badDup;
-
-        return Err(pay.StripeErrorMessage, false, "stripe_bad_status");
+        var okDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
+        if (okDup is not null)
+            return okDup;
+        return Ok(pay.GatewayTransactionId ?? "", pay.Id);
     }
 
-    internal static AgreementExecutePaymentResultDto Ok(string paymentIntentId, string agreementCurrencyPaymentId) =>
-        new(paymentIntentId, true, null, null, true, null, agreementCurrencyPaymentId);
+    internal static AgreementExecutePaymentResultDto Ok(string transactionId, string agreementCurrencyPaymentId) =>
+        new(transactionId, true, null, null, true, null, agreementCurrencyPaymentId);
 
     private static AgreementExecutePaymentResultDto Err(string msg, bool accepted, string code) =>
         new("", false, null, msg, accepted, code, null);

@@ -1,12 +1,12 @@
 using Microsoft.EntityFrameworkCore;
-using Stripe;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Infrastructure.Stripe;
+using VibeTrade.Backend.Features.Payments.Gateways;
 
 public sealed class CarrierLegRefundService(
     IChatService chat,
     IChatThreadSystemMessageService threadSystemMessages,
+    IPaymentGatewayManager gatewayManager,
     AppDbContext db) : ICarrierLegRefundService
 {
     public async Task<(bool Ok, string? ErrorCode)> TryRefundEligibleLegAsync(
@@ -62,42 +62,39 @@ public sealed class CarrierLegRefundService(
                       && rl.RouteStopId == sid
                       && cp.Status == AgreementPaymentStatuses.Succeeded
                 orderby cp.CreatedAtUtc descending
-                select new { rl.AmountMinor, cp.Id, cp.StripePaymentIntentId, cp.TotalAmountMinor })
+                select new
+                {
+                    rl.AmountMinor,
+                    cp.Id,
+                    cp.GatewayTransactionId,
+                    cp.TotalAmountMinor,
+                    cp.Currency,
+                    cp.BuyerUserId,
+                })
             .FirstOrDefaultAsync(cancellationToken)
             .ConfigureAwait(false);
 
         if (row is null || row.AmountMinor <= 0)
             return (false, "no_charge");
 
-        var serverKey = StripeEnv.StripeServerApiKey();
-        var skipStripe = StripeEnv.SkipStripePaymentIntentCreate();
-        if (!skipStripe && string.IsNullOrWhiteSpace(serverKey))
-            return (false, "stripe_not_configured");
+        var txnId = (row.GatewayTransactionId ?? "").Trim();
+        if (txnId.Length < 8)
+            return (false, "payment_missing_transaction");
 
-        if (!skipStripe)
-            StripeConfiguration.ApiKey = serverKey;
+        var buyerAccountId = SimulatedPaymentGateway.AccountIdForUser(row.BuyerUserId);
+        var refund = await gatewayManager.GetGateway().TransferAsync(
+                new PaymentTransferRequest(
+                    SimulatedPaymentGateway.PlatformAccountId,
+                    buyerAccountId,
+                    row.Currency.Trim().ToLowerInvariant(),
+                    row.AmountMinor,
+                    Description: $"Reembolso tramo {sid}",
+                    IdempotencyKey: $"refund_leg_{tid}_{aid}_{rsid}_{sid}"),
+                cancellationToken)
+            .ConfigureAwait(false);
 
-        var piId = (row.StripePaymentIntentId ?? "").Trim();
-        if (!skipStripe && piId.Length < 8)
-            return (false, "stripe_missing_pi");
-
-        if (!skipStripe && !piId.StartsWith("skipped_", StringComparison.OrdinalIgnoreCase))
-        {
-            try
-            {
-                var refundSvc = new RefundService();
-                var refundOpts = new RefundCreateOptions { PaymentIntent = piId };
-                if (row.AmountMinor < row.TotalAmountMinor)
-                    refundOpts.Amount = row.AmountMinor;
-
-                await refundSvc.CreateAsync(refundOpts, requestOptions: null, cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (StripeException)
-            {
-                return (false, "stripe_refund_failed");
-            }
-        }
+        if (!refund.Success)
+            return (false, "payment_refund_failed");
 
         var now = DateTimeOffset.UtcNow;
         delivery.RefundedAtUtc = now;

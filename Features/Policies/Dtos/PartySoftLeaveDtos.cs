@@ -30,10 +30,10 @@ public sealed record PartySoftLeaveResult(
 /// <param name="ErrorCode">
 /// <c>held_payments_buyer</c>, <c>held_payments_seller_mixed</c>,
 /// <c>evidence_pending</c> (evidencia enviada o rechazada con pago retenido),
-/// <c>stripe_refund_failed</c>, o null.
+/// <c>payment_refund_failed</c>, o null.
 /// </param>
 /// <param name="SkipClientTrustPenalty">La penalización de confianza ya se aplicó en servidor (reembolso y/o por integrantes).</param>
-/// <param name="RefundedBuyerHeldPayments">Se ejecutaron reembolsos Stripe y actualización de filas.</param>
+/// <param name="RefundedBuyerHeldPayments">Se ejecutaron reembolsos en la pasarela y actualización de filas.</param>
 /// <param name="RefundNoticeText">Texto completo del aviso de sistema con el detalle de pagos reembolsados; null si no aplica.</param>
 /// <param name="OtherMemberCount">Integrantes contados para penalización por salida sin pagos retenidos.</param>
 /// <param name="OtherMemberPenaltyApplied">Si se aplicó penalización por integrantes.</param>

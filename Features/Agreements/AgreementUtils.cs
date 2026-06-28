@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Stripe;
 using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Agreements.Dtos;
 using VibeTrade.Backend.Features.Payments;
@@ -134,9 +133,6 @@ public static class AgreementUtils
         value = d;
         return d > 0;
     }
-
-    public static string StripeErrorUserMessage(StripeException sx) =>
-        string.IsNullOrWhiteSpace(sx.StripeError?.Message) ? sx.Message : sx.StripeError!.Message;
 
     public static List<TradeAgreementExtraFieldApi> DeserializeCondicionesExtrasApi(string? raw)
     {

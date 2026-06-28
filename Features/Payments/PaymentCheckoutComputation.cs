@@ -11,11 +11,11 @@ namespace VibeTrade.Backend.Features.Payments;
 /// <summary>
 /// Replica la lógica de <c>paymentCheckoutBreakdown.ts</c> para validar montos en servidor.
 /// El importe cobrado (<see cref="CurrencyTotalsDto.TotalMinor"/>) es solo el subtotal de ítems;
-/// Climate y Stripe en el DTO son referencias informativas (no se suman al PaymentIntent).
+/// Climate y tarifa de procesador en el DTO son referencias informativas (no se suman al total cobrado).
 /// </summary>
 public static class PaymentCheckoutComputation
 {
-    private static readonly HashSet<string> ZeroDecimalStripe = new[]
+    private static readonly HashSet<string> ZeroDecimalCurrencies = new[]
     {
         "bif", "clp", "djf", "gnf", "jpy", "kmf", "krw", "mga", "pyg", "rwf", "ugx", "vnd", "vuv", "xaf", "xof", "xpf",
     }.ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -446,13 +446,13 @@ public static class PaymentCheckoutComputation
             var b = kv.Value;
             if (b.SubtotalMinor <= 0) continue;
             var climate = ClimateMinorFromSubtotal(b.SubtotalMinor);
-            var stripeFee = StripeFeeEstimate(b.SubtotalMinor, curLower);
+            var processorFee = ProcessorFeeEstimate(b.SubtotalMinor, curLower);
             var total = b.SubtotalMinor;
             byCurrency.Add(new CurrencyTotalsDto(
                 curLower,
                 b.SubtotalMinor,
                 climate,
-                stripeFee,
+                processorFee,
                 total,
                 b.Lines));
         }
@@ -548,12 +548,12 @@ public static class PaymentCheckoutComputation
     public static string NormalizeCurrency(string iso3Upper)
         => NormalizeCurrencyFirst(iso3Upper)?.ToLowerInvariant() ?? "";
 
-    public static int StripeMinorDecimals(string currencyLower)
-        => ZeroDecimalStripe.Contains(currencyLower) ? 0 : 2;
+    public static int CurrencyMinorDecimals(string currencyLower)
+        => ZeroDecimalCurrencies.Contains(currencyLower) ? 0 : 2;
 
     internal static long MajorToMinor(decimal maj, string currencyLower)
     {
-        var pow = StripeMinorDecimals(currencyLower);
+        var pow = CurrencyMinorDecimals(currencyLower);
         if (pow == 0) return decimal.ToInt64(decimal.Round(maj, MidpointRounding.AwayFromZero));
         return decimal.ToInt64(decimal.Round(maj * Power10(pow), MidpointRounding.AwayFromZero));
     }
@@ -572,7 +572,7 @@ public static class PaymentCheckoutComputation
             : (long)Math.Ceiling(subtotalMinor * 0.0005m - 0.000001m);
 
     /// <summary>2.9 % + fijo opcional sobre el subtotal cobrado (referencia; no se añade al importe del PI).</summary>
-    public static long StripeFeeEstimate(long subtotalMinor, string currencyLower)
+    public static long ProcessorFeeEstimate(long subtotalMinor, string currencyLower)
     {
         if (subtotalMinor <= 0) return 0;
         var pctPart = (long)Math.Ceiling(subtotalMinor * 0.029m - 0.000001m);

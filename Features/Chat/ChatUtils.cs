@@ -626,10 +626,10 @@ public static class ChatMarketMessageJsonMapper
             CurrencyLower = p.CurrencyLower,
             SubtotalMinor = p.SubtotalMinor,
             ClimateMinor = p.ClimateMinor,
-            StripeFeeMinorActual = p.StripeFeeMinorActual,
-            StripeFeeMinorEstimated = p.StripeFeeMinorEstimated,
+            ProcessorFeeMinorActual = p.ProcessorFeeMinorActual,
+            ProcessorFeeMinorEstimated = p.ProcessorFeeMinorEstimated,
             TotalChargedMinor = p.TotalChargedMinor,
-            StripePricingUrl = p.StripePricingUrl,
+            PaymentFeePolicyUrl = p.PaymentFeePolicyUrl,
             Lines = p.Lines.Select(x => new ChatPaymentFeeReceiptLineView
             {
                 Label = x.Label,

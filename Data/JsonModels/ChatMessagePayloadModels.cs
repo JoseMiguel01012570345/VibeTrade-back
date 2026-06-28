@@ -90,10 +90,10 @@ public sealed record ChatUnifiedPlatformPaymentFeeReceiptBlock
     public required string CurrencyLower { get; init; }
     public required long SubtotalMinor { get; init; }
     public required long ClimateMinor { get; init; }
-    public required long StripeFeeMinorActual { get; init; }
-    public required long StripeFeeMinorEstimated { get; init; }
+    public required long ProcessorFeeMinorActual { get; init; }
+    public required long ProcessorFeeMinorEstimated { get; init; }
     public required long TotalChargedMinor { get; init; }
-    public required string StripePricingUrl { get; init; }
+    public required string PaymentFeePolicyUrl { get; init; }
     public required List<ChatPaymentFeeReceiptLineDto> Lines { get; init; } = [];
     public string InvoiceIssuerPlatform { get; init; } = "VibeTrade";
     public string InvoiceStoreName { get; init; } = "";
@@ -107,10 +107,10 @@ public sealed record ChatPaymentFeeReceiptData
     public required string CurrencyLower { get; init; }
     public required long SubtotalMinor { get; init; }
     public required long ClimateMinor { get; init; }
-    public required long StripeFeeMinorActual { get; init; }
-    public required long StripeFeeMinorEstimated { get; init; }
+    public required long ProcessorFeeMinorActual { get; init; }
+    public required long ProcessorFeeMinorEstimated { get; init; }
     public required long TotalChargedMinor { get; init; }
-    public required string StripePricingUrl { get; init; }
+    public required string PaymentFeePolicyUrl { get; init; }
     public required List<ChatPaymentFeeReceiptLineDto> Lines { get; init; } = [];
     public string InvoiceIssuerPlatform { get; init; } = "VibeTrade";
     public string InvoiceStoreName { get; init; } = "";

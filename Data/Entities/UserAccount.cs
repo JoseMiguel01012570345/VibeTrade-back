@@ -35,11 +35,11 @@ public sealed class UserAccount
     /// <summary>Cuenta de X (Twitter).</summary>
     public string? XAccount { get; set; }
 
-    /// <summary>Identificador de cliente en Stripe (cus_...).</summary>
-    public string? StripeCustomerId { get; set; }
+    /// <summary>Identificador de cuenta en la pasarela de pagos del usuario.</summary>
+    public string? PaymentAccountId { get; set; }
 
-    /// <summary>Cuenta conectada Stripe Connect (acct_...) como destino de <c>Transfer</c> del vendedor.</summary>
-    public string? StripeConnectedAccountId { get; set; }
+    /// <summary>Cuenta destino opcional para liquidaciones al vendedor.</summary>
+    public string? PayoutDestinationAccountId { get; set; }
 
     public int TrustScore { get; set; } = 50;
 

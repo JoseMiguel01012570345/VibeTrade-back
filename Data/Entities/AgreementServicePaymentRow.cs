@@ -20,7 +20,7 @@ public sealed class AgreementServicePaymentRow
 
     public int EntryDay { get; set; }
 
-    /// <summary>código Stripe minúsculas (usd, ars, …)</summary>
+    /// <summary>Código ISO de moneda en minúsculas (usd, ars, …).</summary>
     public string Currency { get; set; } = "";
 
     public long AmountMinor { get; set; }
@@ -28,7 +28,7 @@ public sealed class AgreementServicePaymentRow
     /// <summary>held | released | refunded | failed</summary>
     public string Status { get; set; } = AgreementServicePaymentStatuses.Held;
 
-    /// <summary>Referencia al cobro Stripe por moneda que cubrió este pago (opcional).</summary>
+    /// <summary>Referencia al cobro por moneda que cubrió este pago (opcional).</summary>
     public string? AgreementCurrencyPaymentId { get; set; }
 
     public AgreementCurrencyPaymentRow? AgreementCurrencyPayment { get; set; }
@@ -37,8 +37,8 @@ public sealed class AgreementServicePaymentRow
 
     public DateTimeOffset? ReleasedAtUtc { get; set; }
 
-    /// <summary>Stripe PaymentMethod (tarjeta) elegida por el vendedor (referencia/registro).</summary>
-    public string? SellerPayoutPaymentMethodStripeId { get; set; }
+    /// <summary>Método de pago elegido por el vendedor (referencia/registro).</summary>
+    public string? SellerPayoutPaymentMethodId { get; set; }
 
     public DateTimeOffset? SellerPayoutRecordedAtUtc { get; set; }
 
@@ -46,8 +46,8 @@ public sealed class AgreementServicePaymentRow
 
     public string? SellerPayoutCardLast4Snapshot { get; set; }
 
-    /// <summary>Stripe <c>Transfer</c> (tr_) hacia cuenta Connect cuando la liquidación se ejecutó en Stripe.</summary>
-    public string? SellerPayoutStripeTransferId { get; set; }
+    /// <summary>Id de transferencia de la pasarela al liquidar al vendedor.</summary>
+    public string? SellerPayoutTransferId { get; set; }
 }
 
 public static class AgreementServicePaymentStatuses
@@ -57,4 +57,3 @@ public static class AgreementServicePaymentStatuses
     public const string Refunded = "refunded";
     public const string Failed = "failed";
 }
-

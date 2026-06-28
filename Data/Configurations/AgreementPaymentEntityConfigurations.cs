@@ -100,10 +100,11 @@ public sealed class AgreementCurrencyPaymentRowConfiguration : IEntityTypeConfig
         e.Property(x => x.ThreadId).HasMaxLength(64);
         e.Property(x => x.BuyerUserId).HasMaxLength(64);
         e.Property(x => x.Currency).HasMaxLength(16);
-        e.Property(x => x.StripePaymentIntentId).HasMaxLength(128);
+        e.Property(x => x.GatewayTransactionId).HasColumnName("StripePaymentIntentId").HasMaxLength(128);
         e.Property(x => x.Status).HasMaxLength(32);
-        e.Property(x => x.PaymentMethodStripeId).HasMaxLength(96);
-        e.Property(x => x.StripeErrorMessage).HasColumnType("text");
+        e.Property(x => x.PaymentMethodId).HasColumnName("PaymentMethodStripeId").HasMaxLength(96);
+        e.Property(x => x.PaymentErrorMessage).HasColumnName("StripeErrorMessage").HasColumnType("text");
+        e.Property(x => x.ProcessorFeeAmountMinor).HasColumnName("StripeFeeAmountMinor");
         e.Property(x => x.ClientIdempotencyKey).HasMaxLength(200);
         e.Property(x => x.ClientSecretForConfirmation).HasColumnType("text");
         e.HasIndex(x => new { x.TradeAgreementId, x.ThreadId });
@@ -161,10 +162,10 @@ public sealed class AgreementServicePaymentRowConfiguration : IEntityTypeConfigu
         e.Property(x => x.Currency).HasMaxLength(16);
         e.Property(x => x.Status).HasMaxLength(32);
         e.Property(x => x.AgreementCurrencyPaymentId).HasMaxLength(64);
-        e.Property(x => x.SellerPayoutPaymentMethodStripeId).HasMaxLength(96);
+        e.Property(x => x.SellerPayoutPaymentMethodId).HasColumnName("SellerPayoutPaymentMethodStripeId").HasMaxLength(96);
         e.Property(x => x.SellerPayoutCardBrandSnapshot).HasMaxLength(32);
         e.Property(x => x.SellerPayoutCardLast4Snapshot).HasMaxLength(8);
-        e.Property(x => x.SellerPayoutStripeTransferId).HasMaxLength(128);
+        e.Property(x => x.SellerPayoutTransferId).HasColumnName("SellerPayoutStripeTransferId").HasMaxLength(128);
         e.HasIndex(x => new { x.TradeAgreementId, x.ThreadId });
         e.HasIndex(x => new { x.TradeAgreementId, x.ServiceItemId, x.EntryMonth, x.EntryDay, x.Currency }).IsUnique().HasDatabaseName("IX_agsp_unique_installment");
         e.HasOne(x => x.TradeAgreement).WithMany().HasForeignKey(x => x.TradeAgreementId).OnDelete(DeleteBehavior.Cascade);

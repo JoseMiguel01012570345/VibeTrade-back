@@ -1,6 +1,6 @@
 namespace VibeTrade.Backend.Data.Entities;
 
-/// <summary>Un cobro Stripe por moneda asociado a un acuerdo (mercancía + servicios + tramos que usan esa moneda).</summary>
+/// <summary>Un cobro por moneda asociado a un acuerdo (mercancía + servicios + tramos que usan esa moneda).</summary>
 public sealed class AgreementCurrencyPaymentRow
 {
     public string Id { get; set; } = "";
@@ -13,25 +13,25 @@ public sealed class AgreementCurrencyPaymentRow
 
     public string BuyerUserId { get; set; } = "";
 
-    /// <summary>código Stripe minúsculas (usd, ars, …)</summary>
+    /// <summary>Código ISO de moneda en minúsculas (usd, ars, …).</summary>
     public string Currency { get; set; } = "";
 
     public long SubtotalAmountMinor { get; set; }
 
     public long ClimateAmountMinor { get; set; }
 
-    public long StripeFeeAmountMinor { get; set; }
+    public long ProcessorFeeAmountMinor { get; set; }
 
     public long TotalAmountMinor { get; set; }
 
-    public string? StripePaymentIntentId { get; set; }
+    public string? GatewayTransactionId { get; set; }
 
     /// <summary><see cref="AgreementPaymentStatuses"/></summary>
     public string Status { get; set; } = AgreementPaymentStatuses.Pending;
 
-    public string? PaymentMethodStripeId { get; set; }
+    public string? PaymentMethodId { get; set; }
 
-    public string? StripeErrorMessage { get; set; }
+    public string? PaymentErrorMessage { get; set; }
 
     /// <summary>Clave cliente para idempotencia (header Idempotency-Key).</summary>
     public string? ClientIdempotencyKey { get; set; }
@@ -57,8 +57,7 @@ public static class AgreementPaymentStatuses
     public const string Pending = "pending";
     public const string Succeeded = "succeeded";
     public const string Failed = "failed";
-    /// <summary>Reembolso total registrado en Stripe (p. ej. salida del vendedor en acuerdos solo servicios).</summary>
+    /// <summary>Reembolso total registrado en la pasarela (p. ej. salida del vendedor en acuerdos solo servicios).</summary>
     public const string Refunded = "refunded";
-    // Pago iniciado pero requiere 3DS u otra confirmación cliente.
     public const string RequiresConfirmation = "requires_confirmation";
 }

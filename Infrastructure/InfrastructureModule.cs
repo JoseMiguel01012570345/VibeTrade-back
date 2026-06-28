@@ -3,7 +3,7 @@ using VibeTrade.Backend.Infrastructure.Email.Interfaces;
 using VibeTrade.Backend.Infrastructure.Elasticsearch;
 using VibeTrade.Backend.Infrastructure.Interfaces;
 using VibeTrade.Backend.Infrastructure.SignalR;
-using VibeTrade.Backend.Infrastructure.Stripe;
+
 namespace VibeTrade.Backend.Infrastructure;
 
 public static class InfrastructureModule
@@ -14,7 +14,6 @@ public static class InfrastructureModule
         services.Configure<EmailSmtpOptions>(
             configuration.GetSection(EmailSmtpOptions.SectionName));
         services.AddScoped<IEmailSender, SmtpEmailSender>();
-        services.AddScoped<IStripeGateway, StripeGateway>();
         services.AddSingleton<IElasticsearchSearchClient, ElasticsearchSearchClient>();
         services.AddScoped<ISignalRBroadcastAdapter, SignalRBroadcastAdapter>();
         services.AddHttpClient("linkPreview", c =>

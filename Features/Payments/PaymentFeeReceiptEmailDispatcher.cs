@@ -74,7 +74,7 @@ public sealed class PaymentFeeReceiptEmailDispatcher(
             var textBody =
                 "Hola,\n\n"
                 + "Se registró un pago en un chat de VibeTrade. Adjuntamos el informe de pago en PDF "
-                + "(desglose, tarifa Stripe según liquidación y enlace a precios Stripe).\n\n"
+                + "(desglose, tarifa de procesador según liquidación y enlace a políticas de tarifas).\n\n"
                 + $"Acuerdo: {title}\n"
                 + $"Moneda: {(payload.CurrencyLower ?? "").Trim().ToUpperInvariant()}\n\n"
                 + "Este mensaje se envía a los participantes del chat que tienen un correo en su cuenta. "
