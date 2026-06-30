@@ -1,4 +1,4 @@
-namespace VibeTrade.Backend.Features.Payments.Gateways;
+namespace VibeTrade.Backend.Features.Payments.Interfaces;
 
 /// <summary>
 /// Contrato base para pasarelas de pago. Cada implementación concreta debe proveer

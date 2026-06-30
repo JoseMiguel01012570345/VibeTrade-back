@@ -1,4 +1,4 @@
-namespace VibeTrade.Backend.Features.Payments.Gateways;
+namespace VibeTrade.Backend.Features.Payments.Interfaces;
 
 public sealed record PaymentTransferRequest(
     string SourceAccountId,

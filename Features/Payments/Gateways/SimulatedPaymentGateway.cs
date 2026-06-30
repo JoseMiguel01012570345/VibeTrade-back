@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using VibeTrade.Backend.Features.Payments.Dtos;
+using VibeTrade.Backend.Features.Payments.Interfaces;
 
 namespace VibeTrade.Backend.Features.Payments.Gateways;
 
@@ -247,12 +248,3 @@ public sealed class SimulatedPaymentGateway : PaymentGatewayBase
                 Metadata);
     }
 }
-
-public sealed record PaymentMethodResolve(
-    bool Success,
-    string? PaymentMethodId,
-    string? CardBrand,
-    string? CardLast4,
-    string? ErrorMessage,
-    string? ErrorCode,
-    bool Accepted);

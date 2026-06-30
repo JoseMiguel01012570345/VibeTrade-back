@@ -1,4 +1,5 @@
 using VibeTrade.Backend.Features.Payments.Dtos;
+using VibeTrade.Backend.Features.Payments.Interfaces;
 
 namespace VibeTrade.Backend.Features.Payments.Gateways;
 

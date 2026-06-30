@@ -47,7 +47,7 @@ public sealed class PaymentsServiceCore(
         string userId,
         CancellationToken cancellationToken = default)
     {
-        var accountId = await ResolveBuyerPaymentAccountIdAsync(userId.Trim(), cancellationToken)
+        var (_, accountId) = await EnsurePaymentAccountAsync(userId.Trim(), cancellationToken)
             .ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(accountId))
             return [];
@@ -226,7 +226,7 @@ public sealed class PaymentsServiceCore(
                 return null;
             var cur = currencyLower.Trim().ToLowerInvariant();
             var pmId = PaymentMethodId.Trim();
-            if (cur.Length is < 3 or > 8 || pmId.Length < 12)
+            if (cur.Length is < 3 or > 8 || !PaymentMethodIdLooksValid(pmId))
                 return ExecutePaymentErr.InvalidParams();
             var ik = (idempotencyKey ?? "").Trim();
 
@@ -279,7 +279,8 @@ public sealed class PaymentsServiceCore(
                     breakdown.Errors.Count > 0 ? breakdown.Errors[0] : null);
             }
 
-            var accountId = await ResolveBuyerPaymentAccountIdAsync(buyerUserId.Trim(), cancellationToken).ConfigureAwait(false);
+            var (_, accountId) = await EnsurePaymentAccountAsync(buyerUserId.Trim(), cancellationToken)
+                .ConfigureAwait(false);
             if (string.IsNullOrEmpty(accountId))
             {
                 logger.LogWarning(
@@ -986,6 +987,14 @@ public sealed class PaymentsServiceCore(
         }
 
         return list.Count > 0 ? list : null;
+    }
+
+    private static bool PaymentMethodIdLooksValid(string pmId)
+    {
+        if (pmId.Length >= 12) return true;
+        if (string.Equals(pmId, SimulatedPaymentGateway.DemoPaymentMethodId, StringComparison.Ordinal))
+            return true;
+        return pmId.StartsWith("sim_pm_", StringComparison.Ordinal) && pmId.Length >= 8;
     }
 
     private async Task<(UserAccount? user, string? accountId)> EnsurePaymentAccountAsync(

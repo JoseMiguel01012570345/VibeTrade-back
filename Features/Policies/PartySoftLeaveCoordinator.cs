@@ -7,6 +7,7 @@ using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 using VibeTrade.Backend.Features.Payments.Gateways;
+using VibeTrade.Backend.Features.Payments.Interfaces;
 using VibeTrade.Backend.Features.Policies.Dtos;
 using VibeTrade.Backend.Features.Policies.Interfaces;
 using VibeTrade.Backend.Features.Trust.Interfaces;
