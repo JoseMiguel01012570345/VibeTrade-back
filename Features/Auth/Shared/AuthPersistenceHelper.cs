@@ -57,6 +57,8 @@ internal static class AuthPersistenceHelper
     {
         var token = Guid.NewGuid().ToString("N");
         var now = DateTimeOffset.UtcNow;
+        // Punto único de creación de sesión: baja los roles efectivos al userJson persistido.
+        sessionUser.Roles = await UserRoles.ComputeEffectiveRolesAsync(db, sessionUser.Id, cancellationToken);
         await db.AuthSessions.AddAsync(
             new AuthSessionRow
             {

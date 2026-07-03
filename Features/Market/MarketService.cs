@@ -141,6 +141,8 @@ public sealed class MarketService(AppDbContext db, IMarketCatalogSyncService cat
             OwnerUserId = body.OwnerUserId,
             Location = body.Location,
             WebsiteUrl = body.WebsiteUrl,
+            PricePerKm = body.PricePerKm,
+            PricePerKmCurrencyCode = body.PricePerKmCurrencyCode,
         };
 
         return new MarketWorkspacePatch

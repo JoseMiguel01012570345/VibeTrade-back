@@ -7,6 +7,12 @@ public sealed class ChatRouteSheetRow
 
     public string RouteSheetId { get; set; } = "";
 
+    /// <summary>
+    /// Pedido (mercancía) ligado a esta hoja de ruta. El vínculo hoja→pedido reemplaza al histórico
+    /// hoja→acuerdo para el flujo de mercancía (wiki cap. 04). Null en hojas de servicios/legado.
+    /// </summary>
+    public string? OrderId { get; set; }
+
     public RouteSheetPayload Payload { get; set; } = new();
 
     public bool PublishedToPlatform { get; set; }

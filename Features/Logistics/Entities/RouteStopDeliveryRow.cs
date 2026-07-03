@@ -47,6 +47,12 @@ public sealed class RouteStopDeliveryRow
 
     public string TradeAgreementId { get; set; } = "";
 
+    /// <summary>
+    /// Pedido (mercancía) al que pertenece este tramo. La hoja de ruta de mercancía se re-parenta del
+    /// <see cref="TradeAgreementId"/> (servicios) al <c>OrderId</c> (mercancía) según el wiki (cap. 04/07/09).
+    /// </summary>
+    public string? OrderId { get; set; }
+
     public string RouteSheetId { get; set; } = "";
 
     public string RouteStopId { get; set; } = "";

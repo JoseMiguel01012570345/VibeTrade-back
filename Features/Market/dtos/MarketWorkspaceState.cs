@@ -18,6 +18,12 @@ public sealed class StoreProfileWorkspaceData
     public string? Pitch { get; set; }
     public string? WebsiteUrl { get; set; }
 
+    /// <summary>Tarifa de mensajería por km configurada por la tienda (wiki cap. 06: ajustes de tienda).</summary>
+    public decimal? PricePerKm { get; set; }
+
+    /// <summary>Moneda ISO de <see cref="PricePerKm"/>.</summary>
+    public string? PricePerKmCurrencyCode { get; set; }
+
     [JsonPropertyName("location")]
     public StoreLocationPointBody? Location { get; set; }
 }

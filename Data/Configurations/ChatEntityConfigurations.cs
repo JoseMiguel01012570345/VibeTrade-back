@@ -72,6 +72,8 @@ public sealed class ChatRouteSheetRowConfiguration : IEntityTypeConfiguration<Ch
         e.HasKey(x => new { x.ThreadId, x.RouteSheetId });
         e.Property(x => x.ThreadId).HasMaxLength(64);
         e.Property(x => x.RouteSheetId).HasMaxLength(64);
+        e.Property(x => x.OrderId).HasMaxLength(64);
+        e.HasIndex(x => x.OrderId);
         e.Property(x => x.Payload)
             .HasColumnName("PayloadJson")
             .HasColumnType("jsonb")

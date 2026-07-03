@@ -46,6 +46,9 @@ public sealed class UserAccount
     /// <summary>Ids de producto/servicio guardados (jsonb: <c>SavedOfferIdsJson</c>).</summary>
     public List<string> SavedOfferIds { get; set; } = new();
 
+    /// <summary>Roles asignados de forma explícita por un superadmin (jsonb: <c>RolesJson</c>). Ver <see cref="RoleNames"/>.</summary>
+    public List<string> Roles { get; set; } = new();
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }

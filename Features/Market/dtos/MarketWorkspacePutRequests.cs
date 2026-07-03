@@ -21,6 +21,8 @@ public sealed record WorkspaceStorePutRequest
     public string? OwnerUserId { get; init; }
     public StoreLocationPointBody? Location { get; init; }
     public string? WebsiteUrl { get; init; }
+    public decimal? PricePerKm { get; init; }
+    public string? PricePerKmCurrencyCode { get; init; }
 }
 
 /// <summary>Parche de workspace: <c>stores</c> y/o <c>storeCatalogs</c> por id de tienda.</summary>

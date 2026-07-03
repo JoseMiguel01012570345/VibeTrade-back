@@ -39,6 +39,12 @@ public sealed class StoreProductRow
     /// <summary>Disponibilidad (texto en el cliente; p. ej. stock o plazo).</summary>
     public string Availability { get; set; } = "";
 
+    /// <summary>Existencias controladas; <c>null</c> = sin control de stock (ilimitado para checkout).</summary>
+    public int? StockQuantity { get; set; }
+
+    /// <summary>Unidades vendidas acumuladas (se incrementa en cada pedido).</summary>
+    public int UnitsSold { get; set; }
+
     public string WarrantyReturn { get; set; } = "";
 
     public string ContentIncluded { get; set; } = "";

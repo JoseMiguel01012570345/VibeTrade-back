@@ -573,8 +573,7 @@ public sealed class PartySoftLeaveCoordinator(
                     on e.AgreementMerchandiseLinePaidId equals ml.Id
                 where ml.ThreadId == threadId
                       && ml.Status == AgreementMerchandiseLinePaidStatuses.Held
-                      && (e.Status == MerchandiseEvidenceStatuses.Pending
-                          || e.Status == MerchandiseEvidenceStatuses.Submitted
+                      && (e.Status == MerchandiseEvidenceStatuses.Submitted
                           || e.Status == MerchandiseEvidenceStatuses.Rejected)
                 select e.Id)
             .AnyAsync(cancellationToken)

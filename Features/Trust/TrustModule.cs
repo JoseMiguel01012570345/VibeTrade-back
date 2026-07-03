@@ -13,6 +13,7 @@ public static class TrustModule
     {
         services.AddScoped<ITrustScoreLedgerService, TrustScoreLedgerService>();
         services.AddScoped<IAgreementCompletionTrustService, AgreementCompletionTrustService>();
+        services.AddScoped<IMensualidadService, MensualidadService>();
         return services;
     }
 
@@ -25,7 +26,41 @@ public static class TrustModule
         group.MapGet("/stores/{storeId}/trust-history", GetStoreHistoryAsync);
         group.MapPost("/stores/{storeId}/trust-adjust", PostStoreAdjustAsync);
 
+        group.MapGet("/me/trust-status", GetMyTrustStatusAsync);
+        group.MapPost("/me/mensualidad", PostMyMensualidadAsync);
+
         return app;
+    }
+
+    private static async Task<IResult> GetMyTrustStatusAsync(
+        HttpRequest request,
+        ICurrentUserAccessor currentUser,
+        IMensualidadService mensualidad,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.GetUserId(request);
+        if (userId is null)
+            return Results.Unauthorized();
+        var status = await mensualidad.GetStatusAsync(userId, cancellationToken);
+        return status is null
+            ? Results.NotFound(new { error = "user_not_found", message = "No se encontró la cuenta." })
+            : Results.Ok(status);
+    }
+
+    private static async Task<IResult> PostMyMensualidadAsync(
+        MensualidadPayRequest body,
+        HttpRequest request,
+        ICurrentUserAccessor currentUser,
+        IMensualidadService mensualidad,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.GetUserId(request);
+        if (userId is null)
+            return Results.Unauthorized();
+        var result = await mensualidad.PayAsync(userId, body ?? new MensualidadPayRequest(null, null), cancellationToken);
+        return result is null
+            ? Results.NotFound(new { error = "user_not_found", message = "No se encontró la cuenta." })
+            : Results.Ok(result);
     }
 
     private static int ApplyDelta(int current, int delta) => Math.Max(MinTrust, current + delta);

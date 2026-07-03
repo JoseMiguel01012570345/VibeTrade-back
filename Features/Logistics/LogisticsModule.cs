@@ -11,6 +11,7 @@ public static class LogisticsModule
         services.AddScoped<ICarrierDeliveryEvidenceService, CarrierDeliveryEvidenceService>();
         services.AddScoped<ICarrierLegRefundService, CarrierLegRefundService>();
         services.AddScoped<ISellerRouteStopDeliveryCustodyService, SellerRouteStopDeliveryCustodyService>();
+        services.AddScoped<IOrderRouteLifecycleService, OrderRouteLifecycleService>();
         services.AddHostedService<CarrierEvidenceDeadlineWatcher>();
         return services;
     }

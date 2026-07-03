@@ -415,6 +415,10 @@ internal static class MarketStoreRowWorkspaceMapper
         if (d.Pitch is { } p)
             row.Pitch = p.Trim();
         row.WebsiteUrl = MarketWebsiteUrlNormalizer.TryNormalize(d.WebsiteUrl);
+        if (d.PricePerKm is { } ppk && ppk >= 0)
+            row.PricePerKm = decimal.Round(ppk, 2);
+        if (!string.IsNullOrWhiteSpace(d.PricePerKmCurrencyCode))
+            row.PricePerKmCurrencyCode = d.PricePerKmCurrencyCode.Trim().ToUpperInvariant();
         ApplyLocation(d, row);
     }
 

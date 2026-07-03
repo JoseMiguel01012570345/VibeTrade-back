@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using VibeTrade.Backend.Features.Routing.Interfaces;
+using VibeTrade.Backend.Features.Routing.Services;
 using VibeTrade.Backend.Infrastructure.Routing;
 
 namespace VibeTrade.Backend.Features.Routing;
@@ -24,6 +25,12 @@ public static class RoutingModule
                 client.BaseAddress = uri;
         });
         services.AddScoped<IDrivingLegRoutingService>(sp => sp.GetRequiredService<IGraphHopperRoutingClient>());
+
+        services.AddScoped<IRouteBackgroundJobEnqueueService, RouteBackgroundJobEnqueueService>();
+        services.AddScoped<IRouteSheetRoutingMatrixService, RouteSheetRoutingMatrixService>();
+        services.AddScoped<IRouteSheetTourPlanningService, RouteSheetTourPlanningService>();
+        services.AddScoped<RouteBackgroundJobProcessor>();
+        services.AddHostedService<RouteBackgroundJobWorker>();
         return services;
     }
 }

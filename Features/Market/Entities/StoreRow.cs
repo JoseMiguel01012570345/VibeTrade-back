@@ -40,6 +40,12 @@ public sealed class StoreRow
     /// <summary>URL pública del sitio (https), opcional.</summary>
     public string? WebsiteUrl { get; set; }
 
+    /// <summary>Tarifa de mensajería por km configurada por la tienda (checkout y tramos).</summary>
+    public decimal PricePerKm { get; set; }
+
+    /// <summary>Moneda ISO de <see cref="PricePerKm"/> (por defecto la del catálogo de la tienda).</summary>
+    public string? PricePerKmCurrencyCode { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }

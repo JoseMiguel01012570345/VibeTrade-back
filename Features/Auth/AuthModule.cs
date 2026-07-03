@@ -8,6 +8,7 @@ public static class AuthModule
     public static IServiceCollection AddAuthFeature(this IServiceCollection services)
     {
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IUserRoleService, UserRoleService>();
         return services;
     }
 
@@ -420,6 +421,7 @@ public static class AuthModule
         HttpRequest request,
         IAuthService auth,
         ICurrentUserAccessor currentUser,
+        IUserRoleService roles,
         CancellationToken cancellationToken)
     {
         if (!currentUser.TryGetUser(request, out var user) || user is null)
@@ -435,6 +437,12 @@ public static class AuthModule
                 auth.TrySyncSessionFromSnapshot(request.Headers.Authorization, snapshot, out var merged) &&
                 merged is not null)
                 user = merged;
+
+            // Recalcula roles efectivos para que la restauración de sesión refleje cambios recientes
+            // (p. ej. el usuario acaba de crear su primera tienda => superadmin) sin re-login.
+            var effective = await roles.GetEffectiveRolesAsync(id, cancellationToken);
+            user = user.Clone();
+            user.Roles = effective.ToList();
         }
 
         return Results.Ok(new SessionResponse(user));

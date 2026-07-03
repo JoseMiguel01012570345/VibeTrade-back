@@ -29,6 +29,8 @@ public static class StoreProfileWorkspaceMapping
             Categories = CatalogJsonColumnParsing.StringListOrEmpty(s.Categories).ToList(),
             Pitch = string.IsNullOrWhiteSpace(s.Pitch) ? null : s.Pitch.Trim(),
             WebsiteUrl = string.IsNullOrWhiteSpace(s.WebsiteUrl) ? null : s.WebsiteUrl.Trim(),
+            PricePerKm = s.PricePerKm,
+            PricePerKmCurrencyCode = string.IsNullOrWhiteSpace(s.PricePerKmCurrencyCode) ? null : s.PricePerKmCurrencyCode,
             Location = s.LocationLatitude is { } la && s.LocationLongitude is { } lo
                 ? new StoreLocationPointBody { Lat = la, Lng = lo }
                 : null,

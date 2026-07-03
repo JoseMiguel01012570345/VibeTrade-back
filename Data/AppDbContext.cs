@@ -32,6 +32,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<OfferLikeRow> OfferLikes => Set<OfferLikeRow>();
     public DbSet<OfferQaCommentLikeRow> OfferQaCommentLikes => Set<OfferQaCommentLikeRow>();
     public DbSet<TrustScoreLedgerRow> TrustScoreLedgerRows => Set<TrustScoreLedgerRow>();
+    public DbSet<MensualidadPaymentRow> MensualidadPayments => Set<MensualidadPaymentRow>();
     public DbSet<AgreementCurrencyPaymentRow> AgreementCurrencyPayments => Set<AgreementCurrencyPaymentRow>();
     public DbSet<AgreementRouteLegPaidRow> AgreementRouteLegPaids => Set<AgreementRouteLegPaidRow>();
     public DbSet<AgreementMerchandiseLinePaidRow> AgreementMerchandiseLinePaids => Set<AgreementMerchandiseLinePaidRow>();
@@ -42,6 +43,17 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<CarrierOwnershipEventRow> CarrierOwnershipEvents => Set<CarrierOwnershipEventRow>();
     public DbSet<CarrierTelemetrySampleRow> CarrierTelemetrySamples => Set<CarrierTelemetrySampleRow>();
     public DbSet<CarrierDeliveryEvidenceRow> CarrierDeliveryEvidences => Set<CarrierDeliveryEvidenceRow>();
+    public DbSet<OrderRow> Orders => Set<OrderRow>();
+    public DbSet<OrderLineRow> OrderLines => Set<OrderLineRow>();
+    public DbSet<RouteBackgroundJobRow> RouteBackgroundJobs => Set<RouteBackgroundJobRow>();
+    public DbSet<RouteSheetRouteCalculationRow> RouteSheetRouteCalculations => Set<RouteSheetRouteCalculationRow>();
+    public DbSet<AffiliateRow> Affiliates => Set<AffiliateRow>();
+    public DbSet<WarehouseDebtRow> WarehouseDebts => Set<WarehouseDebtRow>();
+    public DbSet<AffiliateDebtRow> AffiliateDebts => Set<AffiliateDebtRow>();
+    public DbSet<CarrierDebtRow> CarrierDebts => Set<CarrierDebtRow>();
+    public DbSet<AnalyticsSessionRow> AnalyticsSessions => Set<AnalyticsSessionRow>();
+    public DbSet<AnalyticsPageViewRow> AnalyticsPageViews => Set<AnalyticsPageViewRow>();
+    public DbSet<ProductViewEventRow> ProductViewEvents => Set<ProductViewEventRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

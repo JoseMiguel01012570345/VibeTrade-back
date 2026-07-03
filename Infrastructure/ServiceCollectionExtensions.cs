@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.OpenApi.Models;
 using VibeTrade.Backend.Data;
 using VibeTrade.Backend.Features.Agreements;
+using VibeTrade.Backend.Features.Analytics;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Bootstrap;
 using VibeTrade.Backend.Features.Catalog;
@@ -23,7 +24,9 @@ using VibeTrade.Backend.Features.RouteTramoSubscriptions;
 using VibeTrade.Backend.Features.Routing;
 using VibeTrade.Backend.Features.SavedOffers;
 using VibeTrade.Backend.Features.Search;
+using VibeTrade.Backend.Features.Statistics;
 using VibeTrade.Backend.Features.Trust;
+using VibeTrade.Backend.Features.Users;
 using VibeTrade.Backend.Infrastructure.Swagger;
 
 namespace VibeTrade.Backend.Infrastructure;
@@ -63,6 +66,12 @@ public static class ServiceCollectionExtensions
             .AddRouteSheetsFeature()
             .AddRouteTramoSubscriptionsFeature()
             .AddAgreementsFeature()
+            .AddOrdersFeature()
+            .AddAffiliatesFeature()
+            .AddDebtsFeature()
+            .AddUsersFeature()
+            .AddAnalyticsFeature()
+            .AddStatisticsFeature()
             .AddPaymentsFeature()
             .AddLogisticsFeature()
             .AddRoutingFeature(configuration);
