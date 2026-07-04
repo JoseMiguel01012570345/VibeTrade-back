@@ -1,6 +1,6 @@
 namespace VibeTrade.Backend.Features.Payments.Entities;
 
-/// <summary>Un cobro por moneda asociado a un acuerdo (mercancía + servicios + tramos que usan esa moneda).</summary>
+/// <summary>Un cobro por moneda asociado a un acuerdo (servicios + tramos que usan esa moneda).</summary>
 public sealed class AgreementCurrencyPaymentRow
 {
     public string Id { get; set; } = "";
@@ -46,10 +46,6 @@ public sealed class AgreementCurrencyPaymentRow
     /// <summary>Cuotas aplicadas por tramo en este cobro.</summary>
     public ICollection<AgreementRouteLegPaidRow> RouteLegPaids { get; set; } =
         new List<AgreementRouteLegPaidRow>();
-
-    /// <summary>Líneas de mercadería incluidas en este cobro.</summary>
-    public ICollection<AgreementMerchandiseLinePaidRow> MerchandiseLinePaids { get; set; } =
-        new List<AgreementMerchandiseLinePaidRow>();
 }
 
 public static class AgreementPaymentStatuses

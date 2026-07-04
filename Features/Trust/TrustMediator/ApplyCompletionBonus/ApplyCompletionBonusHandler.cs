@@ -87,16 +87,6 @@ public sealed class ApplyCompletionBonusHandler(
         if (hasHeldService)
             return false;
 
-        var hasHeldMerch = await db.AgreementMerchandiseLinePaids.AsNoTracking()
-            .AnyAsync(
-                x => x.ThreadId == threadId
-                    && x.TradeAgreementId == agreementId
-                    && x.Status == AgreementMerchandiseLinePaidStatuses.Held,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (hasHeldMerch)
-            return false;
-
         var ag = await db.TradeAgreements.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == agreementId && x.ThreadId == threadId, cancellationToken)
             .ConfigureAwait(false);

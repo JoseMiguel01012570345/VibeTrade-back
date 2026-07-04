@@ -11,6 +11,5 @@ public sealed record ConfirmPaymentCommand(
     string PaymentMethodId,
     string? IdempotencyKey,
     IReadOnlyList<ServicePaymentPickDto>? SelectedServicePayments,
-    IReadOnlyList<string>? SelectedRoutePathIds,
-    IReadOnlyList<string>? SelectedMerchandiseLineIds = null)
+    IReadOnlyList<string>? SelectedRoutePathIds)
     : IRequest<AgreementExecutePaymentResultDto?>;

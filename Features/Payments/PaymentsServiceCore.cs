@@ -38,8 +38,7 @@ public sealed class PaymentsServiceCore(
         string CurrencyLower,
         string PaymentMethodId,
         IReadOnlyList<ServicePaymentPickDto>? ServicePicks,
-        IReadOnlyList<string>? RoutePathPicks,
-        IReadOnlyList<string>? MerchLinePicks);
+        IReadOnlyList<string>? RoutePathPicks);
 
     public PaymentGatewayConfigDto GetPaymentGatewayConfig() => gatewayManager.GetConfig();
 
@@ -94,7 +93,7 @@ public sealed class PaymentsServiceCore(
 
         var dupPi = await TryRejectDuplicateAgreementChargeAsync(
                 target.AgreementId, target.CurrencyLower, target.ServicePicks, target.RoutePathPicks,
-                target.MerchLinePicks, cancellationToken)
+                cancellationToken)
             .ConfigureAwait(false);
         if (dupPi is not null)
         {
@@ -113,7 +112,6 @@ public sealed class PaymentsServiceCore(
         string agreementId,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,
-        IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default)
     {
         var t = await db.ChatThreads.AsNoTracking()
@@ -132,10 +130,6 @@ public sealed class PaymentsServiceCore(
         var rp = await AgreementCheckoutExecutor.LoadRoutePayloadAsync(db, threadId.Trim(), ag.RouteSheetId?.Trim(),
             cancellationToken).ConfigureAwait(false);
 
-        var paidMerch =
-            await LoadPaidMerchandiseLineIdsByCurrencyAsync(agreementId.Trim(), cancellationToken)
-                .ConfigureAwait(false);
-
         var confirmedRouteStopIds = await routeSheets.LoadConfirmedRouteStopIdsAsync(
                 threadId.Trim(), ag.RouteSheetId?.Trim() ?? "", cancellationToken)
             .ConfigureAwait(false);
@@ -145,43 +139,7 @@ public sealed class PaymentsServiceCore(
             rp,
             selectedServicePayments,
             selectedRoutePathIds,
-            selectedMerchandiseLineIds,
-            paidMerch,
             confirmedRouteStopIds);
-    }
-
-    private async Task<Dictionary<string, HashSet<string>>> LoadPaidMerchandiseLineIdsByCurrencyAsync(
-        string agreementId,
-        CancellationToken cancellationToken)
-    {
-        var rows = await (
-                from ml in db.AgreementMerchandiseLinePaids.AsNoTracking()
-                join cp in db.AgreementCurrencyPayments.AsNoTracking()
-                    on ml.AgreementCurrencyPaymentId equals cp.Id
-                where cp.TradeAgreementId == agreementId.Trim()
-                      && cp.Status == AgreementPaymentStatuses.Succeeded
-                      && ml.Status != AgreementMerchandiseLinePaidStatuses.Refunded
-                      && ml.Status != AgreementMerchandiseLinePaidStatuses.Failed
-                select new { ml.MerchandiseLineId, ml.Currency })
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        var map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in rows)
-        {
-            var cur = PaymentCheckoutComputation.NormalizeCurrency(row.Currency ?? "");
-            var id = (row.MerchandiseLineId ?? "").Trim();
-            if (cur.Length < 3 || id.Length == 0) continue;
-            if (!map.TryGetValue(cur, out var set))
-            {
-                set = new HashSet<string>(StringComparer.Ordinal);
-                map[cur] = set;
-            }
-
-            set.Add(id);
-        }
-
-        return map;
     }
 
     public async Task<IReadOnlyList<AgreementPaymentStatusDto>> ListPaymentStatusesAsync(
@@ -214,7 +172,6 @@ public sealed class PaymentsServiceCore(
         string PaymentMethodId, string? idempotencyKey,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,
-        IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default)
     {
         var routePathSummary = selectedRoutePathIds is null or { Count: 0 }
@@ -243,7 +200,7 @@ public sealed class PaymentsServiceCore(
                 return ExecutePaymentErr.AgreementCurrencyMismatch(lockedCurrency!.Trim(), cur);
 
             var blocked = await TryPreChargeExitAsync(ik, agreementId, cur, selectedServicePayments, selectedRoutePathIds,
-                    selectedMerchandiseLineIds, cancellationToken)
+                    cancellationToken)
                 .ConfigureAwait(false);
             if (blocked is not null)
                 return blocked;
@@ -254,9 +211,6 @@ public sealed class PaymentsServiceCore(
                 return ExecutePaymentErr.AgreementNotFound();
             var rp = await AgreementCheckoutExecutor.LoadRoutePayloadAsync(db, threadId.Trim(),
                 agr.RouteSheetId?.Trim(), cancellationToken).ConfigureAwait(false);
-            var paidMerch =
-                await LoadPaidMerchandiseLineIdsByCurrencyAsync(agreementId.Trim(), cancellationToken)
-                    .ConfigureAwait(false);
             var confirmedRouteStopIds = await routeSheets.LoadConfirmedRouteStopIdsAsync(
                     threadId.Trim(), agr.RouteSheetId?.Trim() ?? "", cancellationToken)
                 .ConfigureAwait(false);
@@ -265,8 +219,6 @@ public sealed class PaymentsServiceCore(
                 rp,
                 selectedServicePayments,
                 selectedRoutePathIds,
-                selectedMerchandiseLineIds,
-                paidMerch,
                 confirmedRouteStopIds);
             var qb = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, cur);
             if (!breakdown.Ok || qb is null)
@@ -370,7 +322,6 @@ public sealed class PaymentsServiceCore(
         string currencyLower,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,
-        IReadOnlyList<string>? selectedMerchandiseLineIds,
         CancellationToken cancellationToken)
     {
         if (idempotencyKeyTrimmed.Length >= 8)
@@ -387,7 +338,7 @@ public sealed class PaymentsServiceCore(
 
         return await TryRejectDuplicateAgreementChargeAsync(
             agreementId.Trim(), currencyLower, selectedServicePayments, selectedRoutePathIds,
-            selectedMerchandiseLineIds, cancellationToken)
+            cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -396,7 +347,6 @@ public sealed class PaymentsServiceCore(
         string currencyLower,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,
-        IReadOnlyList<string>? selectedMerchandiseLineIds,
         CancellationToken cancellationToken)
     {
         var svcPicks = selectedServicePayments?
@@ -413,16 +363,10 @@ public sealed class PaymentsServiceCore(
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        var merchPicks = selectedMerchandiseLineIds?
-            .Select(x => (x ?? "").Trim())
-            .Where(x => x.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        if (svcPicks is not { Count: > 0 } && routePathPicks is not { Count: > 0 } && merchPicks is not { Count: > 0 })
+        if (svcPicks is not { Count: > 0 } && routePathPicks is not { Count: > 0 })
         {
             // Cobros "sin selección explícita" comparten moneda con pagos parciales por tramo/recurrencia.
-            // Si ya hubo un cobro exitoso **con tramos** en esa moneda, no bloquear aquí: puede quedar mercadería u otros ítems.
+            // Si ya hubo un cobro exitoso **con tramos** en esa moneda, no bloquear aquí: pueden quedar otros ítems.
             var existsGenericSucceeded = await db.AgreementCurrencyPayments.AsNoTracking().AnyAsync(
                 x =>
                     x.TradeAgreementId == agreementId && x.Currency == currencyLower &&
@@ -438,8 +382,6 @@ public sealed class PaymentsServiceCore(
                           && cp.Status == AgreementPaymentStatuses.Succeeded
                           && !db.AgreementRouteLegPaids.AsNoTracking().Any(rl => rl.AgreementCurrencyPaymentId == cp.Id)
                           && !db.AgreementServicePayments.AsNoTracking().Any(sp => sp.AgreementCurrencyPaymentId == cp.Id)
-                          && !db.AgreementMerchandiseLinePaids.AsNoTracking()
-                              .Any(ml => ml.AgreementCurrencyPaymentId == cp.Id)
                     select cp.Id)
                 .AnyAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -501,26 +443,6 @@ public sealed class PaymentsServiceCore(
                 var stopsInPath = RoutePathComputation.ExpandPathIdsToStopIds(rp, [pathId]);
                 if (stopsInPath.Any(sid => paidStopSet.Contains(sid)))
                     return ExecutePaymentErr.RoutePathAlreadyPaid();
-            }
-        }
-
-        if (merchPicks is { Count: > 0 })
-        {
-            foreach (var lineId in merchPicks)
-            {
-                var dupMerch = await (
-                        from ml in db.AgreementMerchandiseLinePaids.AsNoTracking()
-                        join cp in db.AgreementCurrencyPayments.AsNoTracking()
-                            on ml.AgreementCurrencyPaymentId equals cp.Id
-                        where cp.TradeAgreementId == agreementId
-                              && ml.MerchandiseLineId == lineId
-                              && cp.Currency == currencyLower
-                              && cp.Status == AgreementPaymentStatuses.Succeeded
-                        select ml.Id)
-                    .AnyAsync(cancellationToken)
-                    .ConfigureAwait(false);
-                if (dupMerch)
-                    return ExecutePaymentErr.MerchandiseLineAlreadyPaid();
             }
         }
 
@@ -588,10 +510,6 @@ public sealed class PaymentsServiceCore(
         internal static AgreementExecutePaymentResultDto RoutePathAlreadyPaid() =>
             new("", false, null, "Esta ruta ya fue pagada en esta moneda.", false, "route_path_already_paid");
 
-        internal static AgreementExecutePaymentResultDto MerchandiseLineAlreadyPaid() =>
-            new("", false, null, "Esta línea de mercadería ya fue cobrada en esta moneda.", false,
-                "merchandise_line_already_paid");
-
         internal static AgreementExecutePaymentResultDto AgreementCurrencyMismatch(
             string lockedCurrencyLower,
             string attemptedCurrencyLower) =>
@@ -656,16 +574,6 @@ public sealed class PaymentsServiceCore(
     }
 
     private static IReadOnlyList<string>? MapRoutePathPicks(IReadOnlyList<string>? ids)
-    {
-        if (ids is null) return null;
-        return ids
-            .Select(x => (x ?? "").Trim())
-            .Where(x => x.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-    }
-
-    private static IReadOnlyList<string>? MapMerchandiseLinePicks(IReadOnlyList<string>? ids)
     {
         if (ids is null) return null;
         return ids
@@ -933,8 +841,7 @@ public sealed class PaymentsServiceCore(
             cur,
             pmId,
             MapServicePicks(body.SelectedServicePayments),
-            MapRoutePathPicks(body.SelectedRoutePathIds),
-            MapMerchandiseLinePicks(body.SelectedMerchandiseLineIds));
+            MapRoutePathPicks(body.SelectedRoutePathIds));
         err = default;
         return true;
     }
@@ -947,7 +854,7 @@ public sealed class PaymentsServiceCore(
         CancellationToken cancellationToken)
     {
         var breakdown = await GetCheckoutBreakdownAsync(buyerUserId, t.ThreadId, t.AgreementId, t.ServicePicks,
-                t.RoutePathPicks, t.MerchLinePicks, cancellationToken)
+                t.RoutePathPicks, cancellationToken)
             .ConfigureAwait(false);
         if (breakdown is null)
         {

@@ -8,7 +8,6 @@ public static class AgreementsModule
     {
         services.AddScoped<ITradeAgreementService, TradeAgreementService>();
         services.AddScoped<IAgreementServiceEvidenceService, AgreementServiceEvidenceService>();
-        services.AddScoped<IAgreementMerchandiseEvidenceService, AgreementMerchandiseEvidenceService>();
         return services;
     }
 
@@ -35,12 +34,6 @@ public static class AgreementsModule
         serviceGroup.MapPut("/{paymentId}/evidence", UpsertServiceEvidenceAsync);
         serviceGroup.MapPost("/{paymentId}/evidence/decision", DecideServiceEvidenceAsync);
         serviceGroup.MapPost("/{paymentId}/seller-payout", RecordSellerPayoutAsync);
-
-        var merchGroup = app.MapGroup("/api/v1/chat/threads/{threadId}/agreements/{agreementId}/merchandise-line-payments")
-            .WithTags("Chat", "Agreements");
-        merchGroup.MapGet("/", ListMerchandiseLinePaymentsAsync);
-        merchGroup.MapPut("/{paymentId}/evidence", UpsertMerchandiseEvidenceAsync);
-        merchGroup.MapPost("/{paymentId}/evidence/decision", DecideMerchandiseEvidenceAsync);
 
         return app;
     }
@@ -141,7 +134,7 @@ public static class AgreementsModule
         var code = outcome.FailureStatusCode ?? StatusCodes.Status404NotFound;
         var msg = outcome.FailureMessage ?? "No se pudo actualizar el vínculo con la hoja de ruta.";
         if (code == StatusCodes.Status400BadRequest)
-            return Results.BadRequest(new { error = "no_merchandise", message = msg });
+            return Results.BadRequest(new { error = "route_link_invalid", message = msg });
         if (code == StatusCodes.Status409Conflict)
             return Results.Conflict(new
             {
@@ -283,57 +276,6 @@ public static class AgreementsModule
         var userId = currentUser.GetUserId(request);
         if (userId is null) return Results.Unauthorized();
         var (code, err) = await svc.RecordSellerPayoutAsync(userId, threadId, agreementId, paymentId, body, cancellationToken)
-            .ConfigureAwait(false);
-        if (code == StatusCodes.Status200OK) return Results.Ok(new { ok = true });
-        return code == StatusCodes.Status400BadRequest ? Results.BadRequest(err) : Results.StatusCode(code);
-    }
-
-    private static async Task<IResult> ListMerchandiseLinePaymentsAsync(
-        string threadId,
-        string agreementId,
-        HttpRequest request,
-        IAgreementMerchandiseEvidenceService svc,
-        ICurrentUserAccessor currentUser,
-        CancellationToken cancellationToken)
-    {
-        var userId = currentUser.GetUserId(request);
-        if (userId is null) return Results.Unauthorized();
-        var (code, data) = await svc.ListAsync(userId, threadId, agreementId, cancellationToken)
-            .ConfigureAwait(false);
-        return code == StatusCodes.Status200OK ? Results.Ok(data) : Results.StatusCode(code);
-    }
-
-    private static async Task<IResult> UpsertMerchandiseEvidenceAsync(
-        string threadId,
-        string agreementId,
-        string paymentId,
-        UpsertMerchandiseEvidenceRequest body,
-        HttpRequest request,
-        IAgreementMerchandiseEvidenceService svc,
-        ICurrentUserAccessor currentUser,
-        CancellationToken cancellationToken)
-    {
-        var userId = currentUser.GetUserId(request);
-        if (userId is null) return Results.Unauthorized();
-        var (code, err, data) = await svc.UpsertAsync(userId, threadId, agreementId, paymentId, body, cancellationToken)
-            .ConfigureAwait(false);
-        if (code == StatusCodes.Status200OK) return Results.Ok(data);
-        return code == StatusCodes.Status400BadRequest ? Results.BadRequest(err) : Results.StatusCode(code);
-    }
-
-    private static async Task<IResult> DecideMerchandiseEvidenceAsync(
-        string threadId,
-        string agreementId,
-        string paymentId,
-        DecideMerchandiseEvidenceRequest body,
-        HttpRequest request,
-        IAgreementMerchandiseEvidenceService svc,
-        ICurrentUserAccessor currentUser,
-        CancellationToken cancellationToken)
-    {
-        var userId = currentUser.GetUserId(request);
-        if (userId is null) return Results.Unauthorized();
-        var (code, err) = await svc.DecideAsync(userId, threadId, agreementId, paymentId, body, cancellationToken)
             .ConfigureAwait(false);
         if (code == StatusCodes.Status200OK) return Results.Ok(new { ok = true });
         return code == StatusCodes.Status400BadRequest ? Results.BadRequest(err) : Results.StatusCode(code);

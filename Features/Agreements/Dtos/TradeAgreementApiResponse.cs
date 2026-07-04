@@ -21,13 +21,10 @@ public sealed class TradeAgreementApiResponse
     [JsonPropertyName("hadBuyerAcceptance")]
     public bool? HadBuyerAcceptance { get; set; }
 
-    public bool IncludeMerchandise { get; set; }
     public bool IncludeService { get; set; }
-    public List<MerchandiseLineApi> Merchandise { get; set; } = new();
-    public MerchandiseSectionMetaApi? MerchandiseMeta { get; set; }
     public List<ServiceItemApi> Services { get; set; } = new();
 
-    /// <summary>Campos libres adicionales (mercancía + servicio).</summary>
+    /// <summary>Campos libres adicionales (servicio).</summary>
     [JsonPropertyName("extraFields")]
     public List<TradeAgreementExtraFieldApi> ExtraFields { get; set; } = new();
 
@@ -41,40 +38,6 @@ public sealed class TradeAgreementApiResponse
     /// <summary>Hay al menos un tramo de transporte cobrado con éxito (bloquea cambiar o desvincular la hoja).</summary>
     [JsonPropertyName("hasSucceededRoutePayments")]
     public bool HasSucceededRoutePayments { get; set; }
-
-    /// <summary>El comprador aceptó evidencia de mercancía; bloquea vincular o desvincular hoja de ruta.</summary>
-    [JsonPropertyName("hasAcceptedMerchandiseEvidence")]
-    public bool HasAcceptedMerchandiseEvidence { get; set; }
-}
-
-public sealed class MerchandiseLineApi
-{
-    /// <summary>Id persistente de la línea (checkout parcial por ítem).</summary>
-    public string Id { get; set; } = "";
-
-    public string? LinkedStoreProductId { get; set; }
-    public string Tipo { get; set; } = "";
-    public string Cantidad { get; set; } = "";
-    public string ValorUnitario { get; set; } = "";
-    public string Estado { get; set; } = "";
-    public string Descuento { get; set; } = "";
-    public string Impuestos { get; set; } = "";
-    public string Moneda { get; set; } = "";
-    public string TipoEmbalaje { get; set; } = "";
-    public string DevolucionesDesc { get; set; } = "";
-    public string DevolucionQuienPaga { get; set; } = "";
-    public string DevolucionPlazos { get; set; } = "";
-    public string Regulaciones { get; set; } = "";
-}
-
-public sealed class MerchandiseSectionMetaApi
-{
-    public string Moneda { get; set; } = "";
-    public string TipoEmbalaje { get; set; } = "";
-    public string DevolucionesDesc { get; set; } = "";
-    public string DevolucionQuienPaga { get; set; } = "";
-    public string DevolucionPlazos { get; set; } = "";
-    public string Regulaciones { get; set; } = "";
 }
 
 public sealed class ServiceItemApi

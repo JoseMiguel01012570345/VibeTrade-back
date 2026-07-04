@@ -9,7 +9,7 @@ public enum RouteSheetMutationResult
     LockedByPaidAgreement,
     /// <summary>Ya existen tantas hojas activas como acuerdos aceptados sin cobro exitoso; no se puede crear una más.</summary>
     ExceedsUnpaidAgreementLimit,
-    /// <summary>Tramos con moneda distinta a la mercadería del acuerdo vinculado.</summary>
+    /// <summary>Tramos con moneda distinta a la del acuerdo de servicio vinculado.</summary>
     RouteCurrencyMerchandiseMismatch,
     /// <summary>No se puede publicar una hoja ya marcada como entregada.</summary>
     CannotPublishDeliveredSheet,

@@ -264,7 +264,7 @@ public sealed class RouteSheetsChatServiceCore(
             return fail;
 
         var persisted = finalized.Persisted!;
-        if (await ValidateMerchandiseRouteCurrencyAsync(threadId, state.RouteSheetId, persisted, cancellationToken)
+        if (await ValidateRouteCurrencyAsync(threadId, state.RouteSheetId, persisted, cancellationToken)
                 is { } currencyFail)
             return currencyFail;
 
@@ -540,7 +540,7 @@ public sealed class RouteSheetsChatServiceCore(
         }
     }
 
-    private async Task<RouteSheetMutationResult?> ValidateMerchandiseRouteCurrencyAsync(
+    private async Task<RouteSheetMutationResult?> ValidateRouteCurrencyAsync(
         string threadId,
         string routeSheetId,
         RouteSheetPayload payload,
@@ -552,12 +552,10 @@ public sealed class RouteSheetsChatServiceCore(
             return null;
 
         var ag = await db.TradeAgreements.AsNoTracking()
-            .Include(a => a.MerchandiseLines)
             .FirstOrDefaultAsync(
                 a =>
                     a.ThreadId == tid
                     && a.DeletedAtUtc == null
-                    && a.IncludeMerchandise
                     && (a.RouteSheetId ?? "") == rs,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -565,10 +563,10 @@ public sealed class RouteSheetsChatServiceCore(
             return null;
 
         if (!AgreementCheckoutCurrency.TryResolveSingleAgreementCurrency(
-                ag, payload, out var merchCur, out _))
+                ag, payload, out var agCur, out _))
             return RouteSheetMutationResult.RouteCurrencyMerchandiseMismatch;
 
-        if (AgreementCheckoutCurrency.ValidateRoutePayloadCurrency(payload, merchCur!) is not null)
+        if (AgreementCheckoutCurrency.ValidateRoutePayloadCurrency(payload, agCur!) is not null)
             return RouteSheetMutationResult.RouteCurrencyMerchandiseMismatch;
 
         return null;

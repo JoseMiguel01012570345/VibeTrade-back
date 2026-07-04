@@ -32,8 +32,7 @@ public sealed record CreatePaymentIntentBody(
     string? Currency,
     string? PaymentMethodId,
     IReadOnlyList<AgreementCheckoutPaymentIntentItemDto>? SelectedServicePayments,
-    IReadOnlyList<string>? SelectedRoutePathIds,
-    IReadOnlyList<string>? SelectedMerchandiseLineIds);
+    IReadOnlyList<string>? SelectedRoutePathIds);
 
 public sealed record CreatePaymentIntentResult(
     string ClientSecret,

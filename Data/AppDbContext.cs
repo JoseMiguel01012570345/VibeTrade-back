@@ -23,8 +23,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<TradeAgreementRow> TradeAgreements => Set<TradeAgreementRow>();
     public DbSet<ChatRouteSheetRow> ChatRouteSheets => Set<ChatRouteSheetRow>();
     public DbSet<EmergentOfferRow> EmergentOffers => Set<EmergentOfferRow>();
-    public DbSet<TradeAgreementMerchandiseLineRow> TradeAgreementMerchandiseLines => Set<TradeAgreementMerchandiseLineRow>();
-    public DbSet<TradeAgreementMerchandiseMetaRow> TradeAgreementMerchandiseMetas => Set<TradeAgreementMerchandiseMetaRow>();
     public DbSet<TradeAgreementServiceItemRow> TradeAgreementServiceItems => Set<TradeAgreementServiceItemRow>();
     public DbSet<TradeAgreementExtraFieldRow> TradeAgreementExtraFields => Set<TradeAgreementExtraFieldRow>();
     public DbSet<ChatNotificationRow> ChatNotifications => Set<ChatNotificationRow>();
@@ -35,10 +33,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<MensualidadPaymentRow> MensualidadPayments => Set<MensualidadPaymentRow>();
     public DbSet<AgreementCurrencyPaymentRow> AgreementCurrencyPayments => Set<AgreementCurrencyPaymentRow>();
     public DbSet<AgreementRouteLegPaidRow> AgreementRouteLegPaids => Set<AgreementRouteLegPaidRow>();
-    public DbSet<AgreementMerchandiseLinePaidRow> AgreementMerchandiseLinePaids => Set<AgreementMerchandiseLinePaidRow>();
     public DbSet<AgreementServicePaymentRow> AgreementServicePayments => Set<AgreementServicePaymentRow>();
     public DbSet<ServiceEvidenceRow> ServiceEvidences => Set<ServiceEvidenceRow>();
-    public DbSet<MerchandiseEvidenceRow> MerchandiseEvidences => Set<MerchandiseEvidenceRow>();
     public DbSet<RouteStopDeliveryRow> RouteStopDeliveries => Set<RouteStopDeliveryRow>();
     public DbSet<CarrierOwnershipEventRow> CarrierOwnershipEvents => Set<CarrierOwnershipEventRow>();
     public DbSet<CarrierTelemetrySampleRow> CarrierTelemetrySamples => Set<CarrierTelemetrySampleRow>();

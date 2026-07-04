@@ -31,8 +31,6 @@ public static class PaymentCheckoutComputation
         RouteSheetPayload? routeSheetPayload,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments = null,
         IReadOnlyList<string>? selectedRoutePathIds = null,
-        IReadOnlyList<string>? selectedMerchandiseLineIds = null,
-        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower = null,
         IReadOnlySet<string>? confirmedRouteStopIds = null)
     {
         var errs = ValidateAgreementForCheckout(ag);
@@ -46,33 +44,12 @@ public static class PaymentCheckoutComputation
         var buckets = new Dictionary<string, CurrencyBucket>(StringComparer.OrdinalIgnoreCase);
         var hasServiceSelection = selectedServicePayments is { Count: > 0 };
         var routesSpecified = selectedRoutePathIds is not null;
-        var routesFiltered = routesSpecified && selectedRoutePathIds!.Count > 0;
-
-        var merchSpecified = selectedMerchandiseLineIds is not null;
-        var merchFiltered = merchSpecified && selectedMerchandiseLineIds!.Count > 0;
-
-        // Mercadería: selección explícita (POST) o comportamiento legacy (GET sin picks / sin tramos filtrados).
-        if (ag.IncludeMerchandise && !hasServiceSelection)
-        {
-            if (merchSpecified)
-            {
-                if (merchFiltered)
-                    AccumulateMerchandiseFiltered(
-                        ag, selectedMerchandiseLineIds!, errs, buckets, paidMerchandiseLineIdsByCurrencyLower);
-                // explícito vacío → no suma líneas de mercadería
-            }
-            else if (!routesFiltered)
-            {
-                AccumulateMerchandise(ag, errs, buckets, paidMerchandiseLineIdsByCurrencyLower);
-            }
-        }
 
         if (ag.IncludeService)
         {
-            // Acuerdo mixto: si el cliente envía selección explícita de mercadería o tramos y no eligió cuotas,
-            // no aplicar la "primera cuota" automática de servicios (evita cobrar servicio al pagar solo mercadería/tramos).
-            var partialMerchOrRouteContext = merchSpecified || routesSpecified;
-            if (partialMerchOrRouteContext && !hasServiceSelection)
+            // Si el cliente envía selección explícita de tramos y no eligió cuotas,
+            // no aplicar la "primera cuota" automática de servicios (evita cobrar servicio al pagar solo tramos).
+            if (routesSpecified && !hasServiceSelection)
             {
                 /* omitir servicios en este desglose */
             }
@@ -112,8 +89,7 @@ public static class PaymentCheckoutComputation
         string currencyIso3,
         decimal amountMajor,
         string? routeSheetId = null,
-        string? routeStopId = null,
-        string? merchandiseLineId = null)
+        string? routeStopId = null)
     {
         if (amountMajor <= 0) return;
         var curLower = NormalizeCurrency(currencyIso3);
@@ -124,109 +100,8 @@ public static class PaymentCheckoutComputation
         if (!buckets.TryGetValue(curLower, out var b))
             b = new CurrencyBucket(new List<BasisLineDto>(), 0);
 
-        b.Lines.Add(new BasisLineDto(cat, label, curLower, minor, routeSheetId, routeStopId, merchandiseLineId));
+        b.Lines.Add(new BasisLineDto(cat, label, curLower, minor, routeSheetId, routeStopId));
         buckets[curLower] = b with { SubtotalMinor = b.SubtotalMinor + minor };
-    }
-
-    private static bool MerchandiseLineAlreadyPaidInCurrency(
-        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower,
-        string currencyIso3,
-        string merchandiseLineId)
-    {
-        if (paidMerchandiseLineIdsByCurrencyLower is null || paidMerchandiseLineIdsByCurrencyLower.Count == 0)
-            return false;
-        var cur = NormalizeCurrency(currencyIso3);
-        if (string.IsNullOrEmpty(cur)) return false;
-        var mid = merchandiseLineId.Trim();
-        if (mid.Length == 0) return false;
-        return paidMerchandiseLineIdsByCurrencyLower.TryGetValue(cur, out var set) && set.Contains(mid);
-    }
-
-    private static void AccumulateMerchandise(
-        TradeAgreementRow ag,
-        ICollection<string> errs,
-        IDictionary<string, CurrencyBucket> buckets,
-        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower)
-    {
-        foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
-        {
-            decimal q;
-            decimal vu;
-            try
-            {
-                q = ParseDecimal(m.Cantidad);
-                vu = ParseDecimal(m.ValorUnitario);
-            }
-            catch
-            {
-                continue;
-            }
-
-            var mon = NormalizeCurrencyFirst(m.Moneda ?? ag.MerchandiseMeta?.Moneda);
-            if (string.IsNullOrEmpty(mon))
-            {
-                errs.Add("Mercancía: falta moneda.");
-                continue;
-            }
-
-            if (q <= 0 || vu <= 0) continue;
-            var mid = (m.Id ?? "").Trim();
-            if (MerchandiseLineAlreadyPaidInCurrency(paidMerchandiseLineIdsByCurrencyLower, mon, mid))
-                continue;
-            PushLine(
-                buckets,
-                "merchandise",
-                $"{m.Tipo} (× {m.Cantidad})",
-                mon,
-                q * vu,
-                null,
-                null,
-                mid.Length > 0 ? mid : null);
-        }
-    }
-
-    private static void AccumulateMerchandiseFiltered(
-        TradeAgreementRow ag,
-        IReadOnlyList<string> selectedIds,
-        ICollection<string> errs,
-        IDictionary<string, CurrencyBucket> buckets,
-        IReadOnlyDictionary<string, HashSet<string>>? paidMerchandiseLineIdsByCurrencyLower)
-    {
-        var pick = new HashSet<string>(
-            selectedIds
-                .Select(x => (x ?? "").Trim())
-                .Where(x => x.Length > 0),
-            StringComparer.Ordinal);
-        foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
-        {
-            var mid = (m.Id ?? "").Trim();
-            if (mid.Length == 0 || !pick.Contains(mid))
-                continue;
-
-            decimal q;
-            decimal vu;
-            try
-            {
-                q = ParseDecimal(m.Cantidad);
-                vu = ParseDecimal(m.ValorUnitario);
-            }
-            catch
-            {
-                continue;
-            }
-
-            var mon = NormalizeCurrencyFirst(m.Moneda ?? ag.MerchandiseMeta?.Moneda);
-            if (string.IsNullOrEmpty(mon))
-            {
-                errs.Add("Mercancía: falta moneda.");
-                continue;
-            }
-
-            if (q <= 0 || vu <= 0) continue;
-            if (MerchandiseLineAlreadyPaidInCurrency(paidMerchandiseLineIdsByCurrencyLower, mon, mid))
-                continue;
-            PushLine(buckets, "merchandise", $"{m.Tipo} (× {m.Cantidad})", mon, q * vu, null, null, mid);
-        }
     }
 
     private static void AccumulateServices(
@@ -364,22 +239,20 @@ public static class PaymentCheckoutComputation
         if (string.IsNullOrEmpty(rsIdLink)) return;
         if (routeSheetPayload?.Paradas is not { Count: > 0 } stops) return;
 
-        if (ag.IncludeMerchandise)
+        // Regla de moneda única entre el acuerdo (servicio) y los tramos de la ruta vinculada.
+        if (!AgreementCheckoutCurrency.TryResolveSingleAgreementCurrency(
+                ag, routeSheetPayload, out var singleCur, out var singleErr))
         {
-            if (!AgreementCheckoutCurrency.TryResolveSingleAgreementCurrency(
-                    ag, routeSheetPayload, out var merchCur, out var merchErr))
-            {
-                if (merchErr is not null) errs.Add(merchErr);
-                return;
-            }
+            if (singleErr is not null) errs.Add(singleErr);
+            return;
+        }
 
-            var currencyErr = AgreementCheckoutCurrency.ValidateRoutePayloadCurrency(
-                routeSheetPayload, merchCur!);
-            if (currencyErr is not null)
-            {
-                errs.Add(currencyErr);
-                return;
-            }
+        var currencyErr = AgreementCheckoutCurrency.ValidateRoutePayloadCurrency(
+            routeSheetPayload, singleCur!);
+        if (currencyErr is not null)
+        {
+            errs.Add(currencyErr);
+            return;
         }
 
         // null = todas las rutas payables; [] = sin transporte; lista = rutas indicadas (expandidas a paradas).

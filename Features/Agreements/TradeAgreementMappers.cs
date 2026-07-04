@@ -17,29 +17,8 @@ public static class TradeAgreementApiToDraftMapper
         var draft = new TradeAgreementDraftRequest
         {
             Title = api.Title,
-            IncludeMerchandise = api.IncludeMerchandise,
             IncludeService = api.IncludeService,
         };
-
-        foreach (var line in api.Merchandise)
-        {
-            draft.Merchandise.Add(new MerchandiseLineRequest
-            {
-                LinkedStoreProductId = line.LinkedStoreProductId,
-                Tipo = line.Tipo,
-                Cantidad = line.Cantidad,
-                ValorUnitario = line.ValorUnitario,
-                Estado = line.Estado,
-                Descuento = line.Descuento,
-                Impuestos = line.Impuestos,
-                Moneda = line.Moneda,
-                TipoEmbalaje = line.TipoEmbalaje,
-                DevolucionesDesc = line.DevolucionesDesc,
-                DevolucionQuienPaga = line.DevolucionQuienPaga,
-                DevolucionPlazos = line.DevolucionPlazos,
-                Regulaciones = line.Regulaciones,
-            });
-        }
 
         foreach (var s in api.Services)
             draft.Services.Add(MapServiceItem(s));
@@ -168,16 +147,10 @@ public static class TradeAgreementDraftToEntityMapper
 {
     public static void ReplaceContentFromDraft(TradeAgreementRow ag, TradeAgreementDraftRequest draft)
     {
-        ag.MerchandiseLines.Clear();
-        ag.MerchandiseMeta = null;
         ag.ServiceItems.Clear();
         ag.ExtraFields.Clear();
 
-        ag.IncludeMerchandise = draft.IncludeMerchandise;
         ag.IncludeService = draft.IncludeService;
-
-        if (draft.IncludeMerchandise)
-            AddMerchandiseLines(ag, draft);
 
         if (draft.IncludeService)
             AddServiceItems(ag, draft);
@@ -214,35 +187,6 @@ public static class TradeAgreementDraftToEntityMapper
                 FileName = string.IsNullOrWhiteSpace(x.FileName)
                     ? null
                     : x.FileName.Trim(),
-            });
-        }
-    }
-
-    private static void AddMerchandiseLines(TradeAgreementRow ag, TradeAgreementDraftRequest draft)
-    {
-        var order = 0;
-        foreach (var line in draft.Merchandise)
-        {
-            ag.MerchandiseLines.Add(new TradeAgreementMerchandiseLineRow
-            {
-                Id = AgreementUtils.NewEntityId("aml"),
-                TradeAgreementId = ag.Id,
-                SortOrder = order++,
-                LinkedStoreProductId = string.IsNullOrWhiteSpace(line.LinkedStoreProductId)
-                    ? null
-                    : line.LinkedStoreProductId.Trim(),
-                Tipo = line.Tipo ?? "",
-                Cantidad = line.Cantidad ?? "",
-                ValorUnitario = line.ValorUnitario ?? "",
-                Estado = string.IsNullOrWhiteSpace(line.Estado) ? "nuevo" : line.Estado.Trim(),
-                Descuento = line.Descuento ?? "",
-                Impuestos = line.Impuestos ?? "",
-                Moneda = line.Moneda ?? "",
-                TipoEmbalaje = line.TipoEmbalaje ?? "",
-                DevolucionesDesc = line.DevolucionesDesc ?? "",
-                DevolucionQuienPaga = line.DevolucionQuienPaga ?? "",
-                DevolucionPlazos = line.DevolucionPlazos ?? "",
-                Regulaciones = line.Regulaciones ?? "",
             });
         }
     }
@@ -488,16 +432,12 @@ public static class TradeAgreementEntityToApiMapper
     public static TradeAgreementApiResponse ToApiResponse(
         TradeAgreementRow ag,
         bool hasSucceededPayments = false,
-        bool hasSucceededRoutePayments = false,
-        bool hasAcceptedMerchandiseEvidence = false)
+        bool hasSucceededRoutePayments = false)
     {
         var resp = MapAgreementHeader(
             ag,
             hasSucceededPayments,
-            hasSucceededRoutePayments,
-            hasAcceptedMerchandiseEvidence);
-        MapMerchandiseMeta(ag, resp);
-        MapMerchandiseLines(ag, resp);
+            hasSucceededRoutePayments);
         MapServiceItems(ag, resp);
         MapExtraFields(ag, resp);
         return resp;
@@ -506,8 +446,7 @@ public static class TradeAgreementEntityToApiMapper
     private static TradeAgreementApiResponse MapAgreementHeader(
         TradeAgreementRow ag,
         bool hasSucceededPayments,
-        bool hasSucceededRoutePayments,
-        bool hasAcceptedMerchandiseEvidence)
+        bool hasSucceededRoutePayments)
     {
         var deleted = ag.DeletedAtUtc is not null;
         return new TradeAgreementApiResponse
@@ -523,53 +462,12 @@ public static class TradeAgreementEntityToApiMapper
             RespondedAt = ag.RespondedAtUtc?.ToUnixTimeMilliseconds(),
             SellerEditBlockedUntilBuyerResponse = ag.SellerEditBlockedUntilBuyerResponse ? true : null,
             HadBuyerAcceptance = ag.HadBuyerAcceptance ? true : null,
-            IncludeMerchandise = ag.IncludeMerchandise,
             IncludeService = ag.IncludeService,
             RouteSheetId = ag.RouteSheetId,
             RouteSheetUrl = ag.RouteSheetUrl,
             HasSucceededPayments = hasSucceededPayments,
             HasSucceededRoutePayments = hasSucceededRoutePayments,
-            HasAcceptedMerchandiseEvidence = hasAcceptedMerchandiseEvidence,
         };
-    }
-
-    private static void MapMerchandiseMeta(TradeAgreementRow ag, TradeAgreementApiResponse resp)
-    {
-        if (ag.MerchandiseMeta is not { } meta)
-            return;
-        resp.MerchandiseMeta = new MerchandiseSectionMetaApi
-        {
-            Moneda = meta.Moneda,
-            TipoEmbalaje = meta.TipoEmbalaje,
-            DevolucionesDesc = meta.DevolucionesDesc,
-            DevolucionQuienPaga = meta.DevolucionQuienPaga,
-            DevolucionPlazos = meta.DevolucionPlazos,
-            Regulaciones = meta.Regulaciones,
-        };
-    }
-
-    private static void MapMerchandiseLines(TradeAgreementRow ag, TradeAgreementApiResponse resp)
-    {
-        foreach (var line in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
-        {
-            resp.Merchandise.Add(new MerchandiseLineApi
-            {
-                Id = line.Id.Trim(),
-                LinkedStoreProductId = line.LinkedStoreProductId,
-                Tipo = line.Tipo,
-                Cantidad = line.Cantidad,
-                ValorUnitario = line.ValorUnitario,
-                Estado = line.Estado,
-                Descuento = line.Descuento,
-                Impuestos = line.Impuestos,
-                Moneda = line.Moneda,
-                TipoEmbalaje = line.TipoEmbalaje,
-                DevolucionesDesc = line.DevolucionesDesc,
-                DevolucionQuienPaga = line.DevolucionQuienPaga,
-                DevolucionPlazos = line.DevolucionPlazos,
-                Regulaciones = line.Regulaciones,
-            });
-        }
     }
 
     private static void MapServiceItems(TradeAgreementRow ag, TradeAgreementApiResponse resp)

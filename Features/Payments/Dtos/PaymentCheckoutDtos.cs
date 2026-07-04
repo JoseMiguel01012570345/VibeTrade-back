@@ -6,8 +6,7 @@ public sealed record BasisLineDto(
     string CurrencyLower,
     long AmountMinor,
     string? RouteSheetId,
-    string? RouteStopId,
-    string? MerchandiseLineId = null);
+    string? RouteStopId);
 
 public sealed record CurrencyTotalsDto(
     string CurrencyLower,
@@ -32,10 +31,8 @@ public sealed record ExecutePaymentBody(
     string PaymentMethodId,
     string? IdempotencyKey,
     IReadOnlyList<ServicePaymentPickDto>? SelectedServicePayments,
-    IReadOnlyList<string>? SelectedRoutePathIds,
-    IReadOnlyList<string>? SelectedMerchandiseLineIds);
+    IReadOnlyList<string>? SelectedRoutePathIds);
 
 public sealed record CheckoutBreakdownBody(
     IReadOnlyList<ServicePaymentPickDto>? SelectedServicePayments,
-    IReadOnlyList<string>? SelectedRoutePathIds,
-    IReadOnlyList<string>? SelectedMerchandiseLineIds);
+    IReadOnlyList<string>? SelectedRoutePathIds);

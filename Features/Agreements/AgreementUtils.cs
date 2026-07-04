@@ -56,7 +56,8 @@ public static class AgreementUtils
     {
         if (string.IsNullOrWhiteSpace(d.Title) || d.Title.Trim().Length > 512)
             return false;
-        if (d.IncludeMerchandise == d.IncludeService)
+        // Un acuerdo es solo servicios: debe incluir el bloque de servicios.
+        if (!d.IncludeService)
             return false;
         return ValidateExtraFields(d);
     }
@@ -101,25 +102,6 @@ public static class AgreementUtils
         }
 
         return true;
-    }
-
-    public static bool AgreementHasMerchandiseForRouteLink(TradeAgreementRow ag)
-    {
-        if (!ag.IncludeMerchandise)
-            return false;
-        foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
-        {
-            if (!TryParsePositiveDecimal(m.Cantidad, out _))
-                continue;
-            if (!TryParsePositiveDecimal(m.ValorUnitario, out _))
-                continue;
-            var mon = PaymentCheckoutComputation.NormalizeCurrencyFirst(m.Moneda ?? ag.MerchandiseMeta?.Moneda);
-            if (string.IsNullOrEmpty(mon))
-                continue;
-            return true;
-        }
-
-        return false;
     }
 
     public static bool TryParsePositiveDecimal(string? raw, out decimal value)

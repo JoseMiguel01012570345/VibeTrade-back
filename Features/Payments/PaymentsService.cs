@@ -34,7 +34,6 @@ public sealed class PaymentsService(IMediator mediator, PaymentsServiceCore core
         string agreementId,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,
-        IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default) =>
         mediator.Send(
             new CreateCheckoutQuery(
@@ -42,8 +41,7 @@ public sealed class PaymentsService(IMediator mediator, PaymentsServiceCore core
                 threadId,
                 agreementId,
                 selectedServicePayments,
-                selectedRoutePathIds,
-                selectedMerchandiseLineIds),
+                selectedRoutePathIds),
             cancellationToken);
 
     public Task<IReadOnlyList<AgreementPaymentStatusDto>> ListPaymentStatusesAsync(
@@ -62,7 +60,6 @@ public sealed class PaymentsService(IMediator mediator, PaymentsServiceCore core
         string? idempotencyKey,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,
-        IReadOnlyList<string>? selectedMerchandiseLineIds = null,
         CancellationToken cancellationToken = default) =>
         mediator.Send(
             new ConfirmPaymentCommand(
@@ -73,7 +70,6 @@ public sealed class PaymentsService(IMediator mediator, PaymentsServiceCore core
                 PaymentMethodId,
                 idempotencyKey,
                 selectedServicePayments,
-                selectedRoutePathIds,
-                selectedMerchandiseLineIds),
+                selectedRoutePathIds),
             cancellationToken);
 }

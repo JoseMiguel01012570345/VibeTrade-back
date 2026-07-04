@@ -36,8 +36,6 @@ public sealed class TradeAgreementRow
     /// </summary>
     public bool HadBuyerAcceptance { get; set; }
 
-    public bool IncludeMerchandise { get; set; } = true;
-
     public bool IncludeService { get; set; } = true;
 
     public string? RouteSheetId { get; set; }
@@ -48,11 +46,6 @@ public sealed class TradeAgreementRow
     public DateTimeOffset? DeletedAtUtc { get; set; }
 
     public string? DeletedByUserId { get; set; }
-
-    public ICollection<TradeAgreementMerchandiseLineRow> MerchandiseLines { get; set; } =
-        new List<TradeAgreementMerchandiseLineRow>();
-
-    public TradeAgreementMerchandiseMetaRow? MerchandiseMeta { get; set; }
 
     public ICollection<TradeAgreementServiceItemRow> ServiceItems { get; set; } =
         new List<TradeAgreementServiceItemRow>();

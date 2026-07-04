@@ -74,19 +74,13 @@ public sealed class PartySoftLeaveCoordinator(
             "held_payments_buyer",
             "party",
             StatusCodes.Status409Conflict,
-            "No puedes salir del chat mientras haya pagos retenidos (servicios y/o mercadería en espera). Espera la liberación o el reembolso.",
+            "No puedes salir del chat mientras haya pagos retenidos de servicios en espera. Espera la liberación o el reembolso.",
             "Pagos retenidos (comprador)."),
-        new(
-            "held_payments_seller_mixed",
-            "party",
-            StatusCodes.Status409Conflict,
-            "No puedes salir del chat con pagos retenidos cuando el acuerdo mezcla servicios y mercadería. Coordina la liberación o el reembolso con la contraparte.",
-            "Acuerdo mixto servicio+mercadería con pagos retenidos."),
         new(
             "evidence_pending",
             "party",
             StatusCodes.Status409Conflict,
-            "No puedes salir del chat mientras haya evidencia pendiente, enviada al comprador sin resolver o rechazada con pago aún retenido (servicio o mercadería).",
+            "No puedes salir del chat mientras haya evidencia pendiente, enviada al comprador sin resolver o rechazada con pago aún retenido (servicio).",
             "Evidencia pendiente, enviada o rechazada con pago retenido."),
         new(
             "route_delivery_active_buyer",
@@ -276,7 +270,7 @@ public sealed class PartySoftLeaveCoordinator(
         if (paymentPrep.RefundedBuyerHeldPayments)
         {
             const string defaultRefundNotice =
-                "Los pagos retenidos en este chat fueron reembolsados al comprador por la salida del vendedor (acuerdos solo servicios o solo mercadería).";
+                "Los pagos retenidos en este chat fueron reembolsados al comprador por la salida del vendedor (acuerdos de servicios).";
             var refundBody = string.IsNullOrWhiteSpace(paymentPrep.RefundNoticeText)
                 ? defaultRefundNotice
                 : paymentPrep.RefundNoticeText.Trim();
@@ -350,13 +344,7 @@ public sealed class PartySoftLeaveCoordinator(
                     && x.Status == AgreementServicePaymentStatuses.Held,
                 cancellationToken)
             .ConfigureAwait(false);
-        var hasHeldMerch = await db.AgreementMerchandiseLinePaids.AsNoTracking()
-            .AnyAsync(
-                x => x.ThreadId == tid
-                    && x.Status == AgreementMerchandiseLinePaidStatuses.Held,
-                cancellationToken)
-            .ConfigureAwait(false);
-        var hasHeld = hasHeldService || hasHeldMerch;
+        var hasHeld = hasHeldService;
 
         if (!hasHeld)
         {
@@ -397,9 +385,6 @@ public sealed class PartySoftLeaveCoordinator(
 
         if (!isSeller)
             return new PartySoftLeavePaymentPrep(true, null, false, false, null);
-
-        if (await AnyAcceptedAgreementMixesServiceAndMerchandiseAsync(tid, cancellationToken).ConfigureAwait(false))
-            return new PartySoftLeavePaymentPrep(false, "held_payments_seller_mixed", false, false, null);
 
         if (await HasHeldPaymentWithEvidenceBlockingExitAsync(tid, cancellationToken).ConfigureAwait(false))
             return new PartySoftLeavePaymentPrep(false, "evidence_pending", false, false, null);
@@ -529,22 +514,6 @@ public sealed class PartySoftLeaveCoordinator(
         return new PartySoftLeavePaymentPrep(true, null, false, false, null);
     }
 
-    private async Task<bool> AnyAcceptedAgreementMixesServiceAndMerchandiseAsync(
-        string threadId,
-        CancellationToken cancellationToken)
-    {
-        return await db.TradeAgreements.AsNoTracking()
-            .AnyAsync(
-                x =>
-                    x.ThreadId == threadId
-                    && x.Status == "accepted"
-                    && x.DeletedAtUtc == null
-                    && x.IncludeMerchandise
-                    && x.IncludeService,
-                cancellationToken)
-            .ConfigureAwait(false);
-    }
-
     /// <summary>
     /// Evidencia pendiente, enviada o rechazada con pago aún retenido: no permitir abandono con reembolso hasta decisión/liberación.
     /// </summary>
@@ -552,7 +521,7 @@ public sealed class PartySoftLeaveCoordinator(
         string threadId,
         CancellationToken cancellationToken)
     {
-        var svc = await (
+        return await (
                 from e in db.ServiceEvidences.AsNoTracking()
                 join sp in db.AgreementServicePayments.AsNoTracking()
                     on e.AgreementServicePaymentId equals sp.Id
@@ -560,21 +529,6 @@ public sealed class PartySoftLeaveCoordinator(
                       && sp.Status == AgreementServicePaymentStatuses.Held
                       && (e.Status == ServiceEvidenceStatuses.Submitted
                           || e.Status == ServiceEvidenceStatuses.Rejected)
-                select e.Id)
-            .AnyAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        if (svc)
-            return true;
-
-        return await (
-                from e in db.MerchandiseEvidences.AsNoTracking()
-                join ml in db.AgreementMerchandiseLinePaids.AsNoTracking()
-                    on e.AgreementMerchandiseLinePaidId equals ml.Id
-                where ml.ThreadId == threadId
-                      && ml.Status == AgreementMerchandiseLinePaidStatuses.Held
-                      && (e.Status == MerchandiseEvidenceStatuses.Submitted
-                          || e.Status == MerchandiseEvidenceStatuses.Rejected)
                 select e.Id)
             .AnyAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -592,19 +546,11 @@ public sealed class PartySoftLeaveCoordinator(
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var heldMerch = await db.AgreementMerchandiseLinePaids
-            .Where(x =>
-                x.ThreadId == threadId
-                && x.Status == AgreementMerchandiseLinePaidStatuses.Held)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        if (heldServices.Count == 0 && heldMerch.Count == 0)
+        if (heldServices.Count == 0)
             return new PartySoftLeavePaymentPrep(true, null, false, false, null);
 
         var cpIds = heldServices
             .Select(x => x.AgreementCurrencyPaymentId?.Trim())
-            .Concat(heldMerch.Select(x => x.AgreementCurrencyPaymentId?.Trim()))
             .Where(x => x is { Length: >= 4 })
             .Distinct(StringComparer.Ordinal)
             .ToList();
@@ -626,11 +572,7 @@ public sealed class PartySoftLeaveCoordinator(
                 .Where(x =>
                     string.Equals(x.AgreementCurrencyPaymentId?.Trim(), cpId, StringComparison.Ordinal))
                 .ToList();
-            var heldForCpMerch = heldMerch
-                .Where(x =>
-                    string.Equals(x.AgreementCurrencyPaymentId?.Trim(), cpId, StringComparison.Ordinal))
-                .ToList();
-            var refundMinorTotal = heldForCpServices.Sum(x => x.AmountMinor) + heldForCpMerch.Sum(x => x.AmountMinor);
+            var refundMinorTotal = heldForCpServices.Sum(x => x.AmountMinor);
             if (refundMinorTotal <= 0)
                 continue;
 
@@ -657,11 +599,9 @@ public sealed class PartySoftLeaveCoordinator(
 
             foreach (var sp in heldForCpServices)
                 sp.Status = AgreementServicePaymentStatuses.Refunded;
-            foreach (var ml in heldForCpMerch)
-                ml.Status = AgreementMerchandiseLinePaidStatuses.Refunded;
         }
 
-        var refundNotice = await BuildSellerExitRefundNoticeAsync(heldServices, heldMerch, cancellationToken)
+        var refundNotice = await BuildSellerExitRefundNoticeAsync(heldServices, cancellationToken)
             .ConfigureAwait(false);
 
         await ApplyAggressiveStorePenaltyAsync(storeId, cancellationToken).ConfigureAwait(false);
@@ -672,12 +612,10 @@ public sealed class PartySoftLeaveCoordinator(
 
     private async Task<string> BuildSellerExitRefundNoticeAsync(
         IReadOnlyList<AgreementServicePaymentRow> heldServices,
-        IReadOnlyList<AgreementMerchandiseLinePaidRow> heldMerch,
         CancellationToken cancellationToken)
     {
         var ids = heldServices
             .Select(x => (x.TradeAgreementId ?? "").Trim())
-            .Concat(heldMerch.Select(x => (x.TradeAgreementId ?? "").Trim()))
             .Where(x => x.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .ToList();
@@ -693,22 +631,9 @@ public sealed class PartySoftLeaveCoordinator(
                     cancellationToken)
                 .ConfigureAwait(false);
 
-        var merchLineIds = heldMerch
-            .Select(x => (x.MerchandiseLineId ?? "").Trim())
-            .Where(x => x.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        var merchDescById = merchLineIds.Count == 0
-            ? new Dictionary<string, TradeAgreementMerchandiseLineRow>(StringComparer.Ordinal)
-            : await db.TradeAgreementMerchandiseLines.AsNoTracking()
-                .Where(l => merchLineIds.Contains(l.Id))
-                .ToDictionaryAsync(l => l.Id, l => l, StringComparer.Ordinal, cancellationToken)
-                .ConfigureAwait(false);
-
         var sb = new StringBuilder();
         sb.AppendLine(
-            "Los pagos retenidos en este chat fueron reembolsados al comprador por la salida del vendedor (acuerdos solo servicios o solo mercadería).");
+            "Los pagos retenidos en este chat fueron reembolsados al comprador por la salida del vendedor (acuerdos solo servicios).");
         sb.AppendLine();
 
         foreach (var sp in heldServices
@@ -727,30 +652,6 @@ public sealed class PartySoftLeaveCoordinator(
                 $"• «{title}» · servicio · mes {sp.EntryMonth} día {sp.EntryDay} · {FormatServicePaymentAmountForNotice(sp)}");
         }
 
-        foreach (var ml in heldMerch
-                     .OrderBy(x => x.TradeAgreementId, StringComparer.Ordinal)
-                     .ThenBy(x => x.MerchandiseLineId, StringComparer.Ordinal))
-        {
-            var aid = (ml.TradeAgreementId ?? "").Trim();
-            var rawTitle = titleById.TryGetValue(aid, out var tt) && tt.Length > 0 ? tt : aid;
-            var title = rawTitle.Replace('\r', ' ').Replace('\n', ' ').Trim();
-            if (title.Length == 0)
-                title = aid;
-
-            var lineKey = (ml.MerchandiseLineId ?? "").Trim();
-            var lineLabel = "línea";
-            if (merchDescById.TryGetValue(lineKey, out var lineRow))
-            {
-                var tipo = (lineRow.Tipo ?? "").Trim();
-                var qty = (lineRow.Cantidad ?? "").Trim();
-                lineLabel = tipo.Length > 0 ? $"{tipo} × {qty}" : lineKey;
-            }
-
-            sb.AppendLine(
-                CultureInfo.InvariantCulture,
-                $"• «{title}» · mercadería · {lineLabel} · {FormatMerchandisePaymentAmountForNotice(ml)}");
-        }
-
         return sb.ToString().TrimEnd();
     }
 
@@ -763,20 +664,6 @@ public sealed class PartySoftLeaveCoordinator(
         var curUp = curLower.ToUpperInvariant();
         var pow = PaymentCheckoutComputation.CurrencyMinorDecimals(curLower);
         var major = pow == 0 ? sp.AmountMinor : sp.AmountMinor / 100m;
-        var culture = CultureInfo.GetCultureInfo("es-ES");
-        var num = pow == 0 ? major.ToString("N0", culture) : major.ToString("N2", culture);
-        return $"{num} {curUp}";
-    }
-
-    private static string FormatMerchandisePaymentAmountForNotice(AgreementMerchandiseLinePaidRow ml)
-    {
-        var curLower = PaymentCheckoutComputation.NormalizeCurrency(ml.Currency ?? "usd");
-        if (curLower.Length == 0)
-            curLower = "usd";
-
-        var curUp = curLower.ToUpperInvariant();
-        var pow = PaymentCheckoutComputation.CurrencyMinorDecimals(curLower);
-        var major = pow == 0 ? ml.AmountMinor : ml.AmountMinor / 100m;
         var culture = CultureInfo.GetCultureInfo("es-ES");
         var num = pow == 0 ? major.ToString("N0", culture) : major.ToString("N2", culture);
         return $"{num} {curUp}";
@@ -801,7 +688,7 @@ public sealed class PartySoftLeaveCoordinator(
             sid,
             storeRow.TrustScore - prev,
             storeRow.TrustScore,
-            "Salida del vendedor del chat con pagos retenidos reembolsados al comprador (servicios y/o mercadería).");
+            "Salida del vendedor del chat con pagos retenidos reembolsados al comprador (servicios).");
     }
 
     /// <summary>
@@ -856,16 +743,6 @@ public sealed class PartySoftLeaveCoordinator(
                 cancellationToken)
             .ConfigureAwait(false);
         if (hasHeldService)
-            return false;
-
-        var hasHeldMerch = await db.AgreementMerchandiseLinePaids.AsNoTracking()
-            .AnyAsync(
-                x => x.ThreadId == threadId
-                    && x.TradeAgreementId == agreementId
-                    && x.Status == AgreementMerchandiseLinePaidStatuses.Held,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (hasHeldMerch)
             return false;
 
         var ag = await db.TradeAgreements.AsNoTracking()

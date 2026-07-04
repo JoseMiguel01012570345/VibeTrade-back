@@ -43,8 +43,6 @@ public sealed class RoutePathCheckoutQueryService(
       return null;
     if (!string.Equals(ag.Status, "accepted", StringComparison.OrdinalIgnoreCase))
       return null;
-    if (!ag.IncludeMerchandise)
-      return null;
 
     var linkedRs = (ag.RouteSheetId ?? "").Trim();
     if (linkedRs.Length == 0 || !string.Equals(linkedRs, rsid, StringComparison.Ordinal))

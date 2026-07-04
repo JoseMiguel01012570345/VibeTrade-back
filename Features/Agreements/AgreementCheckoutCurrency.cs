@@ -6,7 +6,7 @@ namespace VibeTrade.Backend.Features.Agreements;
 public static class AgreementCheckoutCurrency
 {
     public const string MultipleAgreementCurrenciesMessage =
-        "El acuerdo debe cobrarse en una sola moneda; unifica mercadería, servicios y transporte.";
+        "El acuerdo debe cobrarse en una sola moneda; unifica servicios y transporte.";
 
     public const string MissingBillableCurrencyMessage =
         "El acuerdo debe indicar la moneda de los ítems cobrables antes de pagar.";
@@ -14,17 +14,11 @@ public static class AgreementCheckoutCurrency
     public const string RouteStopCurrencyMismatchMessage =
         "Los tramos deben usar la misma moneda de pago que el resto del acuerdo vinculado.";
 
-    /// <summary>Compat: mensaje histórico de mercadería multi-moneda.</summary>
-    public const string MultipleMerchandiseCurrenciesMessage = MultipleAgreementCurrenciesMessage;
-
-    public const string MissingMerchandiseCurrencyMessage = MissingBillableCurrencyMessage;
-
     public static HashSet<string> CollectBillableCurrencies(
         TradeAgreementRow ag,
         RouteSheetPayload? routeSheetPayload)
     {
         var monedas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        CollectMerchandiseCurrencies(ag, monedas);
         CollectServiceCurrencies(ag, monedas);
         CollectRouteCurrencies(ag, routeSheetPayload, monedas);
         return monedas;
@@ -53,8 +47,7 @@ public static class AgreementCheckoutCurrency
         }
 
         currency = monedas.First();
-        if (ag.IncludeMerchandise
-            && routeSheetPayload is not null
+        if (routeSheetPayload is not null
             && !string.IsNullOrWhiteSpace(ag.RouteSheetId))
         {
             var routeErr = ValidateRoutePayloadCurrency(routeSheetPayload, currency);
@@ -87,26 +80,6 @@ public static class AgreementCheckoutCurrency
         }
 
         return null;
-    }
-
-    private static void CollectMerchandiseCurrencies(
-        TradeAgreementRow ag,
-        ISet<string> monedas)
-    {
-        if (!ag.IncludeMerchandise)
-            return;
-
-        foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
-        {
-            if (!AgreementUtils.TryParsePositiveDecimal(m.Cantidad, out _))
-                continue;
-            if (!AgreementUtils.TryParsePositiveDecimal(m.ValorUnitario, out _))
-                continue;
-            var mon = PaymentCheckoutComputation.NormalizeCurrencyFirst(m.Moneda ?? ag.MerchandiseMeta?.Moneda);
-            if (string.IsNullOrEmpty(mon))
-                continue;
-            monedas.Add(mon);
-        }
     }
 
     private static void CollectServiceCurrencies(

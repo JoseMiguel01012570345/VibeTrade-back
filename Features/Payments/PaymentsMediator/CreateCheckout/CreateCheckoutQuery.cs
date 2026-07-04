@@ -8,5 +8,4 @@ public sealed record CreateCheckoutQuery(
     string ThreadId,
     string AgreementId,
     IReadOnlyList<ServicePaymentPickDto>? SelectedServicePayments,
-    IReadOnlyList<string>? SelectedRoutePathIds,
-    IReadOnlyList<string>? SelectedMerchandiseLineIds = null) : IRequest<BreakdownDto?>;
+    IReadOnlyList<string>? SelectedRoutePathIds) : IRequest<BreakdownDto?>;

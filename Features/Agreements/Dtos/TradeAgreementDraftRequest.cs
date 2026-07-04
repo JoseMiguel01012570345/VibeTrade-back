@@ -7,17 +7,12 @@ public sealed class TradeAgreementDraftRequest
 {
     public string Title { get; set; } = "";
 
-    [JsonPropertyName("includeMerchandise")]
-    public bool IncludeMerchandise { get; set; } = true;
-
     [JsonPropertyName("includeService")]
-    public bool IncludeService { get; set; } = false;
-
-    public List<MerchandiseLineRequest> Merchandise { get; set; } = new();
+    public bool IncludeService { get; set; } = true;
 
     public List<ServiceItemRequest> Services { get; set; } = new();
 
-    /// <summary>Campos libres (título + texto o adjunto) para el bloque activo (mercancía o servicio).</summary>
+    /// <summary>Campos libres (título + texto o adjunto) del bloque de servicio.</summary>
     [JsonPropertyName("extraFields")]
     public List<TradeAgreementExtraFieldRequest>? ExtraFields { get; set; }
 }
@@ -42,32 +37,6 @@ public sealed class TradeAgreementExtraFieldRequest
 
     [JsonPropertyName("fileName")]
     public string? FileName { get; set; }
-}
-
-public sealed class MerchandiseLineRequest
-{
-    [JsonPropertyName("linkedStoreProductId")]
-    public string? LinkedStoreProductId { get; set; }
-
-    public string Tipo { get; set; } = "";
-    public string Cantidad { get; set; } = "";
-    public string ValorUnitario { get; set; } = "";
-    public string Estado { get; set; } = "nuevo";
-    public string Descuento { get; set; } = "";
-    public string Impuestos { get; set; } = "";
-    public string Moneda { get; set; } = "";
-    public string TipoEmbalaje { get; set; } = "";
-
-    [JsonPropertyName("devolucionesDesc")]
-    public string DevolucionesDesc { get; set; } = "";
-
-    [JsonPropertyName("devolucionQuienPaga")]
-    public string DevolucionQuienPaga { get; set; } = "";
-
-    [JsonPropertyName("devolucionPlazos")]
-    public string DevolucionPlazos { get; set; } = "";
-
-    public string Regulaciones { get; set; } = "";
 }
 
 public sealed class ServiceItemRequest

@@ -28,7 +28,7 @@ public sealed record PartySoftLeaveResult(
 
 /// <param name="AllowProceed">True si puede continuar el soft-leave.</param>
 /// <param name="ErrorCode">
-/// <c>held_payments_buyer</c>, <c>held_payments_seller_mixed</c>,
+/// <c>held_payments_buyer</c>,
 /// <c>evidence_pending</c> (evidencia enviada o rechazada con pago retenido),
 /// <c>payment_refund_failed</c>, o null.
 /// </param>

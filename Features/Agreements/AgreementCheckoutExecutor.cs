@@ -47,8 +47,6 @@ internal static class AgreementCheckoutExecutor
     {
         return await db.TradeAgreements.AsNoTracking().AsSplitQuery()
             .Where(a => a.Id == agreementId && a.ThreadId == threadId && a.DeletedAtUtc == null)
-            .Include(a => a.MerchandiseLines)
-            .Include(a => a.MerchandiseMeta)
             .Include(a => a.ServiceItems).ThenInclude(s => s.PaymentEntries)
             .FirstOrDefaultAsync(ct).ConfigureAwait(false);
     }
@@ -116,65 +114,6 @@ internal static class AgreementCheckoutExecutor
                 RouteSheetId = sid ?? "",
                 RouteStopId = pid ?? "",
                 AmountMinor = ln.AmountMinor,
-            });
-        }
-    }
-
-    internal static void AttachMerchandiseLineSplits(AgreementCurrencyPaymentRow payment,
-        CurrencyTotalsDto qb)
-    {
-        foreach (var ln in qb.Lines)
-        {
-            if (!string.Equals(ln.Category, "merchandise", StringComparison.Ordinal)) continue;
-            var mid = ln.MerchandiseLineId?.Trim();
-            if (string.IsNullOrEmpty(mid)) continue;
-
-            var now = DateTimeOffset.UtcNow;
-            payment.MerchandiseLinePaids.Add(new AgreementMerchandiseLinePaidRow
-            {
-                Id = $"agml_{Guid.NewGuid():n}",
-                AgreementCurrencyPaymentId = payment.Id,
-                MerchandiseLineId = mid,
-                Currency = ln.CurrencyLower.Trim().ToLowerInvariant(),
-                AmountMinor = ln.AmountMinor,
-                TradeAgreementId = payment.TradeAgreementId.Trim(),
-                ThreadId = payment.ThreadId.Trim(),
-                BuyerUserId = payment.BuyerUserId.Trim(),
-                Status = AgreementMerchandiseLinePaidStatuses.Held,
-                CreatedAtUtc = now,
-            });
-        }
-    }
-
-    internal static async Task AttachPendingMerchandiseEvidencesAsync(
-        AppDbContext db,
-        AgreementCurrencyPaymentRow payment,
-        CancellationToken cancellationToken)
-    {
-        if (payment.MerchandiseLinePaids.Count == 0)
-            return;
-
-        var tid = payment.ThreadId.Trim();
-        var sellerId = await db.ChatThreads.AsNoTracking()
-            .Where(x => x.Id == tid)
-            .Select(x => x.SellerUserId)
-            .FirstOrDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(sellerId))
-            return;
-
-        var now = DateTimeOffset.UtcNow;
-        var uid = sellerId.Trim();
-        foreach (var ml in payment.MerchandiseLinePaids)
-        {
-            db.MerchandiseEvidences.Add(new MerchandiseEvidenceRow
-            {
-                Id = $"mevd_{Guid.NewGuid():n}",
-                AgreementMerchandiseLinePaidId = ml.Id,
-                SellerUserId = uid,
-                Status = MerchandiseEvidenceStatuses.Pending,
-                CreatedAtUtc = now,
-                UpdatedAtUtc = now,
             });
         }
     }
@@ -269,8 +208,6 @@ internal static class AgreementCheckoutExecutor
         pay.Status = AgreementPaymentStatuses.Succeeded;
         pay.CompletedAtUtc = DateTimeOffset.UtcNow;
         AttachSplits(pay, qb);
-        AttachMerchandiseLineSplits(pay, qb);
-        await AttachPendingMerchandiseEvidencesAsync(db, pay, ct).ConfigureAwait(false);
         db.AgreementCurrencyPayments.Add(pay);
         var okDup = await SavePaymentRowResolvingIdempotencyRaceAsync(db, pay, ct).ConfigureAwait(false);
         if (okDup is not null)

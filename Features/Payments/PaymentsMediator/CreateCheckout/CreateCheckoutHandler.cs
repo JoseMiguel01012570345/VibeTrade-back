@@ -13,6 +13,5 @@ public sealed class CreateCheckoutHandler(PaymentsServiceCore core)
             request.AgreementId,
             request.SelectedServicePayments,
             request.SelectedRoutePathIds,
-            request.SelectedMerchandiseLineIds,
             cancellationToken);
 }

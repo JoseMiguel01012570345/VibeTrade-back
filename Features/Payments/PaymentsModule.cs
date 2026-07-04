@@ -111,7 +111,7 @@ public static class PaymentsModule
             routePaths = [pathFilter];
 
         var bd = await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null,
-                routePaths, null, cancellationToken)
+                routePaths, cancellationToken)
             .ConfigureAwait(false);
         if (bd is null)
             return Results.NotFound();
@@ -130,7 +130,7 @@ public static class PaymentsModule
         if (userId is null)
             return Results.Unauthorized();
 
-        if (await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null, null, null, cancellationToken)
+        if (await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, null, null, cancellationToken)
                 .ConfigureAwait(false)
             is null)
             return Results.NotFound();
@@ -192,14 +192,8 @@ public static class PaymentsModule
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        var merchLines = body.SelectedMerchandiseLineIds is null ? null : body.SelectedMerchandiseLineIds
-            .Select(x => (x ?? "").Trim())
-            .Where(x => x.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
         var bd = await payments.GetCheckoutBreakdownAsync(userId, threadId, agreementId, picks,
-                routePaths, merchLines, cancellationToken)
+                routePaths, cancellationToken)
             .ConfigureAwait(false);
         if (bd is null)
             return Results.NotFound();
@@ -228,12 +222,6 @@ public static class PaymentsModule
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        var merchExec = body.SelectedMerchandiseLineIds is null ? null : body.SelectedMerchandiseLineIds
-            .Select(x => (x ?? "").Trim())
-            .Where(x => x.Length > 0)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
         var r = await payments.ExecuteCurrencyPaymentAsync(
             userId,
             threadId,
@@ -249,7 +237,6 @@ public static class PaymentsModule
                     x.EntryDay))
                 .ToList(),
             routePathsExec,
-            merchExec,
             cancellationToken).ConfigureAwait(false);
 
         if (r is null)

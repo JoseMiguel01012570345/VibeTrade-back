@@ -18,6 +18,5 @@ public sealed class ConfirmPaymentHandler(PaymentsServiceCore core)
             request.IdempotencyKey,
             request.SelectedServicePayments,
             request.SelectedRoutePathIds,
-            request.SelectedMerchandiseLineIds,
             cancellationToken);
 }
