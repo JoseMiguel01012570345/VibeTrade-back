@@ -102,7 +102,8 @@ public static class ChatMessageDtoFactory
             t.BuyerExpelledAtUtc,
             t.SellerExpelledAtUtc,
             t.IsSocialGroup,
-            string.IsNullOrWhiteSpace(t.SocialGroupTitle) ? null : t.SocialGroupTitle.Trim());
+            string.IsNullOrWhiteSpace(t.SocialGroupTitle) ? null : t.SocialGroupTitle.Trim(),
+            t.IsSupportThread);
 }
 
 public static class ChatMessagePreviewText
@@ -486,7 +487,8 @@ public static class ChatThreadSummaryMapper
             t.BuyerExpelledAtUtc,
             t.SellerExpelledAtUtc,
             t.IsSocialGroup,
-            string.IsNullOrWhiteSpace(t.SocialGroupTitle) ? null : t.SocialGroupTitle.Trim());
+            string.IsNullOrWhiteSpace(t.SocialGroupTitle) ? null : t.SocialGroupTitle.Trim(),
+            t.IsSupportThread);
     }
 }
 

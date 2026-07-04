@@ -75,7 +75,7 @@ public static partial class MarketModule
             .Where(s => storeIds.Contains(s.StoreId)
                 && s.DeletedAtUtc == null
                 && s.Published == true)
-            .OrderBy(s => s.TipoServicio)
+            .OrderBy(s => s.NombreServicio)
             .ThenBy(s => s.Category)
             .ToListAsync(cancellationToken);
 
@@ -88,14 +88,15 @@ public static partial class MarketModule
                 v.StoreId,
                 storeName = s.Store?.Name ?? "",
                 v.Category,
-                v.TipoServicio,
+                v.NombreServicio,
                 v.Descripcion,
                 v.Incluye,
                 v.NoIncluye,
                 v.Entregables,
                 v.PropIntelectual,
                 v.Published,
-                v.Monedas,
+                v.FixedPrice,
+                v.CurrencyCode,
                 v.CustomFields,
                 v.PhotoUrls,
                 v.Riesgos,

@@ -54,6 +54,9 @@ public sealed class ChatThreadRow
     /// <summary>Hilo de chat directo o grupal (sin oferta comercial: sin acuerdos ni hojas de ruta).</summary>
     public bool IsSocialGroup { get; set; }
 
+    /// <summary>Hilo de soporte comprador↔tienda (mensajería sin rail logístico).</summary>
+    public bool IsSupportThread { get; set; }
+
     /// <summary>Nombre mostrado del grupo social; solo lo puede editar <see cref="InitiatorUserId"/>.</summary>
     public string? SocialGroupTitle { get; set; }
 }

@@ -149,11 +149,6 @@ public sealed class StoreServiceRowConfiguration : IEntityTypeConfiguration<Stor
             .HasColumnType("jsonb")
             .HasConversion(EntityValueConversions.ServiceGarantias())
             .Metadata.SetValueComparer(EntityValueConversions.ServiceGarantiasComparer());
-        e.Property(x => x.Monedas)
-            .HasColumnName("MonedasJson")
-            .HasColumnType("jsonb")
-            .HasConversion(EntityValueConversions.StringList())
-            .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
         e.Property(x => x.CustomFields)
             .HasColumnName("CustomFieldsJson")
             .HasColumnType("jsonb")
@@ -165,6 +160,10 @@ public sealed class StoreServiceRowConfiguration : IEntityTypeConfiguration<Stor
             .HasConversion(EntityValueConversions.StringList())
             .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
         e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
+        e.Property(x => x.FixedPrice).HasPrecision(18, 4);
+        e.Property(x => x.CurrencyCode).HasMaxLength(8).HasDefaultValue("USD");
+        e.Property(x => x.RecurrenceMonth).HasDefaultValue(1);
+        e.Property(x => x.RecurrenceDay).HasDefaultValue(1);
         e.Property(x => x.DeletedAtUtc);
         e.HasQueryFilter(s => s.DeletedAtUtc == null);
         e.HasIndex(x => x.StoreId);

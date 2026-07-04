@@ -76,7 +76,7 @@ internal static class CatalogSearchDocumentFactory
         if (store.LocationLatitude is { } la && store.LocationLongitude is { } lo)
             location = new LatLonGeoLocation { Lat = la, Lon = lo };
 
-        var title = (s.TipoServicio ?? "").Trim();
+        var title = (s.NombreServicio ?? "").Trim();
         if (title.Length == 0)
             title = (s.Category ?? "").Trim();
         var cat = (s.Category ?? "").Trim();
@@ -119,7 +119,7 @@ internal static class CatalogSearchDocumentFactory
         if (title.Length == 0 && p is not null)
             title = (p.Name ?? "").Trim();
         if (title.Length == 0 && s is not null)
-            title = (s.TipoServicio ?? "").Trim();
+            title = (s.NombreServicio ?? "").Trim();
         if (title.Length == 0)
             title = "Hoja de ruta";
 
@@ -189,7 +189,7 @@ internal static class CatalogSearchDocumentFactory
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "StorePitch", store.Pitch);
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "Categories", CatalogSearchEmbeddingTextUtils.CategoriesToPlain(store.Categories));
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "Category", sv.Category);
-        CatalogSearchEmbeddingTextUtils.AppendLine(sb, "TipoServicio", sv.TipoServicio);
+        CatalogSearchEmbeddingTextUtils.AppendLine(sb, "NombreServicio", sv.NombreServicio);
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "Descripcion", sv.Descripcion);
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "Incluye", sv.Incluye);
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "NoIncluye", sv.NoIncluye);
@@ -199,7 +199,7 @@ internal static class CatalogSearchDocumentFactory
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "Dependencias", CatalogSearchEmbeddingTextUtils.ServiceItemsBodyToSearchText(sv.Dependencias));
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "Garantias", CatalogSearchEmbeddingTextUtils.ServiceGarantiasToSearchText(sv.Garantias));
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "CustomFields", CatalogSearchEmbeddingTextUtils.CustomFieldsToSearchText(sv.CustomFields));
-        CatalogSearchEmbeddingTextUtils.AppendFoldedLine(sb, store.Name, sv.TipoServicio, sv.Category, sv.Descripcion);
+        CatalogSearchEmbeddingTextUtils.AppendFoldedLine(sb, store.Name, sv.NombreServicio, sv.Category, sv.Descripcion);
         return CatalogSearchEmbeddingTextUtils.Normalize(sb.ToString());
     }
 
@@ -231,7 +231,7 @@ internal static class CatalogSearchDocumentFactory
         if (s is not null)
         {
             CatalogSearchEmbeddingTextUtils.AppendLine(sb, "BaseServiceCategory", s.Category);
-            CatalogSearchEmbeddingTextUtils.AppendLine(sb, "BaseServiceTipo", s.TipoServicio);
+            CatalogSearchEmbeddingTextUtils.AppendLine(sb, "BaseServiceNombre", s.NombreServicio);
             CatalogSearchEmbeddingTextUtils.AppendLine(sb, "BaseServiceDescripcion", s.Descripcion);
         }
 
@@ -243,7 +243,7 @@ internal static class CatalogSearchDocumentFactory
             snap.MercanciasResumen,
             p?.Name,
             p?.Category,
-            s?.TipoServicio,
+            s?.NombreServicio,
             s?.Category);
         sb.AppendLine("EmergentRoutePublication: hoja de ruta publicada");
         return CatalogSearchEmbeddingTextUtils.Normalize(sb.ToString());

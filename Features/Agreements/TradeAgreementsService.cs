@@ -69,65 +69,12 @@ public sealed partial class TradeAgreementService(
             routePaidSet.Contains(a.Id)));
     }
 
-    public async Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> CreateAsync(
+    public Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> CreateAsync(
         string sellerUserId,
         string threadId,
         TradeAgreementDraftRequest draft,
-        CancellationToken cancellationToken = default)
-    {
-        if (!AgreementUtils.ValidateDraft(draft))
-            return (null, null);
-
-        var t = await db.ChatThreads.FirstOrDefaultAsync(x => x.Id == threadId, cancellationToken);
-        if (t is null || t.DeletedAtUtc is not null || !ChatThreadAccess.UserCanSeeThread(sellerUserId, t))
-            return (null, null);
-        if (t.IsSocialGroup)
-            return (null, null);
-        if (sellerUserId != t.SellerUserId)
-            return (null, null);
-
-        var store = await db.Stores.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == t.StoreId, cancellationToken);
-        if (store is null)
-            return (null, null);
-
-        if (await ThreadHasAgreementWithSameTitleAsync(t.Id, draft.Title, excludeAgreementId: null, cancellationToken)
-                .ConfigureAwait(false))
-            return (null, TradeAgreementWriteErrors.DuplicateAgreementTitle);
-
-        var id = AgreementUtils.NewAgreementRowId();
-        var now = DateTimeOffset.UtcNow;
-        var ag = new TradeAgreementRow
-        {
-            Id = id,
-            ThreadId = t.Id,
-            Title = draft.Title.Trim(),
-            IssuedAtUtc = now,
-            IssuedByStoreId = t.StoreId,
-            IssuerLabel = string.IsNullOrWhiteSpace(store.Name) ? "Tienda" : store.Name.Trim(),
-            Status = "pending_buyer",
-            RespondedAtUtc = null,
-            RespondedByUserId = null,
-            SellerEditBlockedUntilBuyerResponse = false,
-            IncludeService = draft.IncludeService,
-        };
-
-        TradeAgreementDraftToEntityMapper.ReplaceContentFromDraft(ag, draft);
-        var currencyErr = await ValidateAgreementCurrencyAsync(ag, t.Id, cancellationToken)
-            .ConfigureAwait(false);
-        if (currencyErr is not null)
-            return (null, TradeAgreementWriteErrors.SingleAgreementCurrency);
-
-        db.TradeAgreements.Add(ag);
-        await db.SaveChangesAsync(cancellationToken);
-
-        await threadSystemMessages.PostAgreementAnnouncementAsync(
-            new PostAgreementAnnouncementArgs(sellerUserId, threadId, id, ag.Title, "pending_buyer"),
-            cancellationToken);
-
-        var createdResp = await GetTrackedResponseAsync(id, cancellationToken);
-        return (createdResp, null);
-    }
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<(TradeAgreementApiResponse?, string?)>((null, "agreements_disabled"));
 
     public async Task<(TradeAgreementApiResponse? Agreement, string? ErrorCode)> UpdateAsync(
         string sellerUserId,

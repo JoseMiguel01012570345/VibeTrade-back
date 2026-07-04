@@ -49,6 +49,16 @@ public sealed class ChatService(IMediator mediator, ChatServiceCore core)
         CancellationToken cancellationToken = default) =>
         mediator.Send(new AddParticipantCommand(creatorUserId, otherUserIds), cancellationToken);
 
+    public Task<ChatThreadDto?> CreateOrGetSupportThreadAsync(
+        string buyerUserId,
+        string storeId,
+        string motive,
+        string replyPhone,
+        string? publicNumber,
+        CancellationToken cancellationToken = default) =>
+        core.CreateOrGetSupportThreadAsync(
+            buyerUserId, storeId, motive, replyPhone, publicNumber, cancellationToken);
+
     public Task<ChatThreadDto?> GetThreadIfVisibleAsync(
         string userId,
         string threadId,

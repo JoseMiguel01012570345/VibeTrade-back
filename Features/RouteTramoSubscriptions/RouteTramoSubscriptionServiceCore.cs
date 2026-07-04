@@ -1135,12 +1135,12 @@ public sealed class RouteTramoSubscriptionServiceCore(
         var label = (stop?.TransportInvitedServiceSummary ?? "").Trim();
         if (label.Length == 0)
         {
-            var tipo = (row.TipoServicio ?? "").Trim();
+            var nombre = (row.NombreServicio ?? "").Trim();
             var cat = (row.Category ?? "").Trim();
-            if (tipo.Length > 0 && cat.Length > 0)
-                label = $"{tipo} · {cat}";
-            else if (tipo.Length > 0)
-                label = tipo;
+            if (nombre.Length > 0 && cat.Length > 0)
+                label = $"{nombre} · {cat}";
+            else if (nombre.Length > 0)
+                label = nombre;
             else if (cat.Length > 0)
                 label = cat;
         }

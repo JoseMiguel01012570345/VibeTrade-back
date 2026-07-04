@@ -113,7 +113,7 @@ public static class RecommendationUtils
     {
         var parts = new[]
         {
-            s.Category, s.TipoServicio, s.Descripcion, s.Incluye, s.NoIncluye, s.Entregables,
+            s.Category, s.NombreServicio, s.Descripcion, s.Incluye, s.NoIncluye, s.Entregables,
             s.PropIntelectual, ServiceRiesgosPlain(s.Riesgos), ServiceDependenciasPlain(s.Dependencias),
             ServiceGarantiasPlain(s.Garantias), CustomFieldsPlain(s.CustomFields),
         };

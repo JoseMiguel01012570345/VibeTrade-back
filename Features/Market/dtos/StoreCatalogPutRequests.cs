@@ -37,9 +37,11 @@ public sealed record StoreServicePutRequest
     public string? StoreId { get; init; }
     public bool? Published { get; init; }
     public string? Category { get; init; }
-    public string? TipoServicio { get; init; }
-    public IReadOnlyList<string>? Monedas { get; init; }
-    public string? Moneda { get; init; }
+    public string? NombreServicio { get; init; }
+    public decimal? FixedPrice { get; init; }
+    public string? CurrencyCode { get; init; }
+    public int? RecurrenceMonth { get; init; }
+    public int? RecurrenceDay { get; init; }
     public string? Descripcion { get; init; }
     public ServiceRiesgosBody? Riesgos { get; init; }
     public string? Incluye { get; init; }

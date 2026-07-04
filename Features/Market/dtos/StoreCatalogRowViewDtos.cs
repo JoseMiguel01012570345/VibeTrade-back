@@ -66,14 +66,17 @@ public sealed class StoreServiceCatalogRowView
     public string Id { get; set; } = "";
     public string StoreId { get; set; } = "";
     public string? Category { get; set; }
-    public string? TipoServicio { get; set; }
+    public string? NombreServicio { get; set; }
     public string? Descripcion { get; set; }
     public string? Incluye { get; set; }
     public string? NoIncluye { get; set; }
     public string? Entregables { get; set; }
     public string? PropIntelectual { get; set; }
     public bool? Published { get; set; }
-    public IReadOnlyList<string> Monedas { get; set; } = Array.Empty<string>();
+    public decimal? FixedPrice { get; set; }
+    public string? CurrencyCode { get; set; }
+    public int? RecurrenceMonth { get; set; }
+    public int? RecurrenceDay { get; set; }
     public IReadOnlyList<StoreCustomFieldBody> CustomFields { get; set; } = Array.Empty<StoreCustomFieldBody>();
     public IReadOnlyList<string> PhotoUrls { get; set; } = Array.Empty<string>();
     public ServiceRiesgosBody? Riesgos { get; set; }
@@ -92,8 +95,11 @@ public sealed class StoreServiceCatalogRowView
             Id = Id,
             StoreId = StoreId,
             Category = Category,
-            TipoServicio = TipoServicio,
-            Monedas = Monedas.ToList(),
+            NombreServicio = NombreServicio,
+            FixedPrice = FixedPrice,
+            CurrencyCode = CurrencyCode,
+            RecurrenceMonth = RecurrenceMonth,
+            RecurrenceDay = RecurrenceDay,
             Descripcion = Descripcion,
             Incluye = Incluye,
             NoIncluye = NoIncluye,

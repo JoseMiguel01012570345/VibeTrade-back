@@ -13,7 +13,7 @@ public sealed class StoreServiceRow
 
     public string Category { get; set; } = "";
 
-    public string TipoServicio { get; set; } = "";
+    public string NombreServicio { get; set; } = "";
 
     public string Descripcion { get; set; } = "";
 
@@ -31,7 +31,17 @@ public sealed class StoreServiceRow
 
     public string PropIntelectual { get; set; } = "";
 
-    public List<string> Monedas { get; set; } = new();
+    /// <summary>Precio fijo del servicio en checkout (moneda <see cref="CurrencyCode"/>).</summary>
+    public decimal FixedPrice { get; set; }
+
+    /// <summary>Moneda del precio fijo; debe ser USD.</summary>
+    public string CurrencyCode { get; set; } = "USD";
+
+    /// <summary>Mes (1–12) de la única recurrencia de pago del contrato de catálogo.</summary>
+    public int RecurrenceMonth { get; set; } = 1;
+
+    /// <summary>Día (1–31) de la única recurrencia de pago del contrato de catálogo.</summary>
+    public int RecurrenceDay { get; set; } = 1;
 
     public List<StoreCustomFieldBody> CustomFields { get; set; } = new();
 

@@ -128,9 +128,9 @@ public sealed class RequestRouteTramoSubscriptionHandler(
             : carrierAccount!.DisplayName.Trim();
         var trust = carrierAccount?.TrustScore ?? 0;
 
-        var tipo = (service.TipoServicio ?? "").Trim();
+        var nombre = (service.NombreServicio ?? "").Trim();
         var cat = (service.Category ?? "").Trim();
-        var svcLabel = string.Join(" · ", new[] { tipo, cat }.Where(x => x.Length > 0));
+        var svcLabel = string.Join(" · ", new[] { nombre, cat }.Where(x => x.Length > 0));
         if (svcLabel.Length == 0)
             svcLabel = "Servicio de transporte";
 

@@ -535,7 +535,7 @@ public sealed class CatalogService(
                 cancellationToken);
         }
 
-        if (MarketCatalogTransportServiceRules.QualifiesAsTransport(row.Category, row.TipoServicio)
+        if (MarketCatalogTransportServiceRules.QualifiesAsTransport(row.Category, row.NombreServicio)
             && !MarketCatalogTransportServiceRules.HasAtLeastOnePhoto(row.PhotoUrls))
             throw new ArgumentException(
                 "Los servicios de transporte o logística requieren al menos una imagen en la ficha.",

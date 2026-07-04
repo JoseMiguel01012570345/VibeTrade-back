@@ -15,6 +15,14 @@ public interface IThreadManagementService
         IReadOnlyList<string> otherUserIds,
         CancellationToken cancellationToken = default);
 
+    Task<ChatThreadDto?> CreateOrGetSupportThreadAsync(
+        string buyerUserId,
+        string storeId,
+        string motive,
+        string replyPhone,
+        string? publicNumber,
+        CancellationToken cancellationToken = default);
+
     Task<ChatThreadDto?> GetThreadIfVisibleAsync(string userId, string threadId, CancellationToken cancellationToken = default);
 
     Task<ChatThreadDto?> GetThreadByOfferIfVisibleAsync(string userId, string offerId, CancellationToken cancellationToken = default);

@@ -64,12 +64,16 @@ public sealed class OrderLineRowConfiguration : IEntityTypeConfiguration<OrderLi
         e.Property(x => x.Id).HasMaxLength(64);
         e.Property(x => x.OrderId).HasMaxLength(64);
         e.Property(x => x.ProductId).HasMaxLength(64);
+        e.Property(x => x.ServiceId).HasMaxLength(64);
+        e.Property(x => x.LineKind).HasMaxLength(16).HasDefaultValue("product");
         e.Property(x => x.StoreId).HasMaxLength(64);
         e.Property(x => x.ProductName).HasMaxLength(512);
         e.Property(x => x.TechnicalSpecs).HasColumnType("text");
+        e.Property(x => x.ServiceTipo).HasMaxLength(256);
         e.Property(x => x.UnitPrice).HasColumnType("numeric(18,2)");
         e.Property(x => x.CurrencyCode).HasMaxLength(16);
         e.HasIndex(x => x.OrderId);
         e.HasIndex(x => x.ProductId);
+        e.HasIndex(x => x.ServiceId);
     }
 }

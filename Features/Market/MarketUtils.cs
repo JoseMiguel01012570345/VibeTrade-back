@@ -35,17 +35,33 @@ internal static class MarketCatalogCurrency
 
     public static void ThrowIfServiceCurrencyInvalid(StoreServicePutRequest s, string id)
     {
-        if (!CatalogItemHasAtLeastOneAcceptedMoneda(s))
+        var currency = (s.CurrencyCode ?? "USD").Trim().ToUpperInvariant();
+        if (currency != "USD")
             throw new ArgumentException(
-                $"Servicio \"{id}\": indica al menos una moneda aceptada para el pago.",
+                $"Servicio \"{id}\": la moneda del precio debe ser USD.",
                 CatalogArgumentParams.Currency);
+
+        if (s.Published == true)
+        {
+            if (s.FixedPrice is not decimal price || price <= 0)
+                throw new ArgumentException(
+                    $"Servicio \"{id}\": indica un precio fijo mayor que cero.",
+                    CatalogArgumentParams.Validation);
+            var month = s.RecurrenceMonth ?? 0;
+            if (month < 1 || month > 12)
+                throw new ArgumentException(
+                    $"Servicio \"{id}\": indica un mes de recurrencia válido (1–12).",
+                    CatalogArgumentParams.Validation);
+            var day = s.RecurrenceDay ?? 0;
+            if (day < 1 || day > 31)
+                throw new ArgumentException(
+                    $"Servicio \"{id}\": indica un día de recurrencia válido (1–31).",
+                    CatalogArgumentParams.Validation);
+        }
     }
 
     public static List<string> BuildMonedasList(StoreProductPutRequest p) =>
         BuildMonedasList(p.Monedas, p.Moneda);
-
-    public static List<string> BuildMonedasList(StoreServicePutRequest s) =>
-        BuildMonedasList(s.Monedas, s.Moneda);
 
     public static List<string> BuildMonedasList(IReadOnlyList<string>? monedas, string? moneda)
     {
@@ -70,9 +86,6 @@ internal static class MarketCatalogCurrency
 
     public static bool CatalogItemHasAtLeastOneAcceptedMoneda(StoreProductPutRequest p) =>
         CatalogItemHasAtLeastOneAcceptedMoneda(p.Monedas, p.Moneda);
-
-    public static bool CatalogItemHasAtLeastOneAcceptedMoneda(StoreServicePutRequest s) =>
-        CatalogItemHasAtLeastOneAcceptedMoneda(s.Monedas, s.Moneda);
 
     private static bool CatalogItemHasAtLeastOneAcceptedMoneda(IReadOnlyList<string>? monedas, string? moneda)
     {
@@ -314,7 +327,7 @@ internal static class MarketCatalogServiceRowMapper
     {
         row.Published = s.Published;
         row.Category = s.Category ?? "";
-        row.TipoServicio = s.TipoServicio ?? "";
+        row.NombreServicio = s.NombreServicio ?? "";
         row.Descripcion = s.Descripcion ?? "";
         if (s.Riesgos is not null)
             row.Riesgos = s.Riesgos;
@@ -326,7 +339,15 @@ internal static class MarketCatalogServiceRowMapper
         if (s.Garantias is not null)
             row.Garantias = s.Garantias;
         row.PropIntelectual = s.PropIntelectual ?? "";
-        row.Monedas = MarketCatalogCurrency.BuildMonedasList(s);
+        if (s.FixedPrice is decimal fp)
+            row.FixedPrice = fp;
+        row.CurrencyCode = string.IsNullOrWhiteSpace(s.CurrencyCode)
+            ? "USD"
+            : s.CurrencyCode.Trim().ToUpperInvariant();
+        if (s.RecurrenceMonth is int rm)
+            row.RecurrenceMonth = rm;
+        if (s.RecurrenceDay is int rd)
+            row.RecurrenceDay = rd;
         row.CustomFields = s.CustomFields is not null
             ? s.CustomFields.ToList()
             : row.CustomFields;
@@ -365,12 +386,12 @@ internal static partial class MarketCatalogTransportServiceRules
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ServiceTransportHint();
 
-    public static bool QualifiesAsTransport(string? category, string? tipoServicio)
+    public static bool QualifiesAsTransport(string? category, string? nombreServicio)
     {
         var cat = (category ?? "").Trim();
-        var tipo = (tipoServicio ?? "").Trim();
+        var nombre = (nombreServicio ?? "").Trim();
         if (cat.Length > 0 && TransportTaxonomy().IsMatch(cat)) return true;
-        if (tipo.Length > 0 && ServiceTransportHint().IsMatch(tipo)) return true;
+        if (nombre.Length > 0 && ServiceTransportHint().IsMatch(nombre)) return true;
         if (cat.Length > 0 && ServiceTransportHint().IsMatch(cat)) return true;
         return false;
     }

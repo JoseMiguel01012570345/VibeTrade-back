@@ -28,6 +28,7 @@ public sealed class ChatThreadRowConfiguration : IEntityTypeConfiguration<ChatTh
         e.Property(x => x.PartyExitedReason).HasMaxLength(2000);
         e.Property(x => x.PartyExitedAtUtc);
         e.Property(x => x.IsSocialGroup);
+        e.Property(x => x.IsSupportThread);
         e.Property(x => x.SocialGroupTitle).HasMaxLength(120);
         e.HasIndex(x => x.OfferId);
         e.HasIndex(x => x.BuyerUserId);

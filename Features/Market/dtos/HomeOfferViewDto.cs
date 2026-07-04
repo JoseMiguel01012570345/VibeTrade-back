@@ -20,8 +20,8 @@ public sealed class HomeOfferViewDto
     public IReadOnlyList<string> ImageUrls { get; set; } = Array.Empty<string>();
 
     public string? Category { get; set; }
-    [JsonPropertyName("tipoServicio")]
-    public string? TipoServicio { get; set; }
+    [JsonPropertyName("nombreServicio")]
+    public string? NombreServicio { get; set; }
     public string? Incluye { get; set; }
     [JsonPropertyName("noIncluye")]
     public string? NoIncluye { get; set; }

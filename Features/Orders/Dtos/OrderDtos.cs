@@ -1,7 +1,7 @@
 namespace VibeTrade.Backend.Features.Orders.Dtos;
 
 /// <summary>Línea de carrito enviada por el comprador en el checkout.</summary>
-public sealed record CheckoutCartLine(string ProductId, int Quantity);
+public sealed record CheckoutCartLine(string? ProductId, string? ServiceId, int Quantity);
 
 /// <summary>Comando de creación de pedido (checkout).</summary>
 public sealed record CreateOrderRequest(
@@ -29,12 +29,16 @@ public sealed record CheckoutPreviewResponse(
     IReadOnlyList<CheckoutPreviewLine> Lines);
 
 public sealed record CheckoutPreviewLine(
-    string ProductId,
-    string ProductName,
+    string LineKind,
+    string? ProductId,
+    string? ServiceId,
+    string LineName,
     int Quantity,
     decimal UnitPrice,
     decimal LineTotal,
-    string CurrencyCode);
+    string CurrencyCode,
+    int? RecurrenceMonth = null,
+    int? RecurrenceDay = null);
 
 /// <summary>Resultado de crear el pedido.</summary>
 public sealed record CreateOrderResponse(
@@ -48,9 +52,14 @@ public sealed record CreateOrderResponse(
 
 public sealed record OrderLineDto(
     string Id,
+    string LineKind,
     string? ProductId,
+    string? ServiceId,
     string ProductName,
     string TechnicalSpecs,
+    string? ServiceTipo,
+    int? RecurrenceMonth,
+    int? RecurrenceDay,
     int Quantity,
     decimal UnitPrice,
     decimal LineTotal,

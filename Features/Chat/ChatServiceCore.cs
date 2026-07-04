@@ -16,6 +16,9 @@ public sealed class ChatServiceCore(
     /// <summary>Oferta ficticia para hilos solo mensajería (lista/chat sin catálogo).</summary>
     private const string SocialThreadOfferId = "__vt_social__";
 
+    /// <summary>Oferta ficticia para hilos de soporte comprador↔tienda.</summary>
+    public const string SupportThreadOfferId = "__vt_support__";
+
     /// <inheritdoc />
     public Task<bool> UserCanAccessThreadRowAsync(
         string userId,
@@ -167,6 +170,77 @@ public sealed class ChatServiceCore(
 
         return await CreateNewThreadForBuyerAndNotifyAsync(
             buyerUserId, oid, storeId, sellerUserId, purchaseIntent, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<ChatThreadDto?> CreateOrGetSupportThreadAsync(
+        string buyerUserId,
+        string storeId,
+        string motive,
+        string replyPhone,
+        string? publicNumber,
+        CancellationToken cancellationToken = default)
+    {
+        var buyer = (buyerUserId ?? "").Trim();
+        var sid = (storeId ?? "").Trim();
+        var m = (motive ?? "").Trim();
+        var phone = (replyPhone ?? "").Trim();
+        if (buyer.Length < 2 || sid.Length < 2 || m.Length < 4 || phone.Length < 6)
+            return null;
+
+        var store = await db.Stores.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == sid, cancellationToken)
+            .ConfigureAwait(false);
+        if (store is null)
+            return null;
+        var seller = (store.OwnerUserId ?? "").Trim();
+        if (seller.Length < 2 || string.Equals(seller, buyer, StringComparison.Ordinal))
+            return null;
+
+        var existing = await db.ChatThreads
+            .Where(x =>
+                x.IsSupportThread
+                && x.StoreId == sid
+                && x.BuyerUserId == buyer
+                && x.DeletedAtUtc == null)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        ChatThreadRow row;
+        if (existing is not null)
+        {
+            row = existing;
+        }
+        else
+        {
+            var id = "cth_" + Guid.NewGuid().ToString("N")[..16];
+            var now = DateTimeOffset.UtcNow;
+            row = new ChatThreadRow
+            {
+                Id = id,
+                OfferId = SupportThreadOfferId,
+                StoreId = sid,
+                BuyerUserId = buyer,
+                SellerUserId = seller,
+                InitiatorUserId = buyer,
+                CreatedAtUtc = now,
+                PurchaseMode = false,
+                IsSupportThread = true,
+            };
+            db.ChatThreads.Add(row);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var orderLine = string.IsNullOrWhiteSpace(publicNumber)
+            ? ""
+            : $"\nPedido: {publicNumber.Trim()}";
+        var text = $"[Soporte]\n{motive}\n\nTeléfono: {phone}{orderLine}";
+        await PostMessageAsync(
+            new PostChatMessageArgs(buyer, row.Id, new PostChatMessageBody { Text = text }),
+            cancellationToken).ConfigureAwait(false);
+
+        return await MapThreadWithBuyerLabelAsync(row, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<(bool Handled, ChatThreadDto? Thread)> TryReuseOrArchiveExistingThreadForBuyerAsync(

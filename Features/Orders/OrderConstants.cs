@@ -61,3 +61,16 @@ public static class OrderClientEvidenceDecisions
 
     public const string Rejected = "rejected";
 }
+
+/// <summary>Tipo de línea en un pedido de checkout.</summary>
+public static class OrderLineKinds
+{
+    public const string Product = "product";
+    public const string Service = "service";
+
+    public static bool IsKnown(string? raw)
+    {
+        var s = (raw ?? "").Trim();
+        return s is Product or Service;
+    }
+}

@@ -12,6 +12,7 @@ public static partial class ChatModule
 
         group.MapPost("/threads", PostThreadAsync);
         group.MapPost("/threads/social-group", PostSocialGroupThreadAsync);
+        group.MapPost("/threads/support", PostSupportThreadAsync);
         group.MapGet("/threads", GetThreadsAsync);
         group.MapPost("/ack-pending-delivery-on-login", PostAckPendingDeliveryOnLoginAsync);
         group.MapGet("/threads/by-offer/{offerId}", GetThreadByOfferAsync);
@@ -90,6 +91,36 @@ public static partial class ChatModule
                 error = "invalid_social_thread",
                 message =
                     "No se pudo crear el chat. Necesitás al menos un contacto válido, una tienda asociada a tu cuenta, y no podés incluirte dos veces.",
+            });
+        }
+
+        return Results.Ok(dto);
+    }
+
+    private static async Task<IResult> PostSupportThreadAsync(
+        CreateSupportThreadBody body,
+        HttpRequest request,
+        ICurrentUserAccessor currentUser,
+        IChatService chat,
+        CancellationToken cancellationToken)
+    {
+        var userId = currentUser.GetUserId(request);
+        if (userId is null)
+            return Results.Unauthorized();
+
+        var dto = await chat.CreateOrGetSupportThreadAsync(
+            userId,
+            body.StoreId ?? "",
+            body.Motive ?? "",
+            body.ReplyPhone ?? "",
+            body.PublicNumber,
+            cancellationToken);
+        if (dto is null)
+        {
+            return Results.BadRequest(new
+            {
+                error = "invalid_support_thread",
+                message = "No se pudo abrir el chat de soporte. Revisa el mensaje y el teléfono.",
             });
         }
 

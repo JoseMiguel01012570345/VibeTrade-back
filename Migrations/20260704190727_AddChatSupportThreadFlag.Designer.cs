@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using VibeTrade.Backend.Data;
@@ -11,9 +12,11 @@ using VibeTrade.Backend.Data;
 namespace VibeTrade.Backend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260704190727_AddChatSupportThreadFlag")]
+    partial class AddChatSupportThreadFlag
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2068,11 +2071,12 @@ namespace VibeTrade.Backend.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("NoIncluye")
+                    b.Property<string>("Monedas")
                         .IsRequired()
-                        .HasColumnType("text");
+                        .HasColumnType("jsonb")
+                        .HasColumnName("MonedasJson");
 
-                    b.Property<string>("NombreServicio")
+                    b.Property<string>("NoIncluye")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -2112,6 +2116,10 @@ namespace VibeTrade.Backend.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TipoServicio")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");

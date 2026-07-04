@@ -32,6 +32,8 @@ public sealed class PaymentsServiceCore(
     SimulatedPaymentGateway simulatedGateway,
     ILogger<PaymentsServiceCore> logger)
     {
+    private readonly IRouteSheetChatService _routeSheets = routeSheets;
+
     private sealed record AgreementCheckoutTarget(
         string ThreadId,
         string AgreementId,
@@ -106,41 +108,14 @@ public sealed class PaymentsServiceCore(
         return Ok(new CreatePaymentIntentResult("", PaymentSkipped: true, qb.TotalMinor, target.CurrencyLower));
     }
 
-    public async Task<BreakdownDto?> GetCheckoutBreakdownAsync(
+    public Task<BreakdownDto?> GetCheckoutBreakdownAsync(
         string buyerUserId,
         string threadId,
         string agreementId,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,
-        CancellationToken cancellationToken = default)
-    {
-        var t = await db.ChatThreads.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == threadId.Trim(), cancellationToken)
-            .ConfigureAwait(false);
-        if (t is null || t.BuyerUserId != buyerUserId.Trim()) return null;
-        if (!await chat.UserCanAccessThreadRowAsync(buyerUserId.Trim(), t, cancellationToken)
-                .ConfigureAwait(false))
-            return null;
-
-        var ag =
-            await AgreementCheckoutExecutor.LoadAgreementAsync(db, threadId.Trim(), agreementId.Trim(),
-                cancellationToken).ConfigureAwait(false);
-        if (ag is null) return null;
-
-        var rp = await AgreementCheckoutExecutor.LoadRoutePayloadAsync(db, threadId.Trim(), ag.RouteSheetId?.Trim(),
-            cancellationToken).ConfigureAwait(false);
-
-        var confirmedRouteStopIds = await routeSheets.LoadConfirmedRouteStopIdsAsync(
-                threadId.Trim(), ag.RouteSheetId?.Trim() ?? "", cancellationToken)
-            .ConfigureAwait(false);
-
-        return PaymentCheckoutComputation.ComputeForAgreement(
-            ag,
-            rp,
-            selectedServicePayments,
-            selectedRoutePathIds,
-            confirmedRouteStopIds);
-    }
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<BreakdownDto?>(null);
 
     public async Task<IReadOnlyList<AgreementPaymentStatusDto>> ListPaymentStatusesAsync(
         string buyerUserId,
@@ -167,115 +142,13 @@ public sealed class PaymentsServiceCore(
             .ConfigureAwait(false);
     }
 
-    public async Task<AgreementExecutePaymentResultDto?> ExecuteCurrencyPaymentAsync(
+    public Task<AgreementExecutePaymentResultDto?> ExecuteCurrencyPaymentAsync(
         string buyerUserId, string threadId, string agreementId, string currencyLower,
         string PaymentMethodId, string? idempotencyKey,
         IReadOnlyList<ServicePaymentPickDto>? selectedServicePayments,
         IReadOnlyList<string>? selectedRoutePathIds,
-        CancellationToken cancellationToken = default)
-    {
-        var routePathSummary = selectedRoutePathIds is null or { Count: 0 }
-            ? "none"
-            : string.Join(',', selectedRoutePathIds.Select(x => (x ?? "").Trim()).Where(x => x.Length > 0));
-        try
-        {
-            if (!await BuyerMayExecuteAgreementPaymentAsync(buyerUserId, threadId, cancellationToken).ConfigureAwait(false))
-                return null;
-            var cur = currencyLower.Trim().ToLowerInvariant();
-            var pmId = PaymentMethodId.Trim();
-            if (cur.Length is < 3 or > 8 || !PaymentMethodIdLooksValid(pmId))
-                return ExecutePaymentErr.InvalidParams();
-            var ik = (idempotencyKey ?? "").Trim();
-
-            var lockedCurrency = await db.AgreementCurrencyPayments.AsNoTracking()
-                .Where(
-                    x =>
-                        x.TradeAgreementId == agreementId.Trim()
-                        && x.Status == AgreementPaymentStatuses.Succeeded
-                        && x.Currency != cur)
-                .Select(x => x.Currency)
-                .FirstOrDefaultAsync(cancellationToken)
-                .ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(lockedCurrency))
-                return ExecutePaymentErr.AgreementCurrencyMismatch(lockedCurrency!.Trim(), cur);
-
-            var blocked = await TryPreChargeExitAsync(ik, agreementId, cur, selectedServicePayments, selectedRoutePathIds,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (blocked is not null)
-                return blocked;
-
-            var agr = await AgreementCheckoutExecutor.LoadAgreementAsync(db, threadId.Trim(), agreementId.Trim(),
-                cancellationToken).ConfigureAwait(false);
-            if (agr is null)
-                return ExecutePaymentErr.AgreementNotFound();
-            var rp = await AgreementCheckoutExecutor.LoadRoutePayloadAsync(db, threadId.Trim(),
-                agr.RouteSheetId?.Trim(), cancellationToken).ConfigureAwait(false);
-            var confirmedRouteStopIds = await routeSheets.LoadConfirmedRouteStopIdsAsync(
-                    threadId.Trim(), agr.RouteSheetId?.Trim() ?? "", cancellationToken)
-                .ConfigureAwait(false);
-            var breakdown = PaymentCheckoutComputation.ComputeForAgreement(
-                agr,
-                rp,
-                selectedServicePayments,
-                selectedRoutePathIds,
-                confirmedRouteStopIds);
-            var qb = PaymentCheckoutComputation.GetCurrencyBucket(breakdown, cur);
-            if (!breakdown.Ok || qb is null)
-            {
-                logger.LogWarning(
-                    "ExecuteCurrencyPayment checkout invalid: thread={ThreadId} agreement={AgreementId} currency={Currency} routePaths={RoutePaths} error={Error}",
-                    threadId.Trim(), agreementId.Trim(), cur, routePathSummary,
-                    breakdown.Errors.Count > 0 ? breakdown.Errors[0] : "(none)");
-                return ExecutePaymentErr.CheckoutInvalid(
-                    breakdown.Errors.Count > 0 ? breakdown.Errors[0] : null);
-            }
-
-            var (_, accountId) = await EnsurePaymentAccountAsync(buyerUserId.Trim(), cancellationToken)
-                .ConfigureAwait(false);
-            if (string.IsNullOrEmpty(accountId))
-            {
-                logger.LogWarning(
-                    "ExecuteCurrencyPayment payment account missing: buyer={BuyerId} thread={ThreadId} agreement={AgreementId}",
-                    buyerUserId.Trim(), threadId.Trim(), agreementId.Trim());
-                return ExecutePaymentErr.PaymentAccountMissing();
-            }
-
-            logger.LogInformation(
-                "ExecuteCurrencyPayment start: buyer={BuyerId} thread={ThreadId} agreement={AgreementId} currency={Currency} routeSheetId={RouteSheetId} routePaths={RoutePaths} gateway={Gateway}",
-                buyerUserId.Trim(), threadId.Trim(), agreementId.Trim(), cur,
-                (agr.RouteSheetId ?? "").Trim(),
-                routePathSummary,
-                gatewayManager.GetConfig().GatewayId);
-
-            var pay = AgreementCheckoutExecutor.NewRow(threadId.Trim(), agr.Id.Trim(), buyerUserId.Trim(), cur, qb, pmId,
-                ik.Length >= 8 ? ik : null);
-            var result = await AgreementCheckoutExecutor.PersistAndChargeAsync(
-                    db, gatewayManager, simulatedGateway, pay, qb, pmId, accountId!, cancellationToken)
-                .ConfigureAwait(false);
-            if (result is { Succeeded: true, AgreementCurrencyPaymentId: { } pid })
-            {
-                logger.LogInformation(
-                    "ExecuteCurrencyPayment charge ok, side-effects: paymentId={PaymentId} thread={ThreadId}",
-                    pid, threadId.Trim());
-                await PersistSucceededAgreementCurrencyPaymentSideEffectsAsync(threadId.Trim(), agr, buyerUserId.Trim(),
-                    cur, rp, qb, pid, selectedServicePayments, selectedRoutePathIds, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                logger.LogInformation(
-                    "ExecuteCurrencyPayment finished without success side-effects: Accepted={Accepted} ThreadId={ThreadId} ErrorCode={ErrorCode} PaymentMsg={PaymentMsg}",
-                    result.Accepted, threadId.Trim(), result.ErrorCode ?? "", result.PaymentErrorMessage ?? "");
-            }
-
-            return result;
-        }
-        catch (Exception ex)
-        {
-            LogExecuteCurrencyPaymentFailure(ex);
-            throw;
-        }
-    }
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<AgreementExecutePaymentResultDto?>(ExecutePaymentErr.AgreementsDisabled());
 
     private void LogExecuteCurrencyPaymentFailure(
         Exception ex)
@@ -488,6 +361,10 @@ public sealed class PaymentsServiceCore(
 
     private static class ExecutePaymentErr
     {
+        internal static AgreementExecutePaymentResultDto AgreementsDisabled() =>
+            new("", false, null, "Los pagos por acuerdo en chat están deshabilitados.", false,
+                "agreements_disabled");
+
         internal static AgreementExecutePaymentResultDto InvalidParams() =>
             new("", false, null, "Parámetros de pago incompletos.", false, "invalid_request");
 

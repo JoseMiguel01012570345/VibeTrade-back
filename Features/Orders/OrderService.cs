@@ -37,12 +37,16 @@ public sealed class OrderService(
 
         var previewLines = ctx!.Lines
             .Select(l => new CheckoutPreviewLine(
-                l.Product.Id,
-                l.Product.Name,
+                l.LineKind,
+                l.ProductId,
+                l.ServiceId,
+                l.LineName,
                 l.Quantity,
                 l.UnitPrice,
                 OrderPricing.Round(l.UnitPrice * l.Quantity),
-                ctx.CurrencyCode))
+                ctx.CurrencyCode,
+                l.RecurrenceMonth,
+                l.RecurrenceDay))
             .ToList();
 
         return (
@@ -120,19 +124,27 @@ public sealed class OrderService(
             {
                 Id = Guid.NewGuid().ToString("N"),
                 OrderId = order.Id,
-                ProductId = l.Product.Id,
+                LineKind = l.LineKind,
+                ProductId = l.ProductId,
+                ServiceId = l.ServiceId,
                 StoreId = ctx.Store.Id,
-                ProductName = l.Product.Name,
-                TechnicalSpecs = l.Product.TechnicalSpecs ?? "",
+                ProductName = l.LineName,
+                TechnicalSpecs = l.TechnicalSpecs ?? "",
+                ServiceTipo = l.ServiceTipo,
+                RecurrenceMonth = l.RecurrenceMonth,
+                RecurrenceDay = l.RecurrenceDay,
                 Quantity = l.Quantity,
                 UnitPrice = l.UnitPrice,
                 CurrencyCode = ctx.CurrencyCode,
             });
 
-            if (l.Product.StockQuantity is int stock)
-                l.Product.StockQuantity = Math.Max(0, stock - l.Quantity);
-            l.Product.UnitsSold += l.Quantity;
-            l.Product.UpdatedAt = now;
+            if (l.Product is not null)
+            {
+                if (l.Product.StockQuantity is int stock)
+                    l.Product.StockQuantity = Math.Max(0, stock - l.Quantity);
+                l.Product.UnitsSold += l.Quantity;
+                l.Product.UpdatedAt = now;
+            }
         }
 
         db.Orders.Add(order);
@@ -441,12 +453,24 @@ public sealed class OrderService(
         return (MapTracking(order, storeName), null);
     }
 
-    private sealed record CheckoutLine(StoreProductRow Product, int Quantity, decimal UnitPrice);
+    private sealed record CheckoutLine(
+        string LineKind,
+        string LineName,
+        int Quantity,
+        decimal UnitPrice,
+        string? ProductId,
+        string? ServiceId,
+        string? TechnicalSpecs,
+        string? ServiceTipo,
+        int? RecurrenceMonth,
+        int? RecurrenceDay,
+        StoreProductRow? Product);
 
     private sealed record CheckoutContext(
         StoreRow Store,
         string CurrencyCode,
         string DeliveryMode,
+        bool HasProductLines,
         decimal Subtotal,
         decimal DeliveryFee,
         decimal Total,
@@ -458,30 +482,55 @@ public sealed class OrderService(
         CancellationToken cancellationToken)
     {
         if (request?.Lines is not { Count: > 0 })
-            return (null, new OrderError("empty_cart", "El carrito no tiene productos."));
+            return (null, new OrderError("empty_cart", "El carrito está vacío."));
 
         var deliveryMode = (request.DeliveryMode ?? "").Trim();
         if (!OrderDeliveryModes.IsKnown(deliveryMode))
             return (null, new OrderError("invalid_delivery_mode", "Modalidad de entrega no válida."));
 
-        var normalized = new Dictionary<string, int>(StringComparer.Ordinal);
+        var productQty = new Dictionary<string, int>(StringComparer.Ordinal);
+        var serviceQty = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var line in request.Lines)
         {
             var pid = (line.ProductId ?? "").Trim();
-            if (pid.Length == 0 || line.Quantity <= 0)
+            var sid = (line.ServiceId ?? "").Trim();
+            if (line.Quantity <= 0 || (pid.Length == 0 && sid.Length == 0) || (pid.Length > 0 && sid.Length > 0))
                 return (null, new OrderError("invalid_line", "Hay una línea de carrito no válida."));
-            normalized[pid] = normalized.TryGetValue(pid, out var q) ? q + line.Quantity : line.Quantity;
+            if (pid.Length > 0)
+                productQty[pid] = productQty.TryGetValue(pid, out var q) ? q + line.Quantity : line.Quantity;
+            else
+                serviceQty[sid] = serviceQty.TryGetValue(sid, out var q) ? q + line.Quantity : line.Quantity;
         }
 
-        var ids = normalized.Keys.ToArray();
-        var products = await db.StoreProducts
-            .Where(p => ids.Contains(p.Id) && p.Published)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-        if (products.Count != ids.Length)
+        if (productQty.Count == 0 && serviceQty.Count == 0)
+            return (null, new OrderError("empty_cart", "El carrito está vacío."));
+
+        var hasProductLines = productQty.Count > 0;
+        var productIds = productQty.Keys.ToArray();
+        var serviceIds = serviceQty.Keys.ToArray();
+
+        var products = productIds.Length == 0
+            ? new List<StoreProductRow>()
+            : await db.StoreProducts
+                .Where(p => productIds.Contains(p.Id) && p.Published)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+        if (products.Count != productIds.Length)
             return (null, new OrderError("product_unavailable", "Uno o más productos no están disponibles."));
 
-        var storeIds = products.Select(p => p.StoreId).Distinct(StringComparer.Ordinal).ToArray();
+        var services = serviceIds.Length == 0
+            ? new List<StoreServiceRow>()
+            : await db.StoreServices
+                .Where(s => serviceIds.Contains(s.Id) && s.Published == true)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+        if (services.Count != serviceIds.Length)
+            return (null, new OrderError("service_unavailable", "Uno o más servicios no están disponibles."));
+
+        var storeIds = products.Select(p => p.StoreId)
+            .Concat(services.Select(s => s.StoreId))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         if (storeIds.Length != 1)
             return (null, new OrderError("multiple_stores", "El pedido debe ser de una sola tienda."));
 
@@ -490,36 +539,84 @@ public sealed class OrderService(
         if (store is null)
             return (null, new OrderError("store_not_found", "No se encontró la tienda."));
 
-        var currencies = products
-            .Select(p => OrderPricing.NormalizeCurrency(p.MonedaPrecio))
-            .Where(c => c is not null)
-            .Select(c => c!)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        if (currencies.Length == 0)
-            return (null, new OrderError("missing_currency", "Los productos no tienen moneda definida."));
-        if (currencies.Length > 1)
+        if (services.Count > 0)
+        {
+            foreach (var svc in services)
+            {
+                if (!string.Equals(svc.CurrencyCode, "USD", StringComparison.OrdinalIgnoreCase))
+                    return (null, new OrderError("service_currency", $"El servicio {svc.NombreServicio} debe estar en USD."));
+                if (svc.FixedPrice <= 0)
+                    return (null, new OrderError("invalid_price", $"Precio no válido para {svc.NombreServicio}."));
+            }
+        }
+
+        var currencies = new List<string>();
+        foreach (var product in products)
+        {
+            var c = OrderPricing.NormalizeCurrency(product.MonedaPrecio);
+            if (c is not null)
+                currencies.Add(c);
+        }
+        if (services.Count > 0)
+            currencies.Add("USD");
+
+        var distinct = currencies.Distinct(StringComparer.Ordinal).ToArray();
+        if (distinct.Length == 0)
+            return (null, new OrderError("missing_currency", "Los ítems no tienen moneda definida."));
+        if (distinct.Length > 1)
             return (null, new OrderError("multiple_currencies", "El pedido debe usar una sola moneda."));
-        var currency = currencies[0];
+        var currency = distinct[0];
 
         var lines = new List<CheckoutLine>();
         decimal subtotal = 0;
+
         foreach (var product in products)
         {
-            var qty = normalized[product.Id];
+            var qty = productQty[product.Id];
             if (product.StockQuantity is int stock && qty > stock)
                 return (null, new OrderError("insufficient_stock", $"Stock insuficiente para {product.Name}."));
             if (!OrderPricing.TryParseDecimal(product.Price, out var unit) || unit < 0)
                 return (null, new OrderError("invalid_price", $"Precio no válido para {product.Name}."));
             var unitRounded = OrderPricing.Round(unit);
             subtotal += unitRounded * qty;
-            lines.Add(new CheckoutLine(product, qty, unitRounded));
+            lines.Add(new CheckoutLine(
+                OrderLineKinds.Product,
+                product.Name,
+                qty,
+                unitRounded,
+                product.Id,
+                null,
+                product.TechnicalSpecs ?? "",
+                null,
+                null,
+                null,
+                product));
         }
+
+        foreach (var service in services)
+        {
+            var qty = serviceQty[service.Id];
+            var unitRounded = OrderPricing.Round(service.FixedPrice);
+            subtotal += unitRounded * qty;
+            lines.Add(new CheckoutLine(
+                OrderLineKinds.Service,
+                service.NombreServicio,
+                qty,
+                unitRounded,
+                null,
+                service.Id,
+                null,
+                service.NombreServicio,
+                service.RecurrenceMonth,
+                service.RecurrenceDay,
+                null));
+        }
+
         subtotal = OrderPricing.Round(subtotal);
 
         decimal deliveryFee = 0;
         double? distanceKm = null;
-        if (deliveryMode == OrderDeliveryModes.Shipping)
+        if (hasProductLines && deliveryMode == OrderDeliveryModes.Shipping)
         {
             if (request.DeliveryLatitude is not double lat || request.DeliveryLongitude is not double lng)
                 return (null, new OrderError("missing_delivery_location", "Falta la ubicación de entrega."));
@@ -534,7 +631,7 @@ public sealed class OrderService(
         }
 
         var total = OrderPricing.Round(subtotal + deliveryFee);
-        return (new CheckoutContext(store, currency, deliveryMode, subtotal, deliveryFee, total, distanceKm, lines), null);
+        return (new CheckoutContext(store, currency, deliveryMode, hasProductLines, subtotal, deliveryFee, total, distanceKm, lines), null);
     }
 
     private Task<OrderRow?> LoadWithLinesAsync(string orderId, CancellationToken cancellationToken)
@@ -590,9 +687,14 @@ public sealed class OrderService(
     private static OrderLineDto MapLine(OrderLineRow l) =>
         new(
             l.Id,
+            l.LineKind,
             l.ProductId,
+            l.ServiceId,
             l.ProductName,
             l.TechnicalSpecs,
+            l.ServiceTipo,
+            l.RecurrenceMonth,
+            l.RecurrenceDay,
             l.Quantity,
             l.UnitPrice,
             OrderPricing.Round(l.UnitPrice * l.Quantity),

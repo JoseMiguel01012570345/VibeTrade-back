@@ -177,12 +177,12 @@ public sealed class OfferService(
         var tags = new List<string>();
         if (!string.IsNullOrWhiteSpace(s.Category))
             tags.Add(s.Category.Trim());
-        if (!string.IsNullOrWhiteSpace(s.TipoServicio))
-            tags.Add(s.TipoServicio.Trim());
+        if (!string.IsNullOrWhiteSpace(s.NombreServicio))
+            tags.Add(s.NombreServicio.Trim());
         tags.Add("Servicio");
 
-        var title = !string.IsNullOrWhiteSpace(s.TipoServicio)
-            ? s.TipoServicio.Trim()
+        var title = !string.IsNullOrWhiteSpace(s.NombreServicio)
+            ? s.NombreServicio.Trim()
             : (!string.IsNullOrWhiteSpace(s.Category) ? s.Category.Trim() : "Servicio");
         var photoUrls = MarketCatalogPhotoRules.CollectServiceOfferGalleryUrls(s);
         var primary = photoUrls.Count > 0 ? photoUrls[0] : MarketCatalogConstants.DefaultServiceOfferImageUrl;
@@ -190,14 +190,13 @@ public sealed class OfferService(
             ? (IReadOnlyList<string>)photoUrls
             : new[] { MarketCatalogConstants.DefaultServiceOfferImageUrl };
 
-        var accepted = CatalogJsonColumnParsing.StringListOrEmpty(s.Monedas);
         var o = new HomeOfferViewDto
         {
             Id = s.Id,
             StoreId = s.StoreId,
             Title = title,
             Price = OfferUtils.FormatServicePriceLine(s),
-            AcceptedCurrencies = accepted,
+            AcceptedCurrencies = string.IsNullOrWhiteSpace(s.CurrencyCode) ? new[] { "USD" } : new[] { s.CurrencyCode.Trim().ToUpperInvariant() },
             Description = (s.Descripcion ?? "").Trim(),
             Tags = tags,
             ImageUrl = primary,
@@ -205,8 +204,8 @@ public sealed class OfferService(
         };
         if (!string.IsNullOrWhiteSpace(s.Category))
             o.Category = s.Category.Trim();
-        if (!string.IsNullOrWhiteSpace(s.TipoServicio))
-            o.TipoServicio = s.TipoServicio.Trim();
+        if (!string.IsNullOrWhiteSpace(s.NombreServicio))
+            o.NombreServicio = s.NombreServicio.Trim();
         if (!string.IsNullOrWhiteSpace(s.Incluye))
             o.Incluye = s.Incluye.Trim();
         if (!string.IsNullOrWhiteSpace(s.NoIncluye))
@@ -252,14 +251,17 @@ public sealed class OfferService(
             Id = s.Id,
             StoreId = s.StoreId,
             Category = s.Category,
-            TipoServicio = s.TipoServicio,
+            NombreServicio = s.NombreServicio,
             Descripcion = s.Descripcion,
             Incluye = s.Incluye,
             NoIncluye = s.NoIncluye,
             Entregables = s.Entregables,
             PropIntelectual = s.PropIntelectual,
             Published = s.Published,
-            Monedas = CatalogJsonColumnParsing.StringListOrEmpty(s.Monedas),
+            FixedPrice = s.FixedPrice,
+            CurrencyCode = string.IsNullOrWhiteSpace(s.CurrencyCode) ? "USD" : s.CurrencyCode,
+            RecurrenceMonth = s.RecurrenceMonth,
+            RecurrenceDay = s.RecurrenceDay,
             CustomFields = CatalogJsonColumnParsing.CustomFieldsListOrEmpty(s.CustomFields),
             PhotoUrls = urls,
             Riesgos = s.Riesgos,
