@@ -13,39 +13,6 @@ namespace VibeTrade.Backend.Features.Notifications;
 /// <summary>In-app notifications, listado/marcado y filas <see cref="ChatNotificationRow"/> (SignalR <c>notificationCreated</c>).</summary>
 public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hub, IMediator mediator) : INotificationService
 {
-    public async Task NotifyOfferCommentAsync(
-        OfferCommentNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(request.RecipientUserId))
-            return;
-
-        var preview = NotificationUtils.TruncatePreview(request.TextPreview);
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        var rid = request.RecipientUserId.Trim();
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = rid,
-            ThreadId = null,
-            MessageId = null,
-            OfferId = request.OfferId,
-            MessagePreview = preview,
-            AuthorStoreName = request.AuthorLabel,
-            AuthorTrustScore = request.AuthorTrust,
-            SenderUserId = request.SenderUserId,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-            ReadAtUtc = null,
-            Kind = "offer_comment",
-        });
-        await db.SaveChangesAsync(cancellationToken);
-
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-            "notificationCreated",
-            new { kind = "offer_comment", offerId = request.OfferId },
-            cancellationToken);
-    }
-
     public async Task NotifyOfferLikeAsync(
         OfferLikeNotificationArgs request,
         CancellationToken cancellationToken = default)
@@ -76,39 +43,6 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
             "notificationCreated",
             new { kind = "offer_like", offerId = oid },
-            cancellationToken);
-    }
-
-    public async Task NotifyQaCommentLikeAsync(
-        QaCommentLikeNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(request.CommentAuthorUserId))
-            return;
-
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        var rid = request.CommentAuthorUserId.Trim();
-        var oid = (request.OfferId ?? "").Trim();
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = rid,
-            ThreadId = null,
-            MessageId = null,
-            OfferId = oid,
-            MessagePreview = "Le dio me gusta a tu comentario.",
-            AuthorStoreName = request.LikerLabel,
-            AuthorTrustScore = request.LikerTrust,
-            SenderUserId = request.LikerSenderUserId,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-            ReadAtUtc = null,
-            Kind = "qa_comment_like",
-        });
-        await db.SaveChangesAsync(cancellationToken);
-
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-            "notificationCreated",
-            new { kind = "qa_comment_like", offerId = oid },
             cancellationToken);
     }
 

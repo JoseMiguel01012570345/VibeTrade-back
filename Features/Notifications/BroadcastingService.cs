@@ -177,15 +177,6 @@ public sealed class BroadcastingService(
     }
 
     /// <inheritdoc />
-    public Task BroadcastOfferCommentsUpdatedAsync(string offerId, CancellationToken cancellationToken = default)
-    {
-        var oid = (offerId ?? "").Trim();
-        if (oid.Length < 2)
-            return Task.CompletedTask;
-        return signalR.SendToOfferAsync(oid, "offerCommentsUpdated", new { offerId = oid }, cancellationToken);
-    }
-
-    /// <inheritdoc />
     public async Task NotifyThreadCreatedToBuyerAsync(ChatThreadDto dto, CancellationToken cancellationToken = default)
     {
         await signalR.SendToUserAsync(dto.BuyerUserId, "threadCreated", new { thread = dto }, cancellationToken);

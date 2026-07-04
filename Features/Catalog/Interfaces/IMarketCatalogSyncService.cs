@@ -5,27 +5,12 @@ namespace VibeTrade.Backend.Features.Catalog.Interfaces;
 /// <summary>Sincroniza tiendas, productos y servicios entre PostgreSQL y el shape JSON del cliente.</summary>
 public interface IMarketCatalogSyncService
 {
-    /// <summary>Aplica el workspace fusionado a tablas relacionales (perfiles, catálogos y/o QA según flags).</summary>
+    /// <summary>Aplica el workspace fusionado a tablas relacionales (perfiles y/o catálogos según flags).</summary>
     Task ApplyCoreAsync(
         MarketWorkspaceState workspaceRoot,
         bool storeProfiles,
         bool catalogs,
-        bool offerQa,
         CancellationToken cancellationToken = default);
-
-    Task<OfferQaComment?> AppendOfferInquiryAsync(
-        string offerId,
-        string text,
-        string? parentId,
-        string askedById,
-        string askedByName,
-        int trustScore,
-        long? createdAtMs,
-        CancellationToken cancellationToken = default);
-
-    Task<string?> TryGetOfferCommentAuthorIdAsync(string offerId, string commentId, CancellationToken cancellationToken = default);
-
-    Task<IReadOnlyList<OfferQaComment>?> GetOfferQaForOfferAsync(string offerId, CancellationToken cancellationToken = default);
 
     Task<PublicOfferCardSnapshot?> TryGetPublicOfferCardAsync(string offerId, CancellationToken cancellationToken = default);
 

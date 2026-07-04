@@ -28,6 +28,12 @@ public sealed class StoreRow
     /// <summary>Descripción del catálogo (pitch).</summary>
     public string Pitch { get; set; } = "";
 
+    /// <summary>
+    /// Comentarios/preguntas públicas de la tienda (jsonb <c>CommentsJson</c>). Mismo formato que el
+    /// Q&amp;A por-oferta (<see cref="OfferQaComment"/>): hilo plano con <c>ParentId</c> para respuestas.
+    /// </summary>
+    public List<OfferQaComment> Comments { get; set; } = new();
+
     /// <summary>Fecha de alta en la plataforma (epoch ms, alineado al cliente).</summary>
     public long JoinedAtMs { get; set; }
 

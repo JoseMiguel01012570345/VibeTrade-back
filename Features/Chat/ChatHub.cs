@@ -58,7 +58,7 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
             ChatHubGroupNames.ForThread(tid));
     }
 
-    /// <summary>Recibe <c>offerCommentsUpdated</c> cuando alguien publica en la ficha (mismo grupo que el broadcast de comentarios en <see cref="BroadcastingService"/>).</summary>
+    /// <summary>Une al grupo <c>offer:{id}</c> para recibir <c>routeTramoSubscriptionsChanged</c> en <c>/offer/emo_*</c> sin ser participante del hilo.</summary>
     public async Task JoinOffer(string offerId)
     {
         if (string.IsNullOrEmpty(await GetConnectionUserIdForHubCallAsync(

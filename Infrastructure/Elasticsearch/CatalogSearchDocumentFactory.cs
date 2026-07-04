@@ -178,7 +178,6 @@ internal static class CatalogSearchDocumentFactory
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "ContentIncluded", p.ContentIncluded);
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "UsageConditions", p.UsageConditions);
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "CustomFields", CatalogSearchEmbeddingTextUtils.CustomFieldsToSearchText(p.CustomFields));
-        CatalogSearchEmbeddingTextUtils.AppendLine(sb, "OfferQa", CatalogSearchEmbeddingTextUtils.OfferQaToSearchText(p.OfferQa));
         CatalogSearchEmbeddingTextUtils.AppendFoldedLine(sb, store.Name, p.Name, p.Category, p.ShortDescription);
         return CatalogSearchEmbeddingTextUtils.Normalize(sb.ToString());
     }
@@ -200,7 +199,6 @@ internal static class CatalogSearchDocumentFactory
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "Dependencias", CatalogSearchEmbeddingTextUtils.ServiceItemsBodyToSearchText(sv.Dependencias));
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "Garantias", CatalogSearchEmbeddingTextUtils.ServiceGarantiasToSearchText(sv.Garantias));
         CatalogSearchEmbeddingTextUtils.AppendLine(sb, "CustomFields", CatalogSearchEmbeddingTextUtils.CustomFieldsToSearchText(sv.CustomFields));
-        CatalogSearchEmbeddingTextUtils.AppendLine(sb, "OfferQa", CatalogSearchEmbeddingTextUtils.OfferQaToSearchText(sv.OfferQa));
         CatalogSearchEmbeddingTextUtils.AppendFoldedLine(sb, store.Name, sv.TipoServicio, sv.Category, sv.Descripcion);
         return CatalogSearchEmbeddingTextUtils.Normalize(sb.ToString());
     }

@@ -192,7 +192,6 @@ public sealed class RecommendationService(
     {
         public const int WindowDays = 30;
         private const double LikeOfferWeight = 1.0d;
-        private const double LikeCommentMultiplier = 0.25d;
 
         public async Task RecomputeAsync(string offerId, CancellationToken cancellationToken = default)
         {
@@ -237,12 +236,8 @@ public sealed class RecommendationService(
             var offerLikes = await db.OfferLikes.AsNoTracking()
                 .CountAsync(x => x.OfferId == offerId && x.CreatedAtUtc >= since, cancellationToken);
 
-            var commentLikes = await db.OfferQaCommentLikes.AsNoTracking()
-                .CountAsync(x => x.OfferId == offerId && x.CreatedAtUtc >= since, cancellationToken);
-
             return interactionWeight
-                + LikeOfferWeight * offerLikes
-                + LikeOfferWeight * LikeCommentMultiplier * commentLikes;
+                + LikeOfferWeight * offerLikes;
         }
     }
 }

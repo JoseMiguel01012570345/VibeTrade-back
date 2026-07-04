@@ -198,9 +198,6 @@ internal static class JsonDemoDataCleanup
 
         if (offerSet.Count > 0)
         {
-            await db.OfferQaCommentLikes
-                .Where(x => offerSet.Contains(x.OfferId))
-                .ExecuteDeleteAsync(cancellationToken);
             await db.OfferLikes
                 .Where(x => offerSet.Contains(x.OfferId))
                 .ExecuteDeleteAsync(cancellationToken);

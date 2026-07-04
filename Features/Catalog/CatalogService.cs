@@ -17,164 +17,8 @@ namespace VibeTrade.Backend.Features.Catalog;
 public sealed class CatalogService(
     AppDbContext db,
     ICatalogSearchLiveIndexSync catalogSearchLiveIndex,
-    IChatService chat,
     IOfferService offerService) : IMarketCatalogSyncService
 {
-    public async Task<OfferQaComment?> AppendOfferInquiryAsync(
-        string offerId,
-        string text,
-        string? parentId,
-        string askedById,
-        string askedByName,
-        int trustScore,
-        long? createdAtMs,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(offerId))
-            throw new ArgumentException("offerId is required.", nameof(offerId));
-
-        var pid = string.IsNullOrWhiteSpace(parentId) ? null : parentId.Trim();
-
-        var now = DateTimeOffset.UtcNow;
-        var qaId = $"qa_{Guid.NewGuid():N}";
-        var createdMs = createdAtMs is long ms && ms > 0 && ms < 4_102_441_920_000L
-            ? ms
-            : now.ToUnixTimeMilliseconds();
-
-        var author = new OfferQaAuthorSnapshot
-        {
-            Id = askedById,
-            Name = askedByName,
-            TrustScore = trustScore,
-        };
-
-        var newItem = new OfferQaComment
-        {
-            Id = qaId,
-            Text = text,
-            Question = text,
-            ParentId = pid,
-            AskedBy = author,
-            Author = author,
-            CreatedAt = createdMs,
-        };
-
-        if (OfferUtils.IsEmergentPublicationId(offerId))
-        {
-            var emergent = await db.EmergentOffers.FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
-            if (emergent is null || emergent.RetractedAtUtc is not null)
-                return null;
-            var eList = emergent.OfferQa.ToList();
-            if (pid is not null && !eList.Any(x => string.Equals(x.Id, pid, StringComparison.Ordinal)))
-                throw new ArgumentException("parentId no corresponde a un comentario de esta oferta.", nameof(parentId));
-            eList.Insert(0, newItem);
-            emergent.OfferQa = eList;
-            await db.SaveChangesAsync(cancellationToken);
-            return newItem;
-        }
-
-        var product = await db.StoreProducts.FindAsync([offerId], cancellationToken);
-        if (product is not null)
-        {
-            var list = product.OfferQa.ToList();
-            if (pid is not null && !list.Any(x => string.Equals(x.Id, pid, StringComparison.Ordinal)))
-                throw new ArgumentException("parentId no corresponde a un comentario de esta oferta.", nameof(parentId));
-            list.Insert(0, newItem);
-            product.OfferQa = list;
-            product.UpdatedAt = now;
-            await db.SaveChangesAsync(cancellationToken);
-            return newItem;
-        }
-
-        var service = await db.StoreServices.FindAsync([offerId], cancellationToken);
-        if (service is not null)
-        {
-            var list = service.OfferQa.ToList();
-            if (pid is not null && !list.Any(x => string.Equals(x.Id, pid, StringComparison.Ordinal)))
-                throw new ArgumentException("parentId no corresponde a un comentario de esta oferta.", nameof(parentId));
-            list.Insert(0, newItem);
-            service.OfferQa = list;
-            service.UpdatedAt = now;
-            await db.SaveChangesAsync(cancellationToken);
-            return newItem;
-        }
-
-        return null;
-    }
-
-    public async Task<IReadOnlyList<OfferQaComment>?> GetOfferQaForOfferAsync(
-        string offerId,
-        CancellationToken cancellationToken = default)
-    {
-        var oid = (offerId ?? "").Trim();
-        if (oid.Length < 2)
-            return null;
-
-        if (OfferUtils.IsEmergentPublicationId(oid))
-        {
-            var emergent = await db.EmergentOffers.AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == oid && x.RetractedAtUtc == null, cancellationToken);
-            return emergent?.OfferQa;
-        }
-
-        var product = await db.StoreProducts.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
-        if (product is not null)
-            return product.OfferQa;
-
-        var service = await db.StoreServices.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
-        return service?.OfferQa;
-    }
-
-    public async Task<string?> TryGetOfferCommentAuthorIdAsync(
-        string offerId,
-        string commentId,
-        CancellationToken cancellationToken = default)
-    {
-        var oid = (offerId ?? "").Trim();
-        var cid = (commentId ?? "").Trim();
-        if (oid.Length < 2 || cid.Length < 2)
-            return null;
-
-        IReadOnlyList<OfferQaComment>? list = null;
-        if (OfferUtils.IsEmergentPublicationId(oid))
-        {
-            var emergent = await db.EmergentOffers.AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == oid && x.RetractedAtUtc == null, cancellationToken);
-            list = emergent?.OfferQa;
-        }
-        else
-        {
-            var product = await db.StoreProducts.AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
-            list = product?.OfferQa;
-            if (list is null || list.Count == 0)
-            {
-                var service = await db.StoreServices.AsNoTracking()
-                    .FirstOrDefaultAsync(x => x.Id == oid, cancellationToken);
-                list = service?.OfferQa;
-            }
-        }
-
-        if (list is null)
-            return null;
-
-        foreach (var o in list)
-        {
-            if (!string.Equals(o.Id, cid, StringComparison.Ordinal))
-                continue;
-            var a = o.Author?.Id?.Trim();
-            if (!string.IsNullOrEmpty(a))
-                return a;
-            var b = o.AskedBy?.Id?.Trim();
-            if (!string.IsNullOrEmpty(b))
-                return b;
-        }
-
-        return null;
-    }
-
     public async Task<Dictionary<string, StoreProfileWorkspaceData>> BuildStoresViewAsync(
         CancellationToken cancellationToken = default)
     {
@@ -485,7 +329,6 @@ public sealed class CatalogService(
         MarketWorkspaceState workspaceRoot,
         bool storeProfiles,
         bool catalogs,
-        bool offerQa,
         CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
@@ -542,9 +385,6 @@ public sealed class CatalogService(
                 MarketCatalogStoreDuplicateGuard.ThrowIfDuplicateNormalizedNames(db);
         }
 
-        if (offerQa)
-            ApplyOfferQaFromWorkspace(workspaceRoot, now);
-
         try
         {
             await db.SaveChangesAsync(cancellationToken);
@@ -552,12 +392,6 @@ public sealed class CatalogService(
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && pg.SqlState == PostgresErrorCodes.UniqueViolation)
         {
             throw new InvalidOperationException(DuplicateStoreNameConflict.Message);
-        }
-
-        if (offerQa)
-        {
-            foreach (var prop in workspaceRoot.Offers)
-                await chat.SyncOfferQaAnswersForOfferAsync(prop.Key, cancellationToken);
         }
 
         if (hasStores && (storeProfiles || catalogs))
@@ -706,36 +540,6 @@ public sealed class CatalogService(
             throw new ArgumentException(
                 "Los servicios de transporte o logística requieren al menos una imagen en la ficha.",
                 CatalogArgumentParams.Validation);
-    }
-
-    private void ApplyOfferQaFromWorkspace(MarketWorkspaceState workspaceRoot, DateTimeOffset now)
-    {
-        if (workspaceRoot.Offers.Count == 0)
-            return;
-
-        foreach (var kv in workspaceRoot.Offers)
-        {
-            if (kv.Value.Qa is null)
-                continue;
-
-            var qaList = kv.Value.Qa;
-            var id = kv.Key;
-
-            var product = db.StoreProducts.Find(id);
-            if (product is not null)
-            {
-                product.OfferQa = qaList;
-                product.UpdatedAt = now;
-                continue;
-            }
-
-            var service = db.StoreServices.Find(id);
-            if (service is not null)
-            {
-                service.OfferQa = qaList;
-                service.UpdatedAt = now;
-            }
-        }
     }
 
     private async Task RemoveStoreOffersFromPersistedWorkspaceAsync(

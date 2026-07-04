@@ -10,7 +10,5 @@ public interface IMarketWorkspaceService
 
     Task SaveStoreCatalogsAsync(WorkspaceStoreCatalogsPutRequest body, CancellationToken cancellationToken = default);
 
-    Task SaveOfferInquiriesAsync(WorkspaceInquiriesPutRequest body, CancellationToken cancellationToken = default);
-
     Task<StoreWithCatalogDetailView?> GetStoreDetailAsync(string storeId, CancellationToken cancellationToken = default);
 }

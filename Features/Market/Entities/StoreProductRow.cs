@@ -59,9 +59,6 @@ public sealed class StoreProductRow
     /// <summary>Campos personalizados (jsonb: <c>CustomFieldsJson</c>).</summary>
     public List<StoreCustomFieldBody> CustomFields { get; set; } = new();
 
-    /// <summary>Preguntas y respuestas públicas (jsonb <c>OfferQaJson</c>).</summary>
-    public List<OfferQaComment> OfferQa { get; set; } = new();
-
     public DateTimeOffset UpdatedAt { get; set; }
 
     /// <summary>Borrado lógico; null = activo en catálogo.</summary>

@@ -74,11 +74,6 @@ public interface IChatService
         IReadOnlyList<string> otherUserIds,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Tras actualizar <c>OfferQaJson</c>, asegura un mensaje de chat del vendedor por cada respuesta (idempotente).
-    /// </summary>
-    Task SyncOfferQaAnswersForOfferAsync(string offerId, CancellationToken cancellationToken = default);
-
     Task<ChatThreadDto?> GetThreadIfVisibleAsync(string userId, string threadId, CancellationToken cancellationToken = default);
 
     /// <summary>

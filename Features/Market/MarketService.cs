@@ -46,19 +46,13 @@ public sealed class MarketService(AppDbContext db, IMarketCatalogSyncService cat
     public Task SaveStoreProfilesAsync(WorkspaceStorePutRequest body, CancellationToken cancellationToken = default) =>
         SaveFromPatchAsync(
             ToStoreProfilesPatch(body),
-            static (c, el, ct) => c.ApplyCoreAsync(el, storeProfiles: true, catalogs: false, offerQa: false, ct),
+            static (c, el, ct) => c.ApplyCoreAsync(el, storeProfiles: true, catalogs: false, ct),
             cancellationToken);
 
     public Task SaveStoreCatalogsAsync(WorkspaceStoreCatalogsPutRequest body, CancellationToken cancellationToken = default) =>
         SaveFromPatchAsync(
             ToStoreCatalogsPatch(body),
-            static (c, el, ct) => c.ApplyCoreAsync(el, storeProfiles: false, catalogs: true, offerQa: false, ct),
-            cancellationToken);
-
-    public Task SaveOfferInquiriesAsync(WorkspaceInquiriesPutRequest body, CancellationToken cancellationToken = default) =>
-        SaveFromPatchAsync(
-            ToOfferInquiriesPatch(body),
-            static (c, el, ct) => c.ApplyCoreAsync(el, storeProfiles: false, catalogs: false, offerQa: true, ct),
+            static (c, el, ct) => c.ApplyCoreAsync(el, storeProfiles: false, catalogs: true, ct),
             cancellationToken);
 
     private async Task SaveFromPatchAsync(
@@ -160,7 +154,4 @@ public sealed class MarketService(AppDbContext db, IMarketCatalogSyncService cat
             patch.StoreCatalogs = new Dictionary<string, StoreCatalogBlockView>(c, StringComparer.Ordinal);
         return patch;
     }
-
-    private static MarketWorkspacePatch ToOfferInquiriesPatch(WorkspaceInquiriesPutRequest body) =>
-        new() { Offers = body.Offers is { Count: > 0 } o ? new Dictionary<string, HomeOfferViewDto>(o, StringComparer.Ordinal) : null };
 }

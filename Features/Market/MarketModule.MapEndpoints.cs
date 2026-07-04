@@ -31,15 +31,11 @@ public static partial class MarketModule
         group.MapPut("/stores/{storeId}/services/{serviceId}", PutStoreServiceAsync)
             .WithMetadata(new RequestSizeLimitAttribute(LargeCatalogBodyBytes));
         group.MapDelete("/stores/{storeId}/services/{serviceId}", DeleteStoreServiceAsync);
-        group.MapPost("/inquiries", PostInquiryAsync);
-        group.MapGet("/offers/{offerId}/qa", GetOfferQaAsync).AllowAnonymous();
         group.MapGet("/offers/{offerId}/card", GetOfferCardAsync).AllowAnonymous();
         group.MapPost("/offers/{offerId}/like", PostOfferLikeAsync).AllowAnonymous();
-        group.MapPost("/offers/{offerId}/qa/{qaCommentId}/like", PostOfferQaCommentLikeAsync).AllowAnonymous();
-        group.MapPut("/inquiries", PutWorkspaceInquiriesAsync)
-            .WithMetadata(new RequestSizeLimitAttribute(LargeCatalogBodyBytes));
-        group.MapPut("/workspace/inquiries", PutWorkspaceInquiriesAsync)
-            .WithMetadata(new RequestSizeLimitAttribute(LargeCatalogBodyBytes));
+        group.MapGet("/stores/{storeId}/comments", GetStoreCommentsAsync).AllowAnonymous();
+        group.MapPost("/stores/{storeId}/comments", PostStoreCommentAsync);
+        group.MapPost("/stores/{storeId}/comments/{commentId}/like", PostStoreCommentLikeAsync).AllowAnonymous();
         group.MapPost("/stores/{storeId}/detail", PostStoreDetailAsync);
         group.MapPost("/stores/by-name/{name}/detail", PostStoreDetailByNameAsync);
 
@@ -105,7 +101,6 @@ public static partial class MarketModule
                 v.Riesgos,
                 v.Dependencias,
                 v.Garantias,
-                v.Qa,
                 v.PublicCommentCount,
                 v.OfferLikeCount,
                 v.ViewerLikedOffer,
@@ -324,119 +319,6 @@ public static partial class MarketModule
         return MapCatalogUpsert(r);
     }
 
-    private static async Task<IResult> PostInquiryAsync(
-        PostInquiryBody body,
-        HttpRequest request,
-        ICurrentUserAccessor currentUser,
-        IAuthService auth,
-        IMarketCatalogSyncService catalog,
-        IRecommendationService recommendations,
-        IChatService chat,
-        INotificationService notifications,
-        IBroadcastingService broadcasting,
-        CancellationToken cancellationToken)
-    {
-        var bearerUserId = currentUser.GetUserId(request);
-        if (bearerUserId is null)
-            return Results.Json(new { error = "auth_required", message = "Inicia sesión para comentar." }, statusCode: StatusCodes.Status401Unauthorized);
-
-        var q = ((body.Question ?? body.Text) ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(body.OfferId) || string.IsNullOrWhiteSpace(q))
-            return Results.BadRequest(new { error = "invalid_inquiry", message = "Indica la oferta y el texto." });
-
-        var askedById = bearerUserId.Trim();
-        var snap = await auth.GetProfileSnapshotByUserIdAsync(askedById, cancellationToken);
-        var askedByName = string.IsNullOrWhiteSpace(snap?.DisplayName) ? "Usuario" : snap!.DisplayName.Trim();
-        var askedByTrust = snap?.TrustScore ?? 0;
-
-        if (q.Length > 12_000)
-            return Results.BadRequest(new { error = "invalid_inquiry", message = "El texto es demasiado largo." });
-
-        var parentId = string.IsNullOrWhiteSpace(body.ParentId) ? null : body.ParentId.Trim();
-        var offerOid = body.OfferId.Trim();
-
-        try
-        {
-            var item = await catalog.AppendOfferInquiryAsync(
-                offerOid,
-                q,
-                parentId,
-                askedById,
-                askedByName,
-                askedByTrust,
-                body.CreatedAt,
-                cancellationToken);
-            if (item is null)
-                return Results.NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
-
-            await recommendations.RecordInteractionAsync(
-                askedById,
-                offerOid,
-                RecommendationInteractionType.Inquiry,
-                cancellationToken);
-
-            var preview = q.Length > 500 ? q[..500] + "…" : q;
-            var sellerId = await chat.GetSellerUserIdForOfferAsync(offerOid, cancellationToken);
-            if (parentId is null)
-            {
-                if (sellerId is not null
-                    && !string.Equals(askedById, sellerId, StringComparison.Ordinal))
-                {
-                    await notifications.NotifyOfferCommentAsync(
-                        new OfferCommentNotificationArgs(
-                            sellerId,
-                            offerOid,
-                            preview,
-                            askedByName,
-                            askedByTrust,
-                            askedById),
-                        cancellationToken);
-                }
-            }
-            else
-            {
-                var parentAuthor = await catalog.TryGetOfferCommentAuthorIdAsync(offerOid, parentId, cancellationToken);
-                if (parentAuthor is not null
-                    && !string.Equals(parentAuthor, askedById, StringComparison.Ordinal))
-                {
-                    await notifications.NotifyOfferCommentAsync(
-                        new OfferCommentNotificationArgs(
-                            parentAuthor,
-                            offerOid,
-                            preview,
-                            askedByName,
-                            askedByTrust,
-                            askedById),
-                        cancellationToken);
-                }
-            }
-
-            await broadcasting.BroadcastOfferCommentsUpdatedAsync(offerOid, cancellationToken);
-
-            return Results.Ok(item);
-        }
-        catch (ArgumentException ex)
-        {
-            return Results.BadRequest(new { error = "invalid_inquiry", message = ex.Message });
-        }
-    }
-
-    private static async Task<IResult> GetOfferQaAsync(
-        string offerId,
-        HttpRequest request,
-        ICurrentUserAccessor currentUser,
-        IMarketCatalogSyncService catalog,
-        IOfferService offerService,
-        CancellationToken cancellationToken)
-    {
-        var qa = await catalog.GetOfferQaForOfferAsync(offerId, cancellationToken);
-        if (qa is null)
-            return Results.NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
-        var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer(request, currentUser);
-        var enriched = await offerService.EnrichOfferQaListAsync(offerId, qa, likerKey, cancellationToken);
-        return Results.Ok(enriched);
-    }
-
     private static async Task<IResult> GetOfferCardAsync(
         string offerId,
         HttpRequest request,
@@ -491,65 +373,80 @@ public static partial class MarketModule
         return Results.Ok(new { liked, likeCount });
     }
 
-    private static async Task<IResult> PostOfferQaCommentLikeAsync(
-        string offerId,
-        string qaCommentId,
+    private static async Task<IResult> GetStoreCommentsAsync(
+        string storeId,
+        HttpRequest request,
+        ICurrentUserAccessor currentUser,
+        IStoreCommentsService storeComments,
+        CancellationToken cancellationToken)
+    {
+        var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer(request, currentUser);
+        var list = await storeComments.GetStoreCommentsAsync(storeId, likerKey, cancellationToken);
+        if (list is null)
+            return Results.NotFound(new { error = "store_not_found", message = "No existe una tienda con ese identificador." });
+        return Results.Ok(list);
+    }
+
+    private static async Task<IResult> PostStoreCommentAsync(
+        string storeId,
+        StoreCommentPostBody? body,
+        HttpRequest request,
+        ICurrentUserAccessor currentUser,
+        IAuthService auth,
+        IStoreCommentsService storeComments,
+        CancellationToken cancellationToken)
+    {
+        var bearerUserId = currentUser.GetUserId(request);
+        if (bearerUserId is null)
+            return Results.Json(new { error = "auth_required", message = "Inicia sesión para comentar." }, statusCode: StatusCodes.Status401Unauthorized);
+
+        var text = ((body?.Text) ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return Results.BadRequest(new { error = "invalid_comment", message = "Escribe un comentario." });
+        if (text.Length > 12_000)
+            return Results.BadRequest(new { error = "invalid_comment", message = "El texto es demasiado largo." });
+
+        var authorId = bearerUserId.Trim();
+        var snap = await auth.GetProfileSnapshotByUserIdAsync(authorId, cancellationToken);
+        var authorName = string.IsNullOrWhiteSpace(snap?.DisplayName) ? "Usuario" : snap!.DisplayName.Trim();
+        var authorTrust = snap?.TrustScore ?? 0;
+        var parentId = string.IsNullOrWhiteSpace(body?.ParentId) ? null : body!.ParentId!.Trim();
+
+        try
+        {
+            var item = await storeComments.AppendStoreCommentAsync(
+                storeId,
+                text,
+                parentId,
+                authorId,
+                authorName,
+                authorTrust,
+                body?.CreatedAt,
+                cancellationToken);
+            if (item is null)
+                return Results.NotFound(new { error = "store_not_found", message = "No existe una tienda con ese identificador." });
+            return Results.Ok(item);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = "invalid_comment", message = ex.Message });
+        }
+    }
+
+    private static async Task<IResult> PostStoreCommentLikeAsync(
+        string storeId,
+        string commentId,
         ToggleEngagementBody? body,
         HttpRequest request,
         ICurrentUserAccessor currentUser,
-        IOfferService offerService,
-        IMarketCatalogSyncService catalog,
-        IAuthService auth,
-        INotificationService notifications,
+        IStoreCommentsService storeComments,
         CancellationToken cancellationToken)
     {
         var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer(request, currentUser);
         if (likerKey is null)
             return Results.Json(new { error = "auth_required", message = "Inicia sesión para dar me gusta." }, statusCode: StatusCodes.Status401Unauthorized);
-        if (!await offerService.OfferExistsAsync(offerId, cancellationToken))
-            return Results.NotFound(new { error = "offer_not_found", message = "No existe una oferta con ese identificador." });
-        var (liked, likeCount) = await offerService.ToggleQaCommentLikeAsync(
-            offerId,
-            qaCommentId,
-            likerKey,
-            cancellationToken);
-        if (liked)
-        {
-            var authorId = await catalog.TryGetOfferCommentAuthorIdAsync(offerId, qaCommentId, cancellationToken);
-            var aid = (authorId ?? "").Trim();
-            if (aid.Length > 0 && !string.Equals(aid, "guest", StringComparison.OrdinalIgnoreCase))
-            {
-                var authorProfile = await auth.GetProfileSnapshotByUserIdAsync(aid, cancellationToken);
-                if (authorProfile is not null)
-                {
-                    var (likerSenderId, likerLabel, likerTrust) =
-                        await ResolveEngagementLikerDisplayAsync(likerKey, auth, cancellationToken);
-                    if (!string.Equals(aid, likerSenderId, StringComparison.Ordinal))
-                        await notifications.NotifyQaCommentLikeAsync(
-                            new QaCommentLikeNotificationArgs(aid, offerId, likerLabel, likerTrust, likerSenderId),
-                            cancellationToken);
-                }
-            }
-        }
-
+        var (liked, likeCount) = await storeComments.ToggleStoreCommentLikeAsync(storeId, commentId, likerKey, cancellationToken);
         return Results.Ok(new { liked, likeCount });
-    }
-
-    private static async Task<IResult> PutWorkspaceInquiriesAsync(
-        WorkspaceInquiriesPutRequest body,
-        IMarketWorkspaceService marketWorkspace,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await marketWorkspace.SaveOfferInquiriesAsync(body, cancellationToken);
-        }
-        catch (ArgumentException ex) when (string.Equals(ex.ParamName, CatalogArgumentParams.Currency, StringComparison.Ordinal))
-        {
-            return Results.BadRequest(new { error = "catalog_currency_invalid", message = ex.Message });
-        }
-
-        return Results.Ok();
     }
 
     private static async Task<IResult> PostStoreDetailAsync(

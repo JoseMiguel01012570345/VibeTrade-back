@@ -537,8 +537,7 @@ public static class ChatMarketMessageJsonMapper
         || p.Documents is { Count: > 0 }
         || !string.IsNullOrWhiteSpace(p.VoiceUrl)
         || !string.IsNullOrWhiteSpace(p.Caption)
-        || p.EmbeddedAudio is not null
-        || !string.IsNullOrWhiteSpace(p.OfferQaId);
+        || p.EmbeddedAudio is not null;
 
     private static ChatThreadMessageView? TryMapUnifiedPlatformDominant(
         string id,
@@ -664,8 +663,6 @@ public static class ChatMarketMessageJsonMapper
         };
         if (!string.IsNullOrWhiteSpace(p.Text))
             v.Text = p.Text.Trim();
-        if (!string.IsNullOrWhiteSpace(p.OfferQaId))
-            v.OfferQaId = p.OfferQaId.Trim();
         if (p.Images is { Count: > 0 } imgs)
             v.Images = imgs.Select(img => new ChatMessageImageView { Url = img.Url }).ToList();
         if (!string.IsNullOrWhiteSpace(p.Caption))

@@ -35,8 +35,6 @@ public sealed class RecommendationFeedV2(
         HashSet<string> exclude,
         CancellationToken cancellationToken) =>
         SampleRandomOfferIdsAsync(viewerUserId, take, exclude, includeEmergentInSample: true, cancellationToken);
-    private const double CommentLikeBoostScale = 0.15d;
-    private const double CommentWordWeightMultiplier = 0.25d;
     private const int IdChunkSize = 500;
 
     public async Task<IReadOnlyList<string>?> TryBuildOrderedOfferIdsAsync(
@@ -567,16 +565,7 @@ public sealed class RecommendationFeedV2(
             .Where(s => ids.Contains(s.Id))
             .ToListAsync(cancellationToken);
 
-        var commentIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var p in products)
-            CollectQaIds(p.OfferQa, commentIds);
-        foreach (var s in services)
-            CollectQaIds(s.OfferQa, commentIds);
-
-        var likeCounts = await LoadCommentLikeCountsAsync(ids, commentIds, cancellationToken);
-
         var offerScores = new Dictionary<string, List<double>>(StringComparer.OrdinalIgnoreCase);
-        var commentScores = new Dictionary<string, List<double>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var p in products)
         {
@@ -584,7 +573,6 @@ public sealed class RecommendationFeedV2(
                 continue;
             var mainText = RecommendationUtils.ConcatOfferMainTextProduct(p);
             AddTokens(offerScores, mainText, sw * 1.0d);
-            AddCommentTokens(p.Id, p.OfferQa, sw, likeCounts, commentScores);
         }
 
         foreach (var s in services)
@@ -593,26 +581,14 @@ public sealed class RecommendationFeedV2(
                 continue;
             var mainText = RecommendationUtils.ConcatOfferMainTextService(s);
             AddTokens(offerScores, mainText, sw * 1.0d);
-            AddCommentTokens(s.Id, s.OfferQa, sw, likeCounts, commentScores);
         }
 
         var final = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        var keys = offerScores.Keys.Union(commentScores.Keys, StringComparer.OrdinalIgnoreCase).ToList();
-        foreach (var k in keys)
+        foreach (var kv in offerScores)
         {
-            offerScores.TryGetValue(k, out var oList);
-            commentScores.TryGetValue(k, out var cList);
-            var avgO = oList is { Count: > 0 } ? oList.Average() : double.NaN;
-            var avgC = cList is { Count: > 0 } ? cList.Average() : double.NaN;
-            double v;
-            if (!double.IsNaN(avgO) && !double.IsNaN(avgC))
-                v = Math.Max(avgO, avgC);
-            else if (!double.IsNaN(avgO))
-                v = avgO;
-            else
-                v = avgC;
-            if (!double.IsNaN(v) && v > 0d)
-                final[k] = v;
+            var avgO = kv.Value is { Count: > 0 } ? kv.Value.Average() : double.NaN;
+            if (!double.IsNaN(avgO) && avgO > 0d)
+                final[kv.Key] = avgO;
         }
 
         return final;
@@ -626,65 +602,6 @@ public sealed class RecommendationFeedV2(
             SeedKind.Emergent => Math.Max(0.25d, s.Weight),
             _ => Math.Max(0.25d, s.Weight),
         };
-
-    private static void AddCommentTokens(
-        string offerId,
-        IReadOnlyList<OfferQaComment> items,
-        double seedWeight,
-        IReadOnlyDictionary<string, int> likeCounts,
-        Dictionary<string, List<double>> commentScores)
-    {
-        foreach (var o in items)
-        {
-            var cid = o.Id.Trim();
-            var text = new List<string>();
-            if (!string.IsNullOrWhiteSpace(o.Text))
-                text.Add(o.Text.Trim());
-            if (!string.IsNullOrWhiteSpace(o.Question))
-                text.Add(o.Question.Trim());
-            if (!string.IsNullOrWhiteSpace(o.Answer))
-                text.Add(o.Answer.Trim());
-
-            if (text.Count == 0)
-                continue;
-            var merged = string.Join(' ', text);
-            var likes = cid.Length > 0 && likeCounts.TryGetValue($"{offerId}::{cid}", out var n) ? n : 0;
-            var likeBoost = 1d + CommentLikeBoostScale * Math.Log(1 + likes);
-            var w = seedWeight * CommentWordWeightMultiplier * likeBoost;
-            AddTokens(commentScores, merged, w);
-        }
-    }
-
-    private async Task<Dictionary<string, int>> LoadCommentLikeCountsAsync(
-        IReadOnlyList<string> offerIds,
-        IReadOnlyCollection<string> commentIds,
-        CancellationToken cancellationToken)
-    {
-        if (offerIds.Count == 0 || commentIds.Count == 0)
-            return new Dictionary<string, int>(StringComparer.Ordinal);
-
-        var idList = commentIds.ToList();
-        var rows = await db.OfferQaCommentLikes.AsNoTracking()
-            .Where(x => offerIds.Contains(x.OfferId) && idList.Contains(x.QaCommentId))
-            .GroupBy(x => new { x.OfferId, x.QaCommentId })
-            .Select(g => new { g.Key.OfferId, g.Key.QaCommentId, C = g.Count() })
-            .ToListAsync(cancellationToken);
-
-        var map = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var r in rows)
-            map[r.OfferId + "::" + r.QaCommentId] = r.C;
-        return map;
-    }
-
-    private static void CollectQaIds(IReadOnlyList<OfferQaComment> items, HashSet<string> target)
-    {
-        foreach (var c in items)
-        {
-            var id = c.Id.Trim();
-            if (id.Length > 0)
-                target.Add(id);
-        }
-    }
 
     private async Task<List<(string OfferId, double Score)>> CollectBulkHitsAsync(
         IReadOnlyList<string> bulkWords,

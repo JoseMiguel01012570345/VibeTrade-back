@@ -26,7 +26,6 @@ public sealed class StoreProductCatalogRowView
     public bool Published { get; set; }
     public IReadOnlyList<string> PhotoUrls { get; set; } = Array.Empty<string>();
     public IReadOnlyList<StoreCustomFieldBody> CustomFields { get; set; } = Array.Empty<StoreCustomFieldBody>();
-    public IReadOnlyList<OfferQaComment> Qa { get; set; } = Array.Empty<OfferQaComment>();
     [JsonPropertyName("publicCommentCount")]
     public int? PublicCommentCount { get; set; }
     [JsonPropertyName("offerLikeCount")]
@@ -80,7 +79,6 @@ public sealed class StoreServiceCatalogRowView
     public ServiceRiesgosBody? Riesgos { get; set; }
     public ServiceDependenciasBody? Dependencias { get; set; }
     public ServiceGarantiasBody? Garantias { get; set; }
-    public IReadOnlyList<OfferQaComment> Qa { get; set; } = Array.Empty<OfferQaComment>();
     [JsonPropertyName("publicCommentCount")]
     public int? PublicCommentCount { get; set; }
     [JsonPropertyName("offerLikeCount")]

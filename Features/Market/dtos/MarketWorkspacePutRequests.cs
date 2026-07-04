@@ -34,10 +34,3 @@ public sealed record WorkspaceStoreCatalogsPutRequest
     [JsonPropertyName("storeCatalogs")]
     public Dictionary<string, StoreCatalogBlockView>? StoreCatalogs { get; init; }
 }
-
-/// <summary>Sincronización de bloques <c>qa</c> en ofertas (mapa <c>offers</c> con <c>qa</c> por oferta).</summary>
-public sealed record WorkspaceInquiriesPutRequest
-{
-    [JsonPropertyName("offers")]
-    public Dictionary<string, HomeOfferViewDto>? Offers { get; init; }
-}

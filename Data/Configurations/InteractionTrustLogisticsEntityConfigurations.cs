@@ -19,19 +19,19 @@ public sealed class OfferLikeRowConfiguration : IEntityTypeConfiguration<OfferLi
     }
 }
 
-public sealed class OfferQaCommentLikeRowConfiguration : IEntityTypeConfiguration<OfferQaCommentLikeRow>
+public sealed class StoreCommentLikeRowConfiguration : IEntityTypeConfiguration<StoreCommentLikeRow>
 {
-    public void Configure(EntityTypeBuilder<OfferQaCommentLikeRow> e)
+    public void Configure(EntityTypeBuilder<StoreCommentLikeRow> e)
     {
-        e.ToTable("offer_qa_comment_likes");
+        e.ToTable("store_qa_comment_likes");
         e.HasKey(x => x.Id);
         e.Property(x => x.Id).HasMaxLength(64);
-        e.Property(x => x.OfferId).HasMaxLength(64);
-        e.Property(x => x.QaCommentId).HasMaxLength(64);
+        e.Property(x => x.StoreId).HasMaxLength(64);
+        e.Property(x => x.CommentId).HasMaxLength(64);
         e.Property(x => x.LikerKey).HasMaxLength(96);
         e.Property(x => x.CreatedAtUtc);
-        e.HasIndex(x => new { x.OfferId, x.QaCommentId });
-        e.HasIndex(x => new { x.OfferId, x.QaCommentId, x.LikerKey }).IsUnique();
+        e.HasIndex(x => new { x.StoreId, x.CommentId });
+        e.HasIndex(x => new { x.StoreId, x.CommentId, x.LikerKey }).IsUnique();
         e.HasIndex(x => x.LikerKey);
     }
 }

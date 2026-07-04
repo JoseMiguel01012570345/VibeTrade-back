@@ -61,7 +61,6 @@ public sealed record ChatUnifiedPlatformAgreementBlock
 public sealed record ChatUnifiedMessagePayload : ChatMessagePayload
 {
     public string? Text { get; init; }
-    public string? OfferQaId { get; init; }
     public IReadOnlyList<ChatImageDto>? Images { get; init; }
     public IReadOnlyList<ChatDocumentDto>? Documents { get; init; }
     public string? Caption { get; init; }

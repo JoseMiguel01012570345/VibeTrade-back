@@ -15,8 +15,6 @@ public sealed class ChatThreadMessageView
     public string? Text { get; set; }
     public string? Url { get; set; }
     public int? Seconds { get; set; }
-    [JsonPropertyName("offerQaId")]
-    public string? OfferQaId { get; set; }
     public IReadOnlyList<ChatMessageImageView>? Images { get; set; }
     public string? Caption { get; set; }
     [JsonPropertyName("embeddedAudio")]

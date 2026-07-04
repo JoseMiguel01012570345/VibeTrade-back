@@ -30,7 +30,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ChatNotificationRow> ChatNotifications => Set<ChatNotificationRow>();
     public DbSet<RouteTramoSubscriptionRow> RouteTramoSubscriptions => Set<RouteTramoSubscriptionRow>();
     public DbSet<OfferLikeRow> OfferLikes => Set<OfferLikeRow>();
-    public DbSet<OfferQaCommentLikeRow> OfferQaCommentLikes => Set<OfferQaCommentLikeRow>();
+    public DbSet<StoreCommentLikeRow> StoreCommentLikes => Set<StoreCommentLikeRow>();
     public DbSet<TrustScoreLedgerRow> TrustScoreLedgerRows => Set<TrustScoreLedgerRow>();
     public DbSet<MensualidadPaymentRow> MensualidadPayments => Set<MensualidadPaymentRow>();
     public DbSet<AgreementCurrencyPaymentRow> AgreementCurrencyPayments => Set<AgreementCurrencyPaymentRow>();

@@ -9,6 +9,7 @@ public static partial class MarketModule
     public static IServiceCollection AddMarketFeature(this IServiceCollection services)
     {
         services.AddScoped<IMarketWorkspaceService, MarketService>();
+        services.AddScoped<IStoreCommentsService, StoreCommentsService>();
         return services;
     }
 }

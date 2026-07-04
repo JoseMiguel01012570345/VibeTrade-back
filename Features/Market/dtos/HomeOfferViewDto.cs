@@ -18,8 +18,6 @@ public sealed class HomeOfferViewDto
     public string? ImageUrl { get; set; }
     [JsonPropertyName("imageUrls")]
     public IReadOnlyList<string> ImageUrls { get; set; } = Array.Empty<string>();
-    /// <summary>Null si el JSON no incluye <c>qa</c> (p. ej. parche solo con otras propiedades).</summary>
-    public List<OfferQaComment>? Qa { get; set; }
 
     public string? Category { get; set; }
     [JsonPropertyName("tipoServicio")]

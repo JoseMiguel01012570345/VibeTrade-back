@@ -37,9 +37,6 @@ public sealed class StoreServiceRow
 
     public List<string> PhotoUrls { get; set; } = new();
 
-    /// <summary>Preguntas y respuestas públicas (jsonb <c>OfferQaJson</c>).</summary>
-    public List<OfferQaComment> OfferQa { get; set; } = new();
-
     public DateTimeOffset UpdatedAt { get; set; }
 
     /// <summary>Borrado lógico; null = activo en catálogo.</summary>

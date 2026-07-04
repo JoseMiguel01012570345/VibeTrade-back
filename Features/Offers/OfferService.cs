@@ -11,8 +11,7 @@ namespace VibeTrade.Backend.Features.Offers;
 
 public sealed class OfferService(
     AppDbContext db,
-    IMediator mediator,
-    IOfferPopularityWeightService popularityWeight) : IOfferService
+    IMediator mediator) : IOfferService
 {
     public async Task<bool> OfferExistsAsync(string offerId, CancellationToken cancellationToken = default)
     {
@@ -66,8 +65,7 @@ public sealed class OfferService(
         {
             var oid = kv.Key;
             var obj = kv.Value;
-            var n = obj.Qa?.Count ?? 0;
-            obj.PublicCommentCount = n;
+            obj.PublicCommentCount = 0;
             obj.OfferLikeCount = likeCounts.GetValueOrDefault(oid, 0);
             obj.ViewerLikedOffer = viewerOfferIds is not null && viewerOfferIds.Contains(oid);
         }
@@ -118,7 +116,7 @@ public sealed class OfferService(
             var oid = p.Id?.Trim() ?? "";
             if (oid.Length < 2)
                 continue;
-            p.PublicCommentCount = p.Qa?.Count ?? 0;
+            p.PublicCommentCount = 0;
             p.OfferLikeCount = likeCounts.GetValueOrDefault(oid, 0);
             p.ViewerLikedOffer = viewerOfferIds is not null && viewerOfferIds.Contains(oid);
         }
@@ -128,68 +126,10 @@ public sealed class OfferService(
             var oid = s.Id?.Trim() ?? "";
             if (oid.Length < 2)
                 continue;
-            s.PublicCommentCount = s.Qa?.Count ?? 0;
+            s.PublicCommentCount = 0;
             s.OfferLikeCount = likeCounts.GetValueOrDefault(oid, 0);
             s.ViewerLikedOffer = viewerOfferIds is not null && viewerOfferIds.Contains(oid);
         }
-    }
-
-    public async Task<IReadOnlyList<OfferQaItemResponseDto>> EnrichOfferQaListAsync(
-        string offerId,
-        IReadOnlyList<OfferQaComment> qa,
-        string? likerKey,
-        CancellationToken cancellationToken = default)
-    {
-        var oid = (offerId ?? "").Trim();
-        if (oid.Length < 2)
-            return Array.Empty<OfferQaItemResponseDto>();
-
-        var list = new List<OfferQaItemResponseDto>(qa.Count);
-        foreach (var c in qa)
-        {
-            list.Add(new OfferQaItemResponseDto
-            {
-                Id = c.Id,
-                Text = c.Text,
-                Question = c.Question,
-                ParentId = c.ParentId,
-                AskedBy = c.AskedBy,
-                Author = c.Author,
-                CreatedAt = c.CreatedAt,
-                Answer = c.Answer,
-            });
-        }
-
-        if (list.Count == 0)
-            return list;
-
-        var commentIds = list.Select(x => x.Id).Where(id => id.Length > 0).ToList();
-        if (commentIds.Count == 0)
-            return list;
-
-        var likeCounts = await db.OfferQaCommentLikes.AsNoTracking()
-            .Where(x => x.OfferId == oid && commentIds.Contains(x.QaCommentId))
-            .GroupBy(x => x.QaCommentId)
-            .Select(g => new { QaCommentId = g.Key, C = g.Count() })
-            .ToDictionaryAsync(x => x.QaCommentId, x => x.C, StringComparer.Ordinal, cancellationToken);
-
-        HashSet<string>? viewerLikedIds = null;
-        if (!string.IsNullOrEmpty(likerKey))
-        {
-            viewerLikedIds = (await db.OfferQaCommentLikes.AsNoTracking()
-                .Where(x => x.OfferId == oid && commentIds.Contains(x.QaCommentId) && x.LikerKey == likerKey)
-                .Select(x => x.QaCommentId)
-                .ToListAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
-        }
-
-        foreach (var o in list)
-        {
-            var cid = o.Id;
-            o.LikeCount = likeCounts.GetValueOrDefault(cid, 0);
-            o.ViewerLiked = viewerLikedIds is not null && viewerLikedIds.Contains(cid);
-        }
-
-        return list;
     }
 
     public async Task<(bool Liked, int LikeCount)> ToggleOfferLikeAsync(
@@ -199,52 +139,6 @@ public sealed class OfferService(
     {
         var result = await mediator.Send(new ToggleOfferLikeCommand(offerId, likerKey), cancellationToken);
         return (result.Liked, result.LikeCount);
-    }
-
-    public async Task<(bool Liked, int LikeCount)> ToggleQaCommentLikeAsync(
-        string offerId,
-        string qaCommentId,
-        string likerKey,
-        CancellationToken cancellationToken = default)
-    {
-        var oid = (offerId ?? "").Trim();
-        var cid = (qaCommentId ?? "").Trim();
-        if (oid.Length < 2 || cid.Length < 2 || string.IsNullOrEmpty(likerKey))
-            return (false, 0);
-
-        if (!await OfferExistsAsync(oid, cancellationToken))
-            return (false, 0);
-
-        var existing = await db.OfferQaCommentLikes
-            .FirstOrDefaultAsync(
-                x => x.OfferId == oid && x.QaCommentId == cid && x.LikerKey == likerKey,
-                cancellationToken);
-
-        if (existing is not null)
-        {
-            db.OfferQaCommentLikes.Remove(existing);
-            await db.SaveChangesAsync(cancellationToken);
-            await popularityWeight.RecomputeAsync(oid, cancellationToken);
-            var c = await db.OfferQaCommentLikes.CountAsync(
-                x => x.OfferId == oid && x.QaCommentId == cid,
-                cancellationToken);
-            return (false, c);
-        }
-
-        db.OfferQaCommentLikes.Add(new OfferQaCommentLikeRow
-        {
-            Id = OfferUtils.NewId("oqk_"),
-            OfferId = oid,
-            QaCommentId = cid,
-            LikerKey = likerKey,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-        });
-        await db.SaveChangesAsync(cancellationToken);
-        await popularityWeight.RecomputeAsync(oid, cancellationToken);
-        var c2 = await db.OfferQaCommentLikes.CountAsync(
-            x => x.OfferId == oid && x.QaCommentId == cid,
-            cancellationToken);
-        return (true, c2);
     }
 
     public HomeOfferViewDto FromProductRow(StoreProductRow p)
@@ -275,7 +169,6 @@ public sealed class OfferService(
             Tags = tags,
             ImageUrl = primary,
             ImageUrls = photoUrls,
-            Qa = p.OfferQa ?? new List<OfferQaComment>(),
         };
     }
 
@@ -309,7 +202,6 @@ public sealed class OfferService(
             Tags = tags,
             ImageUrl = primary,
             ImageUrls = imageUrls,
-            Qa = s.OfferQa ?? new List<OfferQaComment>(),
         };
         if (!string.IsNullOrWhiteSpace(s.Category))
             o.Category = s.Category.Trim();
@@ -350,7 +242,6 @@ public sealed class OfferService(
             TransportIncluded = p.TransportIncluded,
             PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(p.PhotoUrls),
             CustomFields = CatalogJsonColumnParsing.CustomFieldsListOrEmpty(p.CustomFields),
-            Qa = p.OfferQa ?? new List<OfferQaComment>(),
         };
 
     public StoreServiceCatalogRowView ServiceCatalogRowFromEntity(StoreServiceRow s)
@@ -374,7 +265,6 @@ public sealed class OfferService(
             Riesgos = s.Riesgos,
             Dependencias = s.Dependencias,
             Garantias = s.Garantias,
-            Qa = s.OfferQa ?? new List<OfferQaComment>(),
         };
     }
 
@@ -466,7 +356,6 @@ public sealed class OfferService(
             baseH.EmergentRouteParadas = paradas;
         }
 
-        baseH.Qa = e.OfferQa ?? new List<OfferQaComment>();
         return baseH;
     }
 }

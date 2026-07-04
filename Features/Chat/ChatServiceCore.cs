@@ -912,10 +912,6 @@ public sealed class ChatServiceCore(
         if (text.Length > 12_000)
             text = text[..12_000];
 
-        string? offerQaId = body.OfferQaId is { } oqs && !string.IsNullOrWhiteSpace(oqs)
-            ? oqs.Trim()
-            : null;
-
         IReadOnlyList<ChatImageDto>? parsedImages = null;
         string? imgCaption = null;
         ChatEmbeddedAudioDto? imgEmbedded = null;
@@ -975,7 +971,6 @@ public sealed class ChatServiceCore(
         return new ChatUnifiedMessagePayload
         {
             Text = text.Length > 0 ? text : null,
-            OfferQaId = offerQaId,
             Images = parsedImages,
             Documents = documents,
             Caption = caption,
@@ -1083,177 +1078,5 @@ public sealed class ChatServiceCore(
         return true;
     }
 
-    private async Task<List<ChatMessageRow>> StageOfferQaAnswerRowsFromProductListAsync(
-        IReadOnlyList<OfferQaComment> qaList,
-        List<ChatThreadRow> threads,
-        IReadOnlyDictionary<string, List<ChatMessageRow>> sellerMsgsCache,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        var hubRows = new List<ChatMessageRow>();
-        foreach (var c in qaList)
-        {
-            if (!TryGetOfferQaSyncEntry(c, out var qaId, out var answer, out var buyerId))
-                continue;
-
-            var thread = threads.FirstOrDefault(t => t.BuyerUserId == buyerId);
-            if (thread is null)
-                continue;
-
-            if (!sellerMsgsCache.TryGetValue(thread.Id, out var sellerMsgs))
-                continue;
-
-            if (SellerThreadAlreadyHasOfferQaAnswer(sellerMsgs, qaId))
-                continue;
-
-            var row = CreateAndStageOfferQaAnswerMessageRow(thread, qaId, answer, now, sellerMsgs, hubRows);
-            await notifications.StageInAppNotificationForMessageRecipientAsync(
-                thread.BuyerUserId,
-                thread,
-                row,
-                answer,
-                thread.SellerUserId,
-                cancellationToken);
-        }
-
-        return hubRows;
-    }
-
-    public async Task SyncOfferQaAnswersForOfferAsync(string offerId, CancellationToken cancellationToken = default)
-    {
-        var oid = (offerId ?? "").Trim();
-        if (oid.Length < 4)
-            return;
-
-        var qaList = await GetOfferQaListForOfferAsync(oid, cancellationToken);
-        if (qaList is null || qaList.Count == 0)
-            return;
-
-        var threads = await GetActiveThreadsForOfferAsync(oid, cancellationToken);
-        if (threads.Count == 0)
-            return;
-
-        var sellerMsgsCache = await BuildSellerOfferQaMessagesCacheAsync(threads, cancellationToken);
-        var now = DateTimeOffset.UtcNow;
-        var hubRows = await StageOfferQaAnswerRowsFromProductListAsync(
-            qaList, threads, sellerMsgsCache, now, cancellationToken);
-
-        if (hubRows.Count == 0)
-            return;
-
-        await db.SaveChangesAsync(cancellationToken);
-
-        await broadcasting.TryNotifySellersThreadCreatedAfterQaMessageInsertSyncAsync(
-            hubRows,
-            threads,
-            MapThreadWithBuyerLabelAsync,
-            cancellationToken);
-
-        var byId = threads.ToDictionary(x => x.Id, StringComparer.Ordinal);
-        var hubItems = new List<(ChatThreadRow Thread, ChatMessageDto Message)>();
-        foreach (var row in hubRows)
-        {
-            if (!byId.TryGetValue(row.ThreadId, out var thread))
-                continue;
-            var senderLabel = await GetParticipantAuthorLabelAsync(thread, row.SenderUserId, cancellationToken);
-            hubItems.Add((thread, ChatMessageDtoFactory.FromRow(row, senderLabel)));
-        }
-
-        if (hubItems.Count > 0)
-            await broadcasting.BroadcastChatMessagesCreatedAsync(hubItems, cancellationToken);
-    }
-
-    private async Task<IReadOnlyList<OfferQaComment>?> GetOfferQaListForOfferAsync(
-        string offerId,
-        CancellationToken cancellationToken)
-    {
-        var product = await db.StoreProducts.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
-        if (product is not null)
-            return product.OfferQa;
-
-        var service = await db.StoreServices.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == offerId, cancellationToken);
-        return service?.OfferQa;
-    }
-
-    private async Task<List<ChatThreadRow>> GetActiveThreadsForOfferAsync(
-        string offerId,
-        CancellationToken cancellationToken) =>
-        await db.ChatThreads
-            .Where(x => x.OfferId == offerId && x.DeletedAtUtc == null)
-            .ToListAsync(cancellationToken);
-
-    private async Task<Dictionary<string, List<ChatMessageRow>>> BuildSellerOfferQaMessagesCacheAsync(
-        List<ChatThreadRow> threads,
-        CancellationToken cancellationToken)
-    {
-        var sellerMsgsCache = new Dictionary<string, List<ChatMessageRow>>(StringComparer.Ordinal);
-        foreach (var th in threads)
-        {
-            var list = await db.ChatMessages.AsNoTracking()
-                .Where(m =>
-                    m.ThreadId == th.Id
-                    && m.SenderUserId == th.SellerUserId
-                    && m.DeletedAtUtc == null)
-                .ToListAsync(cancellationToken);
-            sellerMsgsCache[th.Id] = list;
-        }
-
-        return sellerMsgsCache;
-    }
-
-    private static bool TryGetOfferQaSyncEntry(
-        OfferQaComment c,
-        out string qaId,
-        out string answer,
-        out string buyerId)
-    {
-        qaId = (c.Id ?? "").Trim();
-        answer = (c.Answer ?? "").Trim();
-        buyerId = (c.AskedBy?.Id ?? "").Trim();
-        if (string.IsNullOrEmpty(qaId) || answer.Length == 0)
-            return false;
-        if (string.IsNullOrEmpty(buyerId) || buyerId.Equals("guest", StringComparison.OrdinalIgnoreCase))
-            return false;
-        return true;
-    }
-
-    private static bool SellerThreadAlreadyHasOfferQaAnswer(IReadOnlyList<ChatMessageRow> sellerMsgs, string qaId) =>
-        sellerMsgs.Any(m => m.Payload is ChatUnifiedMessagePayload u && u.OfferQaId == qaId);
-
-    private ChatMessageRow CreateAndStageOfferQaAnswerMessageRow(
-        ChatThreadRow thread,
-        string qaId,
-        string answer,
-        DateTimeOffset now,
-        List<ChatMessageRow> sellerMsgs,
-        List<ChatMessageRow> hubRows)
-    {
-        var msgId = "cmg_" + Guid.NewGuid().ToString("N")[..16];
-        var payloadObj = new ChatUnifiedMessagePayload
-        {
-            Text = answer,
-            OfferQaId = qaId,
-        };
-
-        if (thread.FirstMessageSentAtUtc is null)
-            thread.FirstMessageSentAtUtc = now;
-
-        var row = new ChatMessageRow
-        {
-            Id = msgId,
-            ThreadId = thread.Id,
-            SenderUserId = thread.SellerUserId,
-            Payload = payloadObj,
-            Status = ChatMessageStatus.Sent,
-            CreatedAtUtc = now,
-            UpdatedAtUtc = now,
-        };
-        db.ChatMessages.Add(row);
-        sellerMsgs.Add(row);
-        hubRows.Add(row);
-        return row;
-    }
 }
 

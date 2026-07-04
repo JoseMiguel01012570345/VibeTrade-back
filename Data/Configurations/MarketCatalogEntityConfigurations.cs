@@ -69,6 +69,10 @@ public sealed class StoreRowConfiguration : IEntityTypeConfiguration<StoreRow>
             .HasConversion(EntityValueConversions.StringList())
             .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
         e.Property(x => x.Pitch);
+        e.Property(x => x.Comments)
+            .HasColumnName("CommentsJson")
+            .HasColumnType("jsonb")
+            .HasConversion(OfferQaJson.CreateEfConverter());
         e.Property(x => x.WebsiteUrl).HasMaxLength(2048);
         e.Property(x => x.PricePerKm).HasColumnType("numeric(18,2)").HasDefaultValue(0m);
         e.Property(x => x.PricePerKmCurrencyCode).HasMaxLength(16);
@@ -113,10 +117,6 @@ public sealed class StoreProductRowConfiguration : IEntityTypeConfiguration<Stor
             .HasColumnType("jsonb")
             .HasConversion(EntityValueConversions.CustomFields())
             .Metadata.SetValueComparer(EntityValueConversions.CustomFieldsComparer());
-        e.Property(x => x.OfferQa)
-            .HasColumnName("OfferQaJson")
-            .HasColumnType("jsonb")
-            .HasConversion(OfferQaJson.CreateEfConverter());
         e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
         e.Property(x => x.StockQuantity);
         e.Property(x => x.UnitsSold).HasDefaultValue(0);
@@ -164,10 +164,6 @@ public sealed class StoreServiceRowConfiguration : IEntityTypeConfiguration<Stor
             .HasColumnType("jsonb")
             .HasConversion(EntityValueConversions.StringList())
             .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
-        e.Property(x => x.OfferQa)
-            .HasColumnName("OfferQaJson")
-            .HasColumnType("jsonb")
-            .HasConversion(OfferQaJson.CreateEfConverter());
         e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
         e.Property(x => x.DeletedAtUtc);
         e.HasQueryFilter(s => s.DeletedAtUtc == null);

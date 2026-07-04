@@ -6,16 +6,8 @@ namespace VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
 /// <summary>Envío de notificaciones de chat y eventos relacionados.</summary>
 public interface INotificationService
 {
-    Task NotifyOfferCommentAsync(
-        OfferCommentNotificationArgs request,
-        CancellationToken cancellationToken = default);
-
     Task NotifyOfferLikeAsync(
         OfferLikeNotificationArgs request,
-        CancellationToken cancellationToken = default);
-
-    Task NotifyQaCommentLikeAsync(
-        QaCommentLikeNotificationArgs request,
         CancellationToken cancellationToken = default);
 
     Task NotifyRouteTramoSubscriptionRequestAsync(

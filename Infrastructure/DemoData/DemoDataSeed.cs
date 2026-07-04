@@ -152,7 +152,6 @@ public static class DemoDataSeed
                         Published = p.Published,
                         PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(p.PhotoUrlsJson).ToList(),
                         CustomFields = CatalogJsonColumnParsing.CustomFieldsListOrEmpty(p.CustomFieldsJson).ToList(),
-                        OfferQa = new List<OfferQaComment>(),
                         UpdatedAt = now,
                     });
                 }
@@ -179,7 +178,6 @@ public static class DemoDataSeed
                         Riesgos = new(),
                         Dependencias = new(),
                         Garantias = new(),
-                        OfferQa = new List<OfferQaComment>(),
                         UpdatedAt = now,
                     });
                 }
