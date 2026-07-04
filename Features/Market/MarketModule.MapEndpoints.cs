@@ -33,6 +33,7 @@ public static partial class MarketModule
         group.MapDelete("/stores/{storeId}/services/{serviceId}", DeleteStoreServiceAsync);
         group.MapGet("/offers/{offerId}/card", GetOfferCardAsync).AllowAnonymous();
         group.MapPost("/offers/{offerId}/like", PostOfferLikeAsync).AllowAnonymous();
+        group.MapGet("/stores/{storeId}/catalog/search", SearchStoreCatalogAsync).AllowAnonymous();
         group.MapGet("/stores/{storeId}/comments", GetStoreCommentsAsync).AllowAnonymous();
         group.MapPost("/stores/{storeId}/comments", PostStoreCommentAsync);
         group.MapPost("/stores/{storeId}/comments/{commentId}/like", PostStoreCommentLikeAsync).AllowAnonymous();
@@ -372,6 +373,29 @@ public static partial class MarketModule
         }
 
         return Results.Ok(new { liked, likeCount });
+    }
+
+    private static async Task<IResult> SearchStoreCatalogAsync(
+        string storeId,
+        string? q,
+        HttpRequest request,
+        ICurrentUserAccessor currentUser,
+        IStoreCatalogSearchService catalogSearch,
+        IOfferService offerService,
+        CancellationToken cancellationToken)
+    {
+        var response = await catalogSearch.SearchPublishedCatalogAsync(storeId, q, cancellationToken);
+        if (response is null)
+            return Results.NotFound(new { error = "store_not_found", message = "No existe una tienda con ese identificador." });
+
+        var likerKey = ResolveEngagementLikerKeyForAuthenticatedViewer(request, currentUser);
+        await offerService.EnrichStoreCatalogBlockEngagementAsync(
+            response.Products,
+            response.Services,
+            likerKey,
+            cancellationToken);
+
+        return Results.Ok(response);
     }
 
     private static async Task<IResult> GetStoreCommentsAsync(

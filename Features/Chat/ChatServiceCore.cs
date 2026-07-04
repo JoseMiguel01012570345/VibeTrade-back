@@ -185,7 +185,7 @@ public sealed class ChatServiceCore(
         var sid = (storeId ?? "").Trim();
         var m = (motive ?? "").Trim();
         var phone = (replyPhone ?? "").Trim();
-        if (buyer.Length < 2 || sid.Length < 2 || m.Length < 4 || phone.Length < 6)
+        if (buyer.Length < 2 || sid.Length < 2)
             return null;
 
         var store = await db.Stores.AsNoTracking()
@@ -232,13 +232,16 @@ public sealed class ChatServiceCore(
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        var orderLine = string.IsNullOrWhiteSpace(publicNumber)
-            ? ""
-            : $"\nPedido: {publicNumber.Trim()}";
-        var text = $"[Soporte]\n{motive}\n\nTeléfono: {phone}{orderLine}";
-        await PostMessageAsync(
-            new PostChatMessageArgs(buyer, row.Id, new PostChatMessageBody { Text = text }),
-            cancellationToken).ConfigureAwait(false);
+        if (m.Length >= 4 && phone.Length >= 6)
+        {
+            var orderLine = string.IsNullOrWhiteSpace(publicNumber)
+                ? ""
+                : $"\nPedido: {publicNumber.Trim()}";
+            var text = $"[Soporte]\n{m}\n\nTeléfono: {phone}{orderLine}";
+            await PostMessageAsync(
+                new PostChatMessageArgs(buyer, row.Id, new PostChatMessageBody { Text = text }),
+                cancellationToken).ConfigureAwait(false);
+        }
 
         return await MapThreadWithBuyerLabelAsync(row, cancellationToken).ConfigureAwait(false);
     }

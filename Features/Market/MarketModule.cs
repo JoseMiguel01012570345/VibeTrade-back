@@ -10,6 +10,7 @@ public static partial class MarketModule
     {
         services.AddScoped<IMarketWorkspaceService, MarketService>();
         services.AddScoped<IStoreCommentsService, StoreCommentsService>();
+        services.AddScoped<IStoreCatalogSearchService, StoreCatalogSearchService>();
         return services;
     }
 }

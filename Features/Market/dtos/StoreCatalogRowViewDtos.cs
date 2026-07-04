@@ -114,6 +114,14 @@ public sealed class StoreServiceCatalogRowView
         };
 }
 
+/// <summary>Resultado de búsqueda ILIKE en el catálogo publicado de una tienda.</summary>
+public sealed class StoreCatalogSearchResponse
+{
+    public List<StoreProductCatalogRowView> Products { get; init; } = new();
+
+    public List<StoreServiceCatalogRowView> Services { get; init; } = new();
+}
+
 /// <summary>Bloque <c>storeCatalogs[storeId]</c> en el workspace o detalle de tienda.</summary>
 public sealed class StoreCatalogBlockView
 {

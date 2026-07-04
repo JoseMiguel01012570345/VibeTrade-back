@@ -23,13 +23,10 @@ internal static class MarketCatalogCurrency
 {
     public static void ThrowIfProductCurrencyInvalid(StoreProductPutRequest p, string id)
     {
-        if (string.IsNullOrWhiteSpace(p.MonedaPrecio))
+        var currency = (p.MonedaPrecio ?? "USD").Trim().ToUpperInvariant();
+        if (currency != "USD")
             throw new ArgumentException(
-                $"Producto \"{id}\": la moneda del precio es obligatoria.",
-                CatalogArgumentParams.Currency);
-        if (!CatalogItemHasAtLeastOneAcceptedMoneda(p))
-            throw new ArgumentException(
-                $"Producto \"{id}\": indica al menos una moneda aceptada para el pago.",
+                $"Producto \"{id}\": la moneda del precio debe ser USD.",
                 CatalogArgumentParams.Currency);
     }
 
@@ -304,8 +301,8 @@ internal static class MarketCatalogProductRowMapper
         row.TechnicalSpecs = p.TechnicalSpecs ?? "";
         row.Condition = p.Condition ?? "";
         row.Price = p.Price ?? "";
-        row.MonedaPrecio = p.MonedaPrecio;
-        row.Monedas = MarketCatalogCurrency.BuildMonedasList(p);
+        row.MonedaPrecio = "USD";
+        row.Monedas = new List<string> { "USD" };
         row.TaxesShippingInstall = p.TaxesShippingInstall;
         row.TransportIncluded = p.TransportIncluded == true;
         row.Availability = p.Availability ?? "";

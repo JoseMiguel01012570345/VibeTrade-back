@@ -120,7 +120,7 @@ public static partial class ChatModule
             return Results.BadRequest(new
             {
                 error = "invalid_support_thread",
-                message = "No se pudo abrir el chat de soporte. Revisa el mensaje y el teléfono.",
+                message = "No se pudo abrir el chat de soporte.",
             });
         }
 

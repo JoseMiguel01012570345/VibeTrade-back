@@ -8,8 +8,8 @@ public sealed record CreateSocialGroupBody(IReadOnlyList<string>? MemberUserIds)
 
 public sealed record CreateSupportThreadBody(
     string StoreId,
-    string Motive,
-    string ReplyPhone,
+    string? Motive,
+    string? ReplyPhone,
     string? PublicNumber);
 
 public sealed record AckPendingDeliveryOnLoginResult(int Applied);
