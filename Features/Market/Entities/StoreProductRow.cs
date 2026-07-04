@@ -11,6 +11,15 @@ public sealed class StoreProductRow
 
     public string Category { get; set; } = "";
 
+    /// <summary>Ids de categorías jerárquicas (jsonb: <c>CategoryIdsJson</c>).</summary>
+    public List<string> CategoryIds { get; set; } = new();
+
+    public string? SupplierId { get; set; }
+
+    public StoreSupplierRow? Supplier { get; set; }
+
+    public bool PendingApproval { get; set; }
+
     public string Name { get; set; } = "";
 
     public string? Model { get; set; }

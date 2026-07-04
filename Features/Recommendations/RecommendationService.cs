@@ -176,7 +176,7 @@ public sealed class RecommendationService(
             .ToListAsync(cancellationToken);
         var o = new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
         foreach (var row in rows)
-            o[row.Id] = StoreProfileWorkspaceMapping.FromStoreRow(row);
+            o[row.Id] = MarketWorkspacePersistence.FromStoreRow(row);
         return o;
     }
 

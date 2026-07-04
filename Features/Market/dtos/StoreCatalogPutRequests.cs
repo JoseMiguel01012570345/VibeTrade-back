@@ -23,6 +23,10 @@ public sealed record StoreProductPutRequest
     public string? ContentIncluded { get; init; }
     public string? UsageConditions { get; init; }
     public bool? Published { get; init; }
+    public int? StockQuantity { get; init; }
+    public bool? PendingApproval { get; init; }
+    public string? SupplierId { get; init; }
+    public IReadOnlyList<string>? CategoryIds { get; init; }
     public IReadOnlyList<string>? PhotoUrls { get; init; }
     public IReadOnlyList<StoreCustomFieldBody>? CustomFields { get; init; }
     public int? PublicCommentCount { get; init; }

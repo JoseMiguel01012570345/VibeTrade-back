@@ -24,6 +24,20 @@ public sealed class StoreProductCatalogRowView
     public string? TaxesShippingInstall { get; set; }
     public bool TransportIncluded { get; set; }
     public bool Published { get; set; }
+    [JsonPropertyName("stockQuantity")]
+    public int? StockQuantity { get; set; }
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; set; }
+    [JsonPropertyName("pendingApproval")]
+    public bool PendingApproval { get; set; }
+    [JsonPropertyName("supplierId")]
+    public string? SupplierId { get; set; }
+    [JsonPropertyName("categoryIds")]
+    public IReadOnlyList<string> CategoryIds { get; set; } = Array.Empty<string>();
+    [JsonPropertyName("categoryId")]
+    public string? CategoryId { get; set; }
+    [JsonPropertyName("subcategoryId")]
+    public string? SubcategoryId { get; set; }
     public IReadOnlyList<string> PhotoUrls { get; set; } = Array.Empty<string>();
     public IReadOnlyList<StoreCustomFieldBody> CustomFields { get; set; } = Array.Empty<StoreCustomFieldBody>();
     [JsonPropertyName("publicCommentCount")]
@@ -55,6 +69,10 @@ public sealed class StoreProductCatalogRowView
             ContentIncluded = ContentIncluded,
             UsageConditions = UsageConditions,
             Published = Published,
+            StockQuantity = StockQuantity,
+            PendingApproval = PendingApproval,
+            SupplierId = SupplierId,
+            CategoryIds = CategoryIds.ToList(),
             PhotoUrls = PhotoUrls.ToList(),
             CustomFields = CustomFields is List<StoreCustomFieldBody> l ? l : CustomFields.ToList(),
         };

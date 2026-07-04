@@ -145,7 +145,7 @@ public sealed class BootstrapService(
                 continue;
 
             if (!stores.ContainsKey(store.Id))
-                stores[store.Id] = StoreProfileWorkspaceMapping.FromStoreRow(store);
+                stores[store.Id] = MarketWorkspacePersistence.FromStoreRow(store);
 
             if (!offers.ContainsKey(summ.OfferId))
             {
@@ -162,7 +162,7 @@ public sealed class BootstrapService(
                 }
             }
 
-            var storeData = StoreProfileWorkspaceMapping.FromStoreRow(store);
+            var storeData = MarketWorkspacePersistence.FromStoreRow(store);
             var msgs = await chat.ListMessagesAsync(viewerUserId, summ.Id, cancellationToken);
             var messages = msgs.Select(m => ChatMarketMessageJsonMapper.ToMarketMessage(m, viewerUserId)).ToList();
 

@@ -237,6 +237,13 @@ public sealed class OfferService(
             ContentIncluded = p.ContentIncluded,
             UsageConditions = p.UsageConditions,
             Published = p.Published,
+            StockQuantity = p.StockQuantity,
+            UpdatedAt = p.UpdatedAt,
+            PendingApproval = p.PendingApproval,
+            SupplierId = p.SupplierId,
+            CategoryIds = CatalogJsonColumnParsing.StringListOrEmpty(p.CategoryIds),
+            CategoryId = ResolvePrimaryCategoryId(p.CategoryIds),
+            SubcategoryId = ResolveSubcategoryId(p.CategoryIds),
             TaxesShippingInstall = string.IsNullOrEmpty(p.TaxesShippingInstall) ? null : p.TaxesShippingInstall,
             TransportIncluded = p.TransportIncluded,
             PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(p.PhotoUrls),
@@ -360,4 +367,10 @@ public sealed class OfferService(
 
         return baseH;
     }
+
+    private static string? ResolvePrimaryCategoryId(IReadOnlyList<string> ids) =>
+        ids.Count > 0 ? ids[0] : null;
+
+    private static string? ResolveSubcategoryId(IReadOnlyList<string> ids) =>
+        ids.Count > 1 ? ids[^1] : null;
 }

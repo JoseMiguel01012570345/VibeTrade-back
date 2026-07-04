@@ -9,6 +9,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<StoreRow> Stores => Set<StoreRow>();
     public DbSet<StoreProductRow> StoreProducts => Set<StoreProductRow>();
     public DbSet<StoreServiceRow> StoreServices => Set<StoreServiceRow>();
+    public DbSet<StoreCategoryRow> StoreCategories => Set<StoreCategoryRow>();
+    public DbSet<StoreSupplierRow> StoreSuppliers => Set<StoreSupplierRow>();
+    public DbSet<StoreBannerRow> StoreBanners => Set<StoreBannerRow>();
     public DbSet<StoredMediaRow> StoredMedia => Set<StoredMediaRow>();
     public DbSet<AuthSessionRow> AuthSessions => Set<AuthSessionRow>();
     public DbSet<AuthPendingOtpRow> AuthPendingOtps => Set<AuthPendingOtpRow>();

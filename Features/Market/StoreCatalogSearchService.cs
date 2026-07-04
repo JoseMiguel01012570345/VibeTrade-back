@@ -22,8 +22,7 @@ public sealed class StoreCatalogSearchService(AppDbContext db, IOfferService off
         if (sid.Length < 2)
             return null;
 
-        var storeExists = await db.Stores.AsNoTracking()
-            .AnyAsync(s => s.Id == sid && s.DeletedAtUtc == null, cancellationToken)
+        var storeExists = await InventoryStoreAccess.StoreExistsAsync(db, sid, cancellationToken)
             .ConfigureAwait(false);
         if (!storeExists)
             return null;
@@ -57,8 +56,7 @@ public sealed class StoreCatalogSearchService(AppDbContext db, IOfferService off
         if (sid.Length < 2)
             return null;
 
-        var storeExists = await db.Stores.AsNoTracking()
-            .AnyAsync(s => s.Id == sid && s.DeletedAtUtc == null, cancellationToken)
+        var storeExists = await InventoryStoreAccess.StoreExistsAsync(db, sid, cancellationToken)
             .ConfigureAwait(false);
         if (!storeExists)
             return null;
@@ -161,7 +159,8 @@ public sealed class StoreCatalogSearchService(AppDbContext db, IOfferService off
             storeId,
             query,
             db.StoreProducts.AsNoTracking()
-                .Where(p => p.StoreId == storeId && p.Published && p.DeletedAtUtc == null),
+                .Where(p => p.StoreId == storeId && p.DeletedAtUtc == null)
+                .WherePubliclyVisible(),
             (pat) => (StoreProductRow p) =>
                 EF.Functions.ILike(p.Name, pat) ||
                 EF.Functions.ILike(p.ShortDescription, pat) ||

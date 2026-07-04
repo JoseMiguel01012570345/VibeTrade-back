@@ -310,6 +310,14 @@ internal static class MarketCatalogProductRowMapper
         row.ContentIncluded = p.ContentIncluded ?? "";
         row.UsageConditions = p.UsageConditions ?? "";
         row.Published = p.Published == true;
+        if (p.StockQuantity.HasValue)
+            row.StockQuantity = Math.Max(0, p.StockQuantity.Value);
+        if (p.PendingApproval.HasValue)
+            row.PendingApproval = p.PendingApproval.Value;
+        if (p.SupplierId is not null)
+            row.SupplierId = string.IsNullOrWhiteSpace(p.SupplierId) ? null : p.SupplierId.Trim();
+        if (p.CategoryIds is { Count: > 0 })
+            row.CategoryIds = p.CategoryIds.Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()).Distinct().ToList();
         row.PhotoUrls = p.PhotoUrls is { Count: > 0 } ? p.PhotoUrls.ToList() : new List<string>();
         row.CustomFields = p.CustomFields is not null
             ? p.CustomFields.ToList()

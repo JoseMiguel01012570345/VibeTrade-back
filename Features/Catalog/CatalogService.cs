@@ -25,7 +25,7 @@ public sealed class CatalogService(
         var o = new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
         var list = await db.Stores.AsNoTracking().ToListAsync(cancellationToken);
         foreach (var s in list)
-            o[s.Id] = StoreProfileWorkspaceMapping.FromStoreRow(s);
+            o[s.Id] = MarketWorkspacePersistence.FromStoreRow(s);
         return o;
     }
 
@@ -65,7 +65,7 @@ public sealed class CatalogService(
 
         return new StoreWithCatalogDetailView
         {
-            Store = StoreProfileWorkspaceMapping.FromStoreRow(store),
+            Store = MarketWorkspacePersistence.FromStoreRow(store),
             Catalog = new StoreCatalogBlockView
             {
                 Pitch = store.Pitch,
@@ -198,8 +198,8 @@ public sealed class CatalogService(
         var store = await db.Stores.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == storeId, cancellationToken);
         var storeData = store is null
-            ? StoreProfileWorkspaceMapping.MinimalStub(storeId)
-            : StoreProfileWorkspaceMapping.FromStoreRow(store);
+            ? MarketWorkspacePersistence.MinimalStub(storeId)
+            : MarketWorkspacePersistence.FromStoreRow(store);
         return new PublicOfferCardSnapshot(offerView, storeData);
     }
 

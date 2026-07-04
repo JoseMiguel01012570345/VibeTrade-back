@@ -90,6 +90,18 @@ public sealed class StoreRowConfiguration : IEntityTypeConfiguration<StoreRow>
             .WithOne(x => x.Store)
             .HasForeignKey(x => x.StoreId)
             .OnDelete(DeleteBehavior.Cascade);
+        e.HasMany<StoreCategoryRow>()
+            .WithOne(x => x.Store)
+            .HasForeignKey(x => x.StoreId)
+            .OnDelete(DeleteBehavior.Cascade);
+        e.HasMany<StoreSupplierRow>()
+            .WithOne(x => x.Store)
+            .HasForeignKey(x => x.StoreId)
+            .OnDelete(DeleteBehavior.Cascade);
+        e.HasMany<StoreBannerRow>()
+            .WithOne(x => x.Store)
+            .HasForeignKey(x => x.StoreId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }
 
@@ -120,6 +132,17 @@ public sealed class StoreProductRowConfiguration : IEntityTypeConfiguration<Stor
         e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
         e.Property(x => x.StockQuantity);
         e.Property(x => x.UnitsSold).HasDefaultValue(0);
+        e.Property(x => x.PendingApproval).HasDefaultValue(false);
+        e.Property(x => x.SupplierId).HasMaxLength(64);
+        e.Property(x => x.CategoryIds)
+            .HasColumnName("CategoryIdsJson")
+            .HasColumnType("jsonb")
+            .HasConversion(EntityValueConversions.StringList())
+            .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
+        e.HasOne(x => x.Supplier)
+            .WithMany()
+            .HasForeignKey(x => x.SupplierId)
+            .OnDelete(DeleteBehavior.SetNull);
         e.Property(x => x.DeletedAtUtc);
         e.HasQueryFilter(p => p.DeletedAtUtc == null);
         e.HasIndex(x => x.StoreId);

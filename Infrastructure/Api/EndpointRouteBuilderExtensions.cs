@@ -8,6 +8,7 @@ using VibeTrade.Backend.Features.Debts;
 using VibeTrade.Backend.Features.EmergentOffers;
 using VibeTrade.Backend.Features.Health;
 using VibeTrade.Backend.Features.Logistics;
+using VibeTrade.Backend.Features.Inventory;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Media;
 using VibeTrade.Backend.Features.Notifications;
@@ -50,6 +51,7 @@ public static class EndpointRouteBuilderExtensions
         app.MapChatAgreementsEndpoints();
         app.MapChatEndpoints();
         app.MapMarketEndpoints();
+        app.MapInventoryEndpoints();
         return app;
     }
 }
