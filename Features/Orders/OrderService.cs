@@ -378,7 +378,8 @@ public sealed class OrderService(
             return (null, new OrderError("order_not_found", "No se encontró el pedido."));
         if (!string.Equals(order.BuyerUserId, buyer, StringComparison.Ordinal))
             return (null, new OrderError("forbidden", "Este pedido no te pertenece."));
-        return (MapTracking(order), null);
+        var storeName = await StoreNameForAsync(order.StoreId, cancellationToken).ConfigureAwait(false);
+        return (MapTracking(order, storeName), null);
     }
 
     public async Task<(OrderTrackingDto? Value, OrderError? Error)> DecideClientEvidenceAsync(
@@ -436,7 +437,8 @@ public sealed class OrderService(
                 cancellationToken).ConfigureAwait(false);
         }
 
-        return (MapTracking(order), null);
+        var storeName = await StoreNameForAsync(order.StoreId, cancellationToken).ConfigureAwait(false);
+        return (MapTracking(order, storeName), null);
     }
 
     private sealed record CheckoutLine(StoreProductRow Product, int Quantity, decimal UnitPrice);
@@ -629,12 +631,21 @@ public sealed class OrderService(
             o.CreatedAtUtc,
             o.Lines.OrderBy(l => l.ProductName, StringComparer.Ordinal).Select(MapLine).ToList());
 
-    private static OrderTrackingDto MapTracking(OrderRow o) =>
+    /// <summary>Nombre de la tienda para el comprobante; incluye tiendas dadas de baja (histórico) y cae a "" si falta.</summary>
+    private async Task<string> StoreNameForAsync(string storeId, CancellationToken cancellationToken) =>
+        await db.Stores.AsNoTracking().IgnoreQueryFilters()
+            .Where(s => s.Id == storeId)
+            .Select(s => s.Name)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false) ?? "";
+
+    private static OrderTrackingDto MapTracking(OrderRow o, string storeName) =>
         new(
             o.Id,
             o.PublicNumber,
             o.Status,
             o.StoreId,
+            storeName,
             o.DeliveryMode,
             o.DeliveryAddress,
             o.CurrencyCode,

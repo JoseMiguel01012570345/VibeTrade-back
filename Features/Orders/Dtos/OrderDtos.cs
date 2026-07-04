@@ -95,6 +95,7 @@ public sealed record OrderTrackingDto(
     string PublicNumber,
     string Status,
     string StoreId,
+    string StoreName,
     string DeliveryMode,
     string DeliveryAddress,
     string CurrencyCode,
