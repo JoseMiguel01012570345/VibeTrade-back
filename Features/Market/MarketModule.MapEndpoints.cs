@@ -41,6 +41,7 @@ public static partial class MarketModule
         group.MapPut("/workspace/inquiries", PutWorkspaceInquiriesAsync)
             .WithMetadata(new RequestSizeLimitAttribute(LargeCatalogBodyBytes));
         group.MapPost("/stores/{storeId}/detail", PostStoreDetailAsync);
+        group.MapPost("/stores/by-name/{name}/detail", PostStoreDetailByNameAsync);
 
         return app;
     }
@@ -597,6 +598,46 @@ public static partial class MarketModule
             cancellationToken);
 
         return Results.Ok(root);
+    }
+
+    /// <summary>
+    /// Resuelve el detalle de una tienda por su <b>nombre exacto</b> (normalizado: minúsculas +
+    /// espacios colapsados, igual que el cliente y el índice único). Permite URLs públicas
+    /// <c>{base}/{nombre}</c> en vez de <c>/store/{id}</c>. Reutiliza la misma lógica que la
+    /// resolución por id.
+    /// </summary>
+    private static async Task<IResult> PostStoreDetailByNameAsync(
+        string name,
+        StoreDetailBody? body,
+        HttpRequest request,
+        ICurrentUserAccessor currentUser,
+        IMarketWorkspaceService marketWorkspace,
+        IAuthService auth,
+        IOfferService offerService,
+        AppDbContext appDb,
+        CancellationToken cancellationToken)
+    {
+        var normalized = MarketStoreNameNormalizer.Normalize(name);
+        if (normalized is null)
+            return Results.NotFound();
+
+        // El filtro global de consulta ya excluye tiendas borradas; el índice único garantiza a lo sumo una.
+        var storeId = await appDb.Stores.AsNoTracking()
+            .Where(s => s.NormalizedName == normalized)
+            .Select(s => s.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrEmpty(storeId))
+            return Results.NotFound();
+
+        return await PostStoreDetailAsync(
+            storeId,
+            body,
+            request,
+            currentUser,
+            marketWorkspace,
+            auth,
+            offerService,
+            cancellationToken);
     }
 
     private static IResult MapCatalogUpsert(StoreCatalogUpsertResult r) =>
