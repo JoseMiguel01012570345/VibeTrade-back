@@ -12,4 +12,14 @@ public interface IStoreCatalogSearchService
         string storeId,
         string? query,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sugerencias de texto (nombres de productos/servicios publicados) con <c>ILIKE</c>.
+    /// Devuelve <c>null</c> si la tienda no existe.
+    /// </summary>
+    Task<StoreAutocompleteResponse?> AutocompletePublishedCatalogAsync(
+        string storeId,
+        string? query,
+        int? limit,
+        CancellationToken cancellationToken = default);
 }

@@ -34,6 +34,7 @@ public static partial class MarketModule
         group.MapGet("/offers/{offerId}/card", GetOfferCardAsync).AllowAnonymous();
         group.MapPost("/offers/{offerId}/like", PostOfferLikeAsync).AllowAnonymous();
         group.MapGet("/stores/{storeId}/catalog/search", SearchStoreCatalogAsync).AllowAnonymous();
+        group.MapGet("/stores/{storeId}/catalog/autocomplete", AutocompleteStoreCatalogAsync).AllowAnonymous();
         group.MapGet("/stores/{storeId}/comments", GetStoreCommentsAsync).AllowAnonymous();
         group.MapPost("/stores/{storeId}/comments", PostStoreCommentAsync);
         group.MapPost("/stores/{storeId}/comments/{commentId}/like", PostStoreCommentLikeAsync).AllowAnonymous();
@@ -394,6 +395,24 @@ public static partial class MarketModule
             response.Services,
             likerKey,
             cancellationToken);
+
+        return Results.Ok(response);
+    }
+
+    private static async Task<IResult> AutocompleteStoreCatalogAsync(
+        string storeId,
+        string? q,
+        int? limit,
+        IStoreCatalogSearchService catalogSearch,
+        CancellationToken cancellationToken)
+    {
+        var response = await catalogSearch.AutocompletePublishedCatalogAsync(
+            storeId,
+            q,
+            limit,
+            cancellationToken);
+        if (response is null)
+            return Results.NotFound(new { error = "store_not_found", message = "No existe una tienda con ese identificador." });
 
         return Results.Ok(response);
     }

@@ -77,7 +77,7 @@ public sealed class BearerSessionAuthMiddleware(RequestDelegate next)
     {
         if (method == "GET"
             && path.Value is { } pv
-            && pv.Contains("/catalog/search", StringComparison.OrdinalIgnoreCase)
+            && pv.Contains("/catalog/", StringComparison.OrdinalIgnoreCase)
             && path.StartsWithSegments(new PathString("/api/v1/market/stores")))
             return true;
 

@@ -47,6 +47,111 @@ public sealed class StoreCatalogSearchService(AppDbContext db, IOfferService off
         };
     }
 
+    public async Task<StoreAutocompleteResponse?> AutocompletePublishedCatalogAsync(
+        string storeId,
+        string? query,
+        int? limit,
+        CancellationToken cancellationToken = default)
+    {
+        var sid = (storeId ?? "").Trim();
+        if (sid.Length < 2)
+            return null;
+
+        var storeExists = await db.Stores.AsNoTracking()
+            .AnyAsync(s => s.Id == sid && s.DeletedAtUtc == null, cancellationToken)
+            .ConfigureAwait(false);
+        if (!storeExists)
+            return null;
+
+        var q = (query ?? "").Trim();
+        if (q.Length < 2)
+            return new StoreAutocompleteResponse(Array.Empty<string>());
+
+        if (q.Length > 80)
+            q = q[..80];
+
+        var take = Math.Clamp(limit ?? 10, 1, 25);
+        var perKind = Math.Clamp(take, 1, 15);
+
+        var productNames = await CollectNameSuggestionsAsync(
+            q,
+            perKind,
+            db.StoreProducts.AsNoTracking()
+                .Where(p => p.StoreId == sid && p.Published && p.DeletedAtUtc == null),
+            (pat) => (StoreProductRow p) =>
+                EF.Functions.ILike(p.Name, pat) ||
+                (p.Model != null && EF.Functions.ILike(p.Model, pat)) ||
+                EF.Functions.ILike(p.Category, pat),
+            p => p.Name,
+            p => p.Name,
+            cancellationToken).ConfigureAwait(false);
+
+        var serviceNames = await CollectNameSuggestionsAsync(
+            q,
+            perKind,
+            db.StoreServices.AsNoTracking()
+                .Where(s => s.StoreId == sid
+                    && (s.Published == null || s.Published == true)
+                    && s.DeletedAtUtc == null),
+            (pat) => (StoreServiceRow s) =>
+                EF.Functions.ILike(s.NombreServicio, pat) ||
+                EF.Functions.ILike(s.Category, pat),
+            s => s.NombreServicio,
+            s => s.NombreServicio,
+            cancellationToken).ConfigureAwait(false);
+
+        var merged = productNames
+            .Concat(serviceNames)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(take)
+            .ToList();
+
+        return new StoreAutocompleteResponse(merged);
+    }
+
+    private static async Task<List<string>> CollectNameSuggestionsAsync<T>(
+        string query,
+        int maxTotal,
+        IQueryable<T> baseQuery,
+        Func<string, System.Linq.Expressions.Expression<Func<T, bool>>> matchPattern,
+        System.Linq.Expressions.Expression<Func<T, string>> nameSelector,
+        System.Linq.Expressions.Expression<Func<T, string>> orderSelector,
+        CancellationToken cancellationToken)
+    {
+        var patterns = BuildIlikePatterns(query);
+        var likePrefix = IlikePrefix(query);
+        var allPatterns = new List<string>(patterns.Count + 1) { likePrefix };
+        allPatterns.AddRange(patterns);
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var outNames = new List<string>(maxTotal);
+
+        foreach (var pat in allPatterns.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (seen.Count >= maxTotal)
+                break;
+
+            var remaining = maxTotal - seen.Count;
+            var batch = await baseQuery
+                .Where(matchPattern(pat))
+                .OrderBy(orderSelector)
+                .Select(nameSelector)
+                .Take(remaining)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            foreach (var name in batch)
+            {
+                var trimmed = (name ?? "").Trim();
+                if (trimmed.Length == 0 || !seen.Add(trimmed))
+                    continue;
+                outNames.Add(trimmed);
+            }
+        }
+
+        return outNames;
+    }
+
     private async Task<List<StoreProductRow>> SearchProductsAsync(
         string storeId,
         string query,
