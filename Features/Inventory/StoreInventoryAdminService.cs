@@ -111,7 +111,7 @@ public sealed class StoreInventoryAdminService(AppDbContext db) : IStoreInventor
             Kind = k.Value,
             SortOrder = body.SortOrder ?? 0,
             MediaUrl = body.MediaUrl.Trim(),
-            Active = true,
+            Active = false,
             CreatedAt = now,
             UpdatedAt = now,
         };
