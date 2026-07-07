@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
 
@@ -31,10 +30,15 @@ public sealed class UserAccountConfiguration : IEntityTypeConfiguration<UserAcco
         e.Property(x => x.Instagram).HasMaxLength(256);
         e.Property(x => x.Telegram).HasMaxLength(256);
         e.Property(x => x.XAccount).HasMaxLength(256);
-        e.Property(x => x.StripeCustomerId).HasMaxLength(96);
-        e.Property(x => x.StripeConnectedAccountId).HasMaxLength(64);
+        e.Property(x => x.PaymentAccountId).HasColumnName("StripeCustomerId").HasMaxLength(96);
+        e.Property(x => x.PayoutDestinationAccountId).HasColumnName("StripeConnectedAccountId").HasMaxLength(64);
         e.Property(x => x.SavedOfferIds)
             .HasColumnName("SavedOfferIdsJson")
+            .HasColumnType("jsonb")
+            .HasConversion(EntityValueConversions.StringList())
+            .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
+        e.Property(x => x.Roles)
+            .HasColumnName("RolesJson")
             .HasColumnType("jsonb")
             .HasConversion(EntityValueConversions.StringList())
             .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
@@ -65,7 +69,13 @@ public sealed class StoreRowConfiguration : IEntityTypeConfiguration<StoreRow>
             .HasConversion(EntityValueConversions.StringList())
             .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
         e.Property(x => x.Pitch);
+        e.Property(x => x.Comments)
+            .HasColumnName("CommentsJson")
+            .HasColumnType("jsonb")
+            .HasConversion(OfferQaJson.CreateEfConverter());
         e.Property(x => x.WebsiteUrl).HasMaxLength(2048);
+        e.Property(x => x.PricePerKm).HasColumnType("numeric(18,2)").HasDefaultValue(0m);
+        e.Property(x => x.PricePerKmCurrencyCode).HasMaxLength(16);
         e.HasIndex(x => x.OwnerUserId);
         e.Property(x => x.DeletedAtUtc);
         e.HasQueryFilter(s => s.DeletedAtUtc == null);
@@ -77,6 +87,18 @@ public sealed class StoreRowConfiguration : IEntityTypeConfiguration<StoreRow>
             .HasForeignKey(x => x.StoreId)
             .OnDelete(DeleteBehavior.Cascade);
         e.HasMany(x => x.Services)
+            .WithOne(x => x.Store)
+            .HasForeignKey(x => x.StoreId)
+            .OnDelete(DeleteBehavior.Cascade);
+        e.HasMany<StoreCategoryRow>()
+            .WithOne(x => x.Store)
+            .HasForeignKey(x => x.StoreId)
+            .OnDelete(DeleteBehavior.Cascade);
+        e.HasMany<StoreSupplierRow>()
+            .WithOne(x => x.Store)
+            .HasForeignKey(x => x.StoreId)
+            .OnDelete(DeleteBehavior.Cascade);
+        e.HasMany<StoreBannerRow>()
             .WithOne(x => x.Store)
             .HasForeignKey(x => x.StoreId)
             .OnDelete(DeleteBehavior.Cascade);
@@ -107,11 +129,20 @@ public sealed class StoreProductRowConfiguration : IEntityTypeConfiguration<Stor
             .HasColumnType("jsonb")
             .HasConversion(EntityValueConversions.CustomFields())
             .Metadata.SetValueComparer(EntityValueConversions.CustomFieldsComparer());
-        e.Property(x => x.OfferQa)
-            .HasColumnName("OfferQaJson")
-            .HasColumnType("jsonb")
-            .HasConversion(OfferQaJson.CreateEfConverter());
         e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
+        e.Property(x => x.StockQuantity);
+        e.Property(x => x.UnitsSold).HasDefaultValue(0);
+        e.Property(x => x.PendingApproval).HasDefaultValue(false);
+        e.Property(x => x.SupplierId).HasMaxLength(64);
+        e.Property(x => x.CategoryIds)
+            .HasColumnName("CategoryIdsJson")
+            .HasColumnType("jsonb")
+            .HasConversion(EntityValueConversions.StringList())
+            .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
+        e.HasOne(x => x.Supplier)
+            .WithMany()
+            .HasForeignKey(x => x.SupplierId)
+            .OnDelete(DeleteBehavior.SetNull);
         e.Property(x => x.DeletedAtUtc);
         e.HasQueryFilter(p => p.DeletedAtUtc == null);
         e.HasIndex(x => x.StoreId);
@@ -141,11 +172,6 @@ public sealed class StoreServiceRowConfiguration : IEntityTypeConfiguration<Stor
             .HasColumnType("jsonb")
             .HasConversion(EntityValueConversions.ServiceGarantias())
             .Metadata.SetValueComparer(EntityValueConversions.ServiceGarantiasComparer());
-        e.Property(x => x.Monedas)
-            .HasColumnName("MonedasJson")
-            .HasColumnType("jsonb")
-            .HasConversion(EntityValueConversions.StringList())
-            .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
         e.Property(x => x.CustomFields)
             .HasColumnName("CustomFieldsJson")
             .HasColumnType("jsonb")
@@ -156,11 +182,11 @@ public sealed class StoreServiceRowConfiguration : IEntityTypeConfiguration<Stor
             .HasColumnType("jsonb")
             .HasConversion(EntityValueConversions.StringList())
             .Metadata.SetValueComparer(EntityValueConversions.StringListComparer());
-        e.Property(x => x.OfferQa)
-            .HasColumnName("OfferQaJson")
-            .HasColumnType("jsonb")
-            .HasConversion(OfferQaJson.CreateEfConverter());
         e.Property(x => x.PopularityWeight).HasDefaultValue(0d);
+        e.Property(x => x.FixedPrice).HasPrecision(18, 4);
+        e.Property(x => x.CurrencyCode).HasMaxLength(8).HasDefaultValue("USD");
+        e.Property(x => x.RecurrenceMonth).HasDefaultValue(1);
+        e.Property(x => x.RecurrenceDay).HasDefaultValue(1);
         e.Property(x => x.DeletedAtUtc);
         e.HasQueryFilter(s => s.DeletedAtUtc == null);
         e.HasIndex(x => x.StoreId);

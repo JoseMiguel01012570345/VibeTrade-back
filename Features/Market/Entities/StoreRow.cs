@@ -1,0 +1,65 @@
+namespace VibeTrade.Backend.Features.Market.Entities;
+
+/// <summary>Tienda: un usuario puede tener varias.</summary>
+public sealed class StoreRow
+{
+    public string Id { get; set; } = "";
+
+    public string OwnerUserId { get; set; } = "";
+
+    public UserAccount Owner { get; set; } = null!;
+
+    public string Name { get; set; } = "";
+
+    /// <summary>lower(trim(collapse spaces)), alineado al cliente; null si el nombre queda vacío (no aplica unicidad).</summary>
+    public string? NormalizedName { get; set; }
+
+    public bool Verified { get; set; }
+
+    public bool TransportIncluded { get; set; }
+
+    public int TrustScore { get; set; } = 80;
+
+    public string? AvatarUrl { get; set; }
+
+    /// <summary>Categorías (jsonb: columna <c>CategoriesJson</c>).</summary>
+    public List<string> Categories { get; set; } = new();
+
+    /// <summary>Descripción del catálogo (pitch).</summary>
+    public string Pitch { get; set; } = "";
+
+    /// <summary>
+    /// Comentarios/preguntas públicas de la tienda (jsonb <c>CommentsJson</c>). Mismo formato que el
+    /// Q&amp;A por-oferta (<see cref="OfferQaComment"/>): hilo plano con <c>ParentId</c> para respuestas.
+    /// </summary>
+    public List<OfferQaComment> Comments { get; set; } = new();
+
+    /// <summary>Fecha de alta en la plataforma (epoch ms, alineado al cliente).</summary>
+    public long JoinedAtMs { get; set; }
+
+    /// <summary>Latitud WGS84 del pin de ubicación (opcional).</summary>
+    public double? LocationLatitude { get; set; }
+
+    /// <summary>Longitud WGS84 del pin de ubicación (opcional).</summary>
+    public double? LocationLongitude { get; set; }
+
+    /// <summary>URL pública del sitio (https), opcional.</summary>
+    public string? WebsiteUrl { get; set; }
+
+    /// <summary>Tarifa de mensajería por km configurada por la tienda (checkout y tramos).</summary>
+    public decimal PricePerKm { get; set; }
+
+    /// <summary>Moneda ISO de <see cref="PricePerKm"/> (por defecto la del catálogo de la tienda).</summary>
+    public string? PricePerKmCurrencyCode { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>Borrado lógico; null = tienda activa.</summary>
+    public DateTimeOffset? DeletedAtUtc { get; set; }
+
+    public ICollection<StoreProductRow> Products { get; set; } = new List<StoreProductRow>();
+
+    public ICollection<StoreServiceRow> Services { get; set; } = new List<StoreServiceRow>();
+}

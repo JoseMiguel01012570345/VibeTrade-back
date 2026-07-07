@@ -86,7 +86,7 @@ internal static class StoreSearchCategoryParser
             .ToList();
 }
 
-/// <summary>Helpers de texto para <see cref="VibeTrade.Backend.Features.Search.Elasticsearch.CatalogSearchDocumentFactory"/> (embedding / campo SearchText).</summary>
+/// <summary>Helpers de texto para <see cref="VibeTrade.Backend.Infrastructure.Elasticsearch.CatalogSearchDocumentFactory"/> (embedding / campo SearchText).</summary>
 internal static class CatalogSearchEmbeddingTextUtils
 {
     internal const int MaxFieldChars = 6000;
@@ -137,7 +137,7 @@ internal static class CatalogSearchEmbeddingTextUtils
             ' ',
             items.Select(c =>
             {
-                var parts = new List<string> { c.Text, c.Question, c.Answer }
+                var parts = new[] { c.Text, c.Question, c.Answer }
                     .Where(s => !string.IsNullOrWhiteSpace(s))
                     .Select(s => s!);
                 return string.Join(' ', parts);

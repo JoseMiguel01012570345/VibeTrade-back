@@ -2,7 +2,6 @@ using System.Linq;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Auth.Dtos;
 using VibeTrade.Backend.Features.Market;
@@ -17,9 +16,34 @@ internal static class EntityValueConversions
     public static ValueConverter<List<string>, string> StringList() =>
         new(
             to => JsonSerializer.Serialize(to, MarketJsonDefaults.Options),
-            from => string.IsNullOrWhiteSpace(from)
-                ? new List<string>()
-                : JsonSerializer.Deserialize<List<string>>(from, MarketJsonDefaults.Options) ?? new List<string>());
+            from => DeserializeStringList(from));
+
+    /// <summary>
+    /// Tolerante a valores legacy o defaults inválidos en <c>jsonb</c> (p. ej. la cadena JSON <c>""</c>
+    /// que quedó como default de columnas List&lt;string&gt;): si no es un array, devuelve lista vacía.
+    /// </summary>
+    private static List<string> DeserializeStringList(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return new List<string>();
+
+        var s = raw.Trim();
+        if (s.Length == 0 || string.Equals(s, "null", StringComparison.OrdinalIgnoreCase))
+            return new List<string>();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(s);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                return new List<string>();
+            var list = JsonSerializer.Deserialize<List<string>>(s, MarketJsonDefaults.Options);
+            return list ?? new List<string>();
+        }
+        catch (JsonException)
+        {
+            return new List<string>();
+        }
+    }
 
     public static ValueComparer<List<string>> StringListComparer() =>
         new(

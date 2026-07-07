@@ -1,22 +1,7 @@
 namespace VibeTrade.Backend.Features.Notifications.NotificationDtos;
 
-public sealed record OfferCommentNotificationArgs(
-    string RecipientUserId,
-    string OfferId,
-    string TextPreview,
-    string AuthorLabel,
-    int AuthorTrust,
-    string SenderUserId);
-
 public sealed record OfferLikeNotificationArgs(
     string SellerUserId,
-    string OfferId,
-    string LikerLabel,
-    int LikerTrust,
-    string LikerSenderUserId);
-
-public sealed record QaCommentLikeNotificationArgs(
-    string CommentAuthorUserId,
     string OfferId,
     string LikerLabel,
     int LikerTrust,

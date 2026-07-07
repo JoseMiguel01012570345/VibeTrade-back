@@ -1,10 +1,9 @@
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market.Dtos;
 
 namespace VibeTrade.Backend.Features.Offers.Interfaces;
 
 /// <summary>
-/// Ofertas: vistas (home, catálogo, emergentes) y engagement (likes, QA enriquecido).
+/// Ofertas: vistas (home, catálogo, emergentes) y engagement (likes de oferta).
 /// </summary>
 public interface IOfferService
 {
@@ -19,20 +18,8 @@ public interface IOfferService
         string? likerKey,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<OfferQaItemResponseDto>> EnrichOfferQaListAsync(
-        string offerId,
-        IReadOnlyList<OfferQaComment> qa,
-        string? likerKey,
-        CancellationToken cancellationToken = default);
-
     Task<(bool Liked, int LikeCount)> ToggleOfferLikeAsync(
         string offerId,
-        string likerKey,
-        CancellationToken cancellationToken = default);
-
-    Task<(bool Liked, int LikeCount)> ToggleQaCommentLikeAsync(
-        string offerId,
-        string qaCommentId,
         string likerKey,
         CancellationToken cancellationToken = default);
 

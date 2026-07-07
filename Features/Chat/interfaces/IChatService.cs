@@ -1,4 +1,3 @@
-using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Chat.Interfaces;
 
@@ -20,7 +19,8 @@ public sealed record ChatThreadDto(
     DateTimeOffset? BuyerExpelledAtUtc = null,
     DateTimeOffset? SellerExpelledAtUtc = null,
     bool IsSocialGroup = false,
-    string? SocialGroupTitle = null);
+    string? SocialGroupTitle = null,
+    bool IsSupportThread = false);
 
 public sealed record ChatThreadMemberDto(string UserId, string? DisplayName, string? AvatarUrl);
 
@@ -52,7 +52,8 @@ public sealed record ChatThreadSummaryDto(
     DateTimeOffset? BuyerExpelledAtUtc = null,
     DateTimeOffset? SellerExpelledAtUtc = null,
     bool IsSocialGroup = false,
-    string? SocialGroupTitle = null);
+    string? SocialGroupTitle = null,
+    bool IsSupportThread = false);
 
 public interface IChatService
 {
@@ -75,15 +76,18 @@ public interface IChatService
         IReadOnlyList<string> otherUserIds,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Tras actualizar <c>OfferQaJson</c>, asegura un mensaje de chat del vendedor por cada respuesta (idempotente).
-    /// </summary>
-    Task SyncOfferQaAnswersForOfferAsync(string offerId, CancellationToken cancellationToken = default);
+    Task<ChatThreadDto?> CreateOrGetSupportThreadAsync(
+        string buyerUserId,
+        string storeId,
+        string motive,
+        string replyPhone,
+        string? publicNumber,
+        CancellationToken cancellationToken = default);
 
     Task<ChatThreadDto?> GetThreadIfVisibleAsync(string userId, string threadId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Comprador/vendedor del hilo (reglas <see cref="T:VibeTrade.Backend.Features.Chat.ChatThreadAccess" />, método UserCanSeeThread)
+    /// Comprador/vendedor del hilo (reglas <see cref="ChatThreadAccess"/>, método UserCanSeeThread)
     /// o transportista con suscripción <c>pending</c> o <c>confirmed</c> (no <c>rejected</c> ni <c>withdrawn</c>).
     /// </summary>
     Task<bool> UserCanAccessThreadRowAsync(

@@ -21,12 +21,8 @@ public sealed record WorkspaceStorePutRequest
     public string? OwnerUserId { get; init; }
     public StoreLocationPointBody? Location { get; init; }
     public string? WebsiteUrl { get; init; }
-}
-
-public sealed record StoreLocationPointBody
-{
-    public double Lat { get; init; }
-    public double Lng { get; init; }
+    public decimal? PricePerKm { get; init; }
+    public string? PricePerKmCurrencyCode { get; init; }
 }
 
 /// <summary>Parche de workspace: <c>stores</c> y/o <c>storeCatalogs</c> por id de tienda.</summary>
@@ -37,11 +33,4 @@ public sealed record WorkspaceStoreCatalogsPutRequest
 
     [JsonPropertyName("storeCatalogs")]
     public Dictionary<string, StoreCatalogBlockView>? StoreCatalogs { get; init; }
-}
-
-/// <summary>Sincronización de bloques <c>qa</c> en ofertas (mapa <c>offers</c> con <c>qa</c> por oferta).</summary>
-public sealed record WorkspaceInquiriesPutRequest
-{
-    [JsonPropertyName("offers")]
-    public Dictionary<string, HomeOfferViewDto>? Offers { get; init; }
 }

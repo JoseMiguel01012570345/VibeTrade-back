@@ -2,14 +2,10 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
-using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
-using VibeTrade.Backend.Features.Market.Interfaces;
-using VibeTrade.Backend.Features.Market;
 
 namespace VibeTrade.Backend.Infrastructure.DemoData;
 
@@ -156,7 +152,6 @@ public static class DemoDataSeed
                         Published = p.Published,
                         PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(p.PhotoUrlsJson).ToList(),
                         CustomFields = CatalogJsonColumnParsing.CustomFieldsListOrEmpty(p.CustomFieldsJson).ToList(),
-                        OfferQa = new List<OfferQaComment>(),
                         UpdatedAt = now,
                     });
                 }
@@ -171,19 +166,17 @@ public static class DemoDataSeed
                         StoreId = sid,
                         Published = s.Published ?? true,
                         Category = s.Category,
-                        TipoServicio = s.TipoServicio,
+                        NombreServicio = s.TipoServicio,
                         Descripcion = s.Descripcion,
                         Incluye = s.Incluye,
                         NoIncluye = s.NoIncluye,
                         Entregables = s.Entregables,
                         PropIntelectual = s.PropIntelectual,
-                        Monedas = CatalogJsonColumnParsing.StringListOrEmpty(s.MonedasJson).ToList(),
                         CustomFields = CatalogJsonColumnParsing.CustomFieldsListOrEmpty(s.CustomFieldsJson).ToList(),
                         PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(s.PhotoUrlsJson).ToList(),
                         Riesgos = new(),
                         Dependencias = new(),
                         Garantias = new(),
-                        OfferQa = new List<OfferQaComment>(),
                         UpdatedAt = now,
                     });
                 }

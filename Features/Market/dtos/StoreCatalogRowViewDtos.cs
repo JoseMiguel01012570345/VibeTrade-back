@@ -24,9 +24,22 @@ public sealed class StoreProductCatalogRowView
     public string? TaxesShippingInstall { get; set; }
     public bool TransportIncluded { get; set; }
     public bool Published { get; set; }
+    [JsonPropertyName("stockQuantity")]
+    public int? StockQuantity { get; set; }
+    [JsonPropertyName("updatedAt")]
+    public DateTimeOffset? UpdatedAt { get; set; }
+    [JsonPropertyName("pendingApproval")]
+    public bool PendingApproval { get; set; }
+    [JsonPropertyName("supplierId")]
+    public string? SupplierId { get; set; }
+    [JsonPropertyName("categoryIds")]
+    public IReadOnlyList<string> CategoryIds { get; set; } = Array.Empty<string>();
+    [JsonPropertyName("categoryId")]
+    public string? CategoryId { get; set; }
+    [JsonPropertyName("subcategoryId")]
+    public string? SubcategoryId { get; set; }
     public IReadOnlyList<string> PhotoUrls { get; set; } = Array.Empty<string>();
     public IReadOnlyList<StoreCustomFieldBody> CustomFields { get; set; } = Array.Empty<StoreCustomFieldBody>();
-    public IReadOnlyList<OfferQaComment> Qa { get; set; } = Array.Empty<OfferQaComment>();
     [JsonPropertyName("publicCommentCount")]
     public int? PublicCommentCount { get; set; }
     [JsonPropertyName("offerLikeCount")]
@@ -56,6 +69,10 @@ public sealed class StoreProductCatalogRowView
             ContentIncluded = ContentIncluded,
             UsageConditions = UsageConditions,
             Published = Published,
+            StockQuantity = StockQuantity,
+            PendingApproval = PendingApproval,
+            SupplierId = SupplierId,
+            CategoryIds = CategoryIds.ToList(),
             PhotoUrls = PhotoUrls.ToList(),
             CustomFields = CustomFields is List<StoreCustomFieldBody> l ? l : CustomFields.ToList(),
         };
@@ -67,20 +84,22 @@ public sealed class StoreServiceCatalogRowView
     public string Id { get; set; } = "";
     public string StoreId { get; set; } = "";
     public string? Category { get; set; }
-    public string? TipoServicio { get; set; }
+    public string? NombreServicio { get; set; }
     public string? Descripcion { get; set; }
     public string? Incluye { get; set; }
     public string? NoIncluye { get; set; }
     public string? Entregables { get; set; }
     public string? PropIntelectual { get; set; }
     public bool? Published { get; set; }
-    public IReadOnlyList<string> Monedas { get; set; } = Array.Empty<string>();
+    public decimal? FixedPrice { get; set; }
+    public string? CurrencyCode { get; set; }
+    public int? RecurrenceMonth { get; set; }
+    public int? RecurrenceDay { get; set; }
     public IReadOnlyList<StoreCustomFieldBody> CustomFields { get; set; } = Array.Empty<StoreCustomFieldBody>();
     public IReadOnlyList<string> PhotoUrls { get; set; } = Array.Empty<string>();
     public ServiceRiesgosBody? Riesgos { get; set; }
     public ServiceDependenciasBody? Dependencias { get; set; }
     public ServiceGarantiasBody? Garantias { get; set; }
-    public IReadOnlyList<OfferQaComment> Qa { get; set; } = Array.Empty<OfferQaComment>();
     [JsonPropertyName("publicCommentCount")]
     public int? PublicCommentCount { get; set; }
     [JsonPropertyName("offerLikeCount")]
@@ -94,8 +113,11 @@ public sealed class StoreServiceCatalogRowView
             Id = Id,
             StoreId = StoreId,
             Category = Category,
-            TipoServicio = TipoServicio,
-            Monedas = Monedas.ToList(),
+            NombreServicio = NombreServicio,
+            FixedPrice = FixedPrice,
+            CurrencyCode = CurrencyCode,
+            RecurrenceMonth = RecurrenceMonth,
+            RecurrenceDay = RecurrenceDay,
             Descripcion = Descripcion,
             Incluye = Incluye,
             NoIncluye = NoIncluye,
@@ -108,6 +130,14 @@ public sealed class StoreServiceCatalogRowView
             CustomFields = CustomFields is List<StoreCustomFieldBody> l ? l : CustomFields.ToList(),
             Published = Published,
         };
+}
+
+/// <summary>Resultado de búsqueda ILIKE en el catálogo publicado de una tienda.</summary>
+public sealed class StoreCatalogSearchResponse
+{
+    public List<StoreProductCatalogRowView> Products { get; init; } = new();
+
+    public List<StoreServiceCatalogRowView> Services { get; init; } = new();
 }
 
 /// <summary>Bloque <c>storeCatalogs[storeId]</c> en el workspace o detalle de tienda.</summary>

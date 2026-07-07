@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Logistics.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
@@ -54,7 +53,6 @@ public sealed class SellerRouteStopDeliveryCustodyService(
             .ConfigureAwait(false);
         if (agreement is null
             || !string.Equals(agreement.Status, "accepted", StringComparison.OrdinalIgnoreCase)
-            || !agreement.IncludeMerchandise
             || !string.Equals((agreement.RouteSheetId ?? "").Trim(), rsid, StringComparison.Ordinal))
             return new SellerRouteStopCustodyResult(false, "agreement_mismatch", "Acuerdo no válido para esta hoja.");
 
@@ -166,7 +164,6 @@ public sealed class SellerRouteStopDeliveryCustodyService(
             .ConfigureAwait(false);
         if (agreement is null
             || !string.Equals(agreement.Status, "accepted", StringComparison.OrdinalIgnoreCase)
-            || !agreement.IncludeMerchandise
             || !string.Equals((agreement.RouteSheetId ?? "").Trim(), rsid, StringComparison.Ordinal))
             return new SellerRouteStopCustodyResult(false, "agreement_mismatch", "Acuerdo no válido para esta hoja.");
 

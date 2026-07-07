@@ -4,15 +4,15 @@ public sealed record AgreementPaymentStatusDto(
     string Currency,
     string Status,
     long TotalAmountMinor,
-    string StripePaymentIntentId,
+    string GatewayTransactionId,
     DateTimeOffset? CompletedAtUtc);
 
-/// <summary>Resultado POST execute: Stripe PaymentIntent, éxito, client_secret opcional (3DS), mensaje Stripe, Accepted, código error.</summary>
+/// <summary>Resultado POST execute: transacción de pasarela, éxito, client_secret opcional, mensaje de error, Accepted, código error.</summary>
 public sealed record AgreementExecutePaymentResultDto(
-    string PaymentIntentId,
+    string GatewayTransactionId,
     bool Succeeded,
     string? ClientSecretForConfirmation,
-    string? StripeErrorMessage,
+    string? PaymentErrorMessage,
     bool Accepted,
     string? ErrorCode,
     string? AgreementCurrencyPaymentId = null);

@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Market.Dtos;
 
@@ -38,19 +37,12 @@ public static class OfferUtils
 
     internal static string? FormatServicePriceLine(StoreServiceRow s)
     {
-        try
+        if (s.FixedPrice > 0)
         {
-            var codes = CatalogJsonColumnParsing.StringListOrEmpty(s.Monedas)
-                .Select(x => x.Trim())
-                .Where(x => x.Length > 0)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            return codes.Count == 0 ? null : string.Join(" · ", codes);
+            var cur = string.IsNullOrWhiteSpace(s.CurrencyCode) ? "USD" : s.CurrencyCode.Trim().ToUpperInvariant();
+            return $"{s.FixedPrice:0.##} {cur}";
         }
-        catch
-        {
-            return "Consultar";
-        }
+        return "Consultar";
     }
 
     internal static string RouteSummaryLine(EmergentRouteSheetSnapshot snap)
@@ -112,11 +104,11 @@ public static partial class TransportServiceQualification
     {
         if (s.Published == false)
             return false;
-        var tipo = (s.TipoServicio ?? "").Trim();
+        var nombre = (s.NombreServicio ?? "").Trim();
         var cat = (s.Category ?? "").Trim();
         if (cat.Length > 0 && TransportTaxonomy.IsMatch(cat))
             return true;
-        if (tipo.Length > 0 && ServiceTransportHint.IsMatch(tipo))
+        if (nombre.Length > 0 && ServiceTransportHint.IsMatch(nombre))
             return true;
         if (cat.Length > 0 && ServiceTransportHint.IsMatch(cat))
             return true;

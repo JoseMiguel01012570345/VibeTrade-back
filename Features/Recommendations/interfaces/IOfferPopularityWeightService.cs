@@ -1,7 +1,7 @@
 namespace VibeTrade.Backend.Features.Recommendations.Interfaces;
 
 /// <summary>
-/// Mantiene <see cref="Data.Entities.StoreProductRow.PopularityWeight"/> / <see cref="Data.Entities.StoreServiceRow.PopularityWeight"/>
+/// Mantiene <see cref="StoreProductRow.PopularityWeight"/> / <see cref="StoreServiceRow.PopularityWeight"/>
 /// alineado con interacciones + likes en ventana deslizante (30 días).
 /// </summary>
 public interface IOfferPopularityWeightService

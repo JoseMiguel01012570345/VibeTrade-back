@@ -9,7 +9,6 @@ public sealed class PostChatMessageBody
     public IReadOnlyList<string>? ReplyToIds { get; init; }
 
     public string? Text { get; init; }
-    public string? OfferQaId { get; init; }
 
     public string? Url { get; init; }
     public int? Seconds { get; init; }

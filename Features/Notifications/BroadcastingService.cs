@@ -1,17 +1,18 @@
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Notifications.BroadcastingDtos;
+using VibeTrade.Backend.Features.Chat.Infrastructure;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
-using VibeTrade.Backend.Utils;
+using VibeTrade.Backend.Infrastructure.SignalR;
+
+namespace VibeTrade.Backend.Features.Notifications;
 
 /// <summary>SignalR: grupos de hilo/usuario/oferta y envío a participantes.</summary>
 public sealed class BroadcastingService(
     AppDbContext db,
-    IHubContext<ChatHub> hub,
+    ISignalRBroadcastAdapter signalR,
     IThreadAccessControlService threadAccess) : IBroadcastingService
 {
     /// <summary>
@@ -95,7 +96,7 @@ public sealed class BroadcastingService(
     {
         var participants = await GetThreadParticipantUserIdSetAsync(thread, cancellationToken);
         foreach (var uid in participants)
-            await hub.Clients.Group(ChatHubGroupNames.ForUser(uid)).SendAsync(method, payload, cancellationToken);
+            await signalR.SendToUserAsync(uid, method, payload, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -122,7 +123,8 @@ public sealed class BroadcastingService(
         if (tid.Length < 4 || rsid.Length < 1 || aid.Length < 8 || sid.Length < 1 || cid.Length < 2)
             return Task.CompletedTask;
 
-        return hub.Clients.Group(ChatHubGroupNames.ForThread(tid)).SendAsync(
+        return signalR.SendToThreadAsync(
+            tid,
             "carrierTelemetryUpdated",
             new
             {
@@ -164,41 +166,20 @@ public sealed class BroadcastingService(
             emergentOfferId = eid.Length >= 4 && OfferUtils.IsEmergentPublicationId(eid) ? eid : null,
         };
 
-        var threadTask = hub.Clients.Group(ChatHubGroupNames.ForThread(tid)).SendAsync(
-            "routeTramoSubscriptionsChanged",
-            payload,
-            cancellationToken);
+        var threadTask = signalR.SendToThreadAsync(tid, "routeTramoSubscriptionsChanged", payload, cancellationToken);
 
         if (payload.emergentOfferId is null)
             return threadTask;
 
         return Task.WhenAll(
             threadTask,
-            hub.Clients.Group(ChatHubGroupNames.ForOffer(payload.emergentOfferId)).SendAsync(
-                "routeTramoSubscriptionsChanged",
-                payload,
-                cancellationToken));
-    }
-
-    /// <inheritdoc />
-    public Task BroadcastOfferCommentsUpdatedAsync(string offerId, CancellationToken cancellationToken = default)
-    {
-        var oid = (offerId ?? "").Trim();
-        if (oid.Length < 2)
-            return Task.CompletedTask;
-        return hub.Clients.Group(ChatHubGroupNames.ForOffer(oid)).SendAsync(
-            "offerCommentsUpdated",
-            new { offerId = oid },
-            cancellationToken);
+            signalR.SendToOfferAsync(payload.emergentOfferId, "routeTramoSubscriptionsChanged", payload, cancellationToken));
     }
 
     /// <inheritdoc />
     public async Task NotifyThreadCreatedToBuyerAsync(ChatThreadDto dto, CancellationToken cancellationToken = default)
     {
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(dto.BuyerUserId)).SendAsync(
-            "threadCreated",
-            new { thread = dto },
-            cancellationToken);
+        await signalR.SendToUserAsync(dto.BuyerUserId, "threadCreated", new { thread = dto }, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -207,10 +188,7 @@ public sealed class BroadcastingService(
         var trimmed = (userId ?? "").Trim();
         if (trimmed.Length < 2)
             return;
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(trimmed)).SendAsync(
-            "threadCreated",
-            new { thread = dto },
-            cancellationToken);
+        await signalR.SendToUserAsync(trimmed, "threadCreated", new { thread = dto }, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -224,10 +202,7 @@ public sealed class BroadcastingService(
             var trimmed = (n ?? "").Trim();
             if (trimmed.Length < 2)
                 continue;
-            await hub.Clients.Group(ChatHubGroupNames.ForUser(trimmed)).SendAsync(
-                    "threadCreated",
-                    new { thread = dto },
-                    cancellationToken)
+            await signalR.SendToUserAsync(trimmed, "threadCreated", new { thread = dto }, cancellationToken)
                 .ConfigureAwait(false);
         }
     }
@@ -316,10 +291,7 @@ public sealed class BroadcastingService(
                 continue;
             if (string.Equals(rid, uid, StringComparison.Ordinal))
                 continue;
-            await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-                "participantLeft",
-                payload,
-                cancellationToken);
+            await signalR.SendToUserAsync(rid, "participantLeft", payload, cancellationToken);
         }
         return true;
     }

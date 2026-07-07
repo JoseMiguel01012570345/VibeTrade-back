@@ -6,14 +6,13 @@ public sealed record BasisLineDto(
     string CurrencyLower,
     long AmountMinor,
     string? RouteSheetId,
-    string? RouteStopId,
-    string? MerchandiseLineId = null);
+    string? RouteStopId);
 
 public sealed record CurrencyTotalsDto(
     string CurrencyLower,
     long SubtotalMinor,
     long ClimateMinor,
-    long StripeFeeMinor,
+    long ProcessorFeeMinor,
     long TotalMinor,
     IReadOnlyList<BasisLineDto> Lines);
 
@@ -32,10 +31,8 @@ public sealed record ExecutePaymentBody(
     string PaymentMethodId,
     string? IdempotencyKey,
     IReadOnlyList<ServicePaymentPickDto>? SelectedServicePayments,
-    IReadOnlyList<string>? SelectedRoutePathIds,
-    IReadOnlyList<string>? SelectedMerchandiseLineIds);
+    IReadOnlyList<string>? SelectedRoutePathIds);
 
 public sealed record CheckoutBreakdownBody(
     IReadOnlyList<ServicePaymentPickDto>? SelectedServicePayments,
-    IReadOnlyList<string>? SelectedRoutePathIds,
-    IReadOnlyList<string>? SelectedMerchandiseLineIds);
+    IReadOnlyList<string>? SelectedRoutePathIds);

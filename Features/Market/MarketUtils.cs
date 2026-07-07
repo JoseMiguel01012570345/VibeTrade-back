@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market;
 
@@ -24,29 +23,42 @@ internal static class MarketCatalogCurrency
 {
     public static void ThrowIfProductCurrencyInvalid(StoreProductPutRequest p, string id)
     {
-        if (string.IsNullOrWhiteSpace(p.MonedaPrecio))
+        var currency = (p.MonedaPrecio ?? "USD").Trim().ToUpperInvariant();
+        if (currency != "USD")
             throw new ArgumentException(
-                $"Producto \"{id}\": la moneda del precio es obligatoria.",
-                CatalogArgumentParams.Currency);
-        if (!CatalogItemHasAtLeastOneAcceptedMoneda(p))
-            throw new ArgumentException(
-                $"Producto \"{id}\": indica al menos una moneda aceptada para el pago.",
+                $"Producto \"{id}\": la moneda del precio debe ser USD.",
                 CatalogArgumentParams.Currency);
     }
 
     public static void ThrowIfServiceCurrencyInvalid(StoreServicePutRequest s, string id)
     {
-        if (!CatalogItemHasAtLeastOneAcceptedMoneda(s))
+        var currency = (s.CurrencyCode ?? "USD").Trim().ToUpperInvariant();
+        if (currency != "USD")
             throw new ArgumentException(
-                $"Servicio \"{id}\": indica al menos una moneda aceptada para el pago.",
+                $"Servicio \"{id}\": la moneda del precio debe ser USD.",
                 CatalogArgumentParams.Currency);
+
+        if (s.Published == true)
+        {
+            if (s.FixedPrice is not decimal price || price <= 0)
+                throw new ArgumentException(
+                    $"Servicio \"{id}\": indica un precio fijo mayor que cero.",
+                    CatalogArgumentParams.Validation);
+            var month = s.RecurrenceMonth ?? 0;
+            if (month < 1 || month > 12)
+                throw new ArgumentException(
+                    $"Servicio \"{id}\": indica un mes de recurrencia válido (1–12).",
+                    CatalogArgumentParams.Validation);
+            var day = s.RecurrenceDay ?? 0;
+            if (day < 1 || day > 31)
+                throw new ArgumentException(
+                    $"Servicio \"{id}\": indica un día de recurrencia válido (1–31).",
+                    CatalogArgumentParams.Validation);
+        }
     }
 
     public static List<string> BuildMonedasList(StoreProductPutRequest p) =>
         BuildMonedasList(p.Monedas, p.Moneda);
-
-    public static List<string> BuildMonedasList(StoreServicePutRequest s) =>
-        BuildMonedasList(s.Monedas, s.Moneda);
 
     public static List<string> BuildMonedasList(IReadOnlyList<string>? monedas, string? moneda)
     {
@@ -71,9 +83,6 @@ internal static class MarketCatalogCurrency
 
     public static bool CatalogItemHasAtLeastOneAcceptedMoneda(StoreProductPutRequest p) =>
         CatalogItemHasAtLeastOneAcceptedMoneda(p.Monedas, p.Moneda);
-
-    public static bool CatalogItemHasAtLeastOneAcceptedMoneda(StoreServicePutRequest s) =>
-        CatalogItemHasAtLeastOneAcceptedMoneda(s.Monedas, s.Moneda);
 
     private static bool CatalogItemHasAtLeastOneAcceptedMoneda(IReadOnlyList<string>? monedas, string? moneda)
     {
@@ -202,7 +211,7 @@ internal static class MarketCatalogPhotoRules
 
     public static bool IsRootRelativeStaticImageUrl(string u)
     {
-        if (!u.StartsWith("/", StringComparison.Ordinal) ||
+        if (!u.StartsWith('/') ||
             u.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
             return false;
         var lower = u.ToLowerInvariant();
@@ -292,8 +301,8 @@ internal static class MarketCatalogProductRowMapper
         row.TechnicalSpecs = p.TechnicalSpecs ?? "";
         row.Condition = p.Condition ?? "";
         row.Price = p.Price ?? "";
-        row.MonedaPrecio = p.MonedaPrecio;
-        row.Monedas = MarketCatalogCurrency.BuildMonedasList(p);
+        row.MonedaPrecio = "USD";
+        row.Monedas = new List<string> { "USD" };
         row.TaxesShippingInstall = p.TaxesShippingInstall;
         row.TransportIncluded = p.TransportIncluded == true;
         row.Availability = p.Availability ?? "";
@@ -301,6 +310,14 @@ internal static class MarketCatalogProductRowMapper
         row.ContentIncluded = p.ContentIncluded ?? "";
         row.UsageConditions = p.UsageConditions ?? "";
         row.Published = p.Published == true;
+        if (p.StockQuantity.HasValue)
+            row.StockQuantity = Math.Max(0, p.StockQuantity.Value);
+        if (p.PendingApproval.HasValue)
+            row.PendingApproval = p.PendingApproval.Value;
+        if (p.SupplierId is not null)
+            row.SupplierId = string.IsNullOrWhiteSpace(p.SupplierId) ? null : p.SupplierId.Trim();
+        if (p.CategoryIds is { Count: > 0 })
+            row.CategoryIds = p.CategoryIds.Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim()).Distinct().ToList();
         row.PhotoUrls = p.PhotoUrls is { Count: > 0 } ? p.PhotoUrls.ToList() : new List<string>();
         row.CustomFields = p.CustomFields is not null
             ? p.CustomFields.ToList()
@@ -315,7 +332,7 @@ internal static class MarketCatalogServiceRowMapper
     {
         row.Published = s.Published;
         row.Category = s.Category ?? "";
-        row.TipoServicio = s.TipoServicio ?? "";
+        row.NombreServicio = s.NombreServicio ?? "";
         row.Descripcion = s.Descripcion ?? "";
         if (s.Riesgos is not null)
             row.Riesgos = s.Riesgos;
@@ -327,7 +344,15 @@ internal static class MarketCatalogServiceRowMapper
         if (s.Garantias is not null)
             row.Garantias = s.Garantias;
         row.PropIntelectual = s.PropIntelectual ?? "";
-        row.Monedas = MarketCatalogCurrency.BuildMonedasList(s);
+        if (s.FixedPrice is decimal fp)
+            row.FixedPrice = fp;
+        row.CurrencyCode = string.IsNullOrWhiteSpace(s.CurrencyCode)
+            ? "USD"
+            : s.CurrencyCode.Trim().ToUpperInvariant();
+        if (s.RecurrenceMonth is int rm)
+            row.RecurrenceMonth = rm;
+        if (s.RecurrenceDay is int rd)
+            row.RecurrenceDay = rd;
         row.CustomFields = s.CustomFields is not null
             ? s.CustomFields.ToList()
             : row.CustomFields;
@@ -354,23 +379,25 @@ internal static class MarketCatalogStoreDuplicateGuard
     }
 }
 
-internal static class MarketCatalogTransportServiceRules
+internal static partial class MarketCatalogTransportServiceRules
 {
-    private static readonly Regex TransportTaxonomy = new(
+    [GeneratedRegex(
         @"transportista|log[ií]stica|logistica|transporte|flete|fulfillment|cadena|env[ií]o|envio|última milla|ultima milla",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex TransportTaxonomy();
 
-    private static readonly Regex ServiceTransportHint = new(
+    [GeneratedRegex(
         @"transporte|log[ií]stica|logistica|flete|transport|cadena|fulfillment|última milla|ultima milla|picking|env[ií]o|almacenaje",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ServiceTransportHint();
 
-    public static bool QualifiesAsTransport(string? category, string? tipoServicio)
+    public static bool QualifiesAsTransport(string? category, string? nombreServicio)
     {
         var cat = (category ?? "").Trim();
-        var tipo = (tipoServicio ?? "").Trim();
-        if (cat.Length > 0 && TransportTaxonomy.IsMatch(cat)) return true;
-        if (tipo.Length > 0 && ServiceTransportHint.IsMatch(tipo)) return true;
-        if (cat.Length > 0 && ServiceTransportHint.IsMatch(cat)) return true;
+        var nombre = (nombreServicio ?? "").Trim();
+        if (cat.Length > 0 && TransportTaxonomy().IsMatch(cat)) return true;
+        if (nombre.Length > 0 && ServiceTransportHint().IsMatch(nombre)) return true;
+        if (cat.Length > 0 && ServiceTransportHint().IsMatch(cat)) return true;
         return false;
     }
 
@@ -378,13 +405,16 @@ internal static class MarketCatalogTransportServiceRules
         photoUrls is { Count: > 0 } && photoUrls.Any(s => !string.IsNullOrWhiteSpace(s));
 }
 
-internal static class MarketStoreNameNormalizer
+internal static partial class MarketStoreNameNormalizer
 {
+    [GeneratedRegex(@"\s+", RegexOptions.None)]
+    private static partial Regex WhitespaceCollapse();
+
     public static string? Normalize(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
             return null;
-        var collapsed = Regex.Replace(name.Trim(), @"\s+", " ");
+        var collapsed = WhitespaceCollapse().Replace(name.Trim(), " ");
         if (collapsed.Length == 0)
             return null;
         return collapsed.ToLowerInvariant();
@@ -411,6 +441,10 @@ internal static class MarketStoreRowWorkspaceMapper
         if (d.Pitch is { } p)
             row.Pitch = p.Trim();
         row.WebsiteUrl = MarketWebsiteUrlNormalizer.TryNormalize(d.WebsiteUrl);
+        if (d.PricePerKm is { } ppk && ppk >= 0)
+            row.PricePerKm = decimal.Round(ppk, 2);
+        if (!string.IsNullOrWhiteSpace(d.PricePerKmCurrencyCode))
+            row.PricePerKmCurrencyCode = d.PricePerKmCurrencyCode.Trim().ToUpperInvariant();
         ApplyLocation(d, row);
     }
 

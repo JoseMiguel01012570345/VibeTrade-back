@@ -6,7 +6,7 @@ namespace VibeTrade.Backend.Features.Recommendations.Feed;
 
 /// <summary>
 /// Ofertas emergentes (hoja de ruta publicada en <c>emergent_offers</c>) para muestreos del feed.
-/// El id devuelto es <see cref="Data.Entities.EmergentOfferRow.Id" /> (prefijo <c>emo_</c>), no el producto/servicio del hilo.
+/// El id devuelto es <see cref="EmergentOfferRow.Id" /> (prefijo <c>emo_</c>), no el producto/servicio del hilo.
 /// </summary>
 public static class EmergentRouteOfferRanking
 {

@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 
@@ -97,7 +96,7 @@ internal static class RecommendationBatchOfferLoader
             item.Store.OwnerUserId,
             item.Store.TrustScore,
             item.UpdatedAt,
-            item.OfferQa.Count,
+            0,
             item.PopularityWeight);
 
     private static OfferCandidate CandidateFromService(StoreServiceRow item) =>
@@ -108,7 +107,7 @@ internal static class RecommendationBatchOfferLoader
             item.Store.OwnerUserId,
             item.Store.TrustScore,
             item.UpdatedAt,
-            item.OfferQa.Count,
+            0,
             item.PopularityWeight);
 
     private static OfferCandidate CandidateFromProduct(StoreProductRow item, string publicationId, int inquiryCount) =>

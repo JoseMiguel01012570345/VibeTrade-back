@@ -23,6 +23,4 @@ public interface ISignalRBroadcastService
     Task BroadcastRouteTramoSubscriptionsChangedAsync(
         RouteTramoSubscriptionsBroadcastArgs request,
         CancellationToken cancellationToken = default);
-
-    Task BroadcastOfferCommentsUpdatedAsync(string offerId, CancellationToken cancellationToken = default);
 }

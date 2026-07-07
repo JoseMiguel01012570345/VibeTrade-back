@@ -1,4 +1,3 @@
-using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.RouteTramoSubscriptions;
 
@@ -38,6 +37,8 @@ public static class SellerExpelDeliveryPolicy
         var state = (deliveryStateRaw ?? "").Trim();
         if (string.Equals(state, RouteStopDeliveryStates.EvidenceAccepted, StringComparison.OrdinalIgnoreCase))
             return false;
+        if (SellerExpelBlockedByEvidenceState(state) is not null)
+            return true;
         if (!string.Equals((currentOwnerUserId ?? "").Trim(), carrierId, StringComparison.Ordinal))
             return false;
         if (string.Equals(state, RouteStopDeliveryStates.IdleStoreCustody, StringComparison.OrdinalIgnoreCase))

@@ -1,8 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
-using VibeTrade.Backend.Utils;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 
 namespace VibeTrade.Backend.Features.Chat;
@@ -47,7 +45,7 @@ public static class ChatMediaUrlRules
     public static bool IsAllowedPersisted(string url)
     {
         url = (url ?? "").Trim();
-        if (url.Length == 0 || !url.StartsWith("/", StringComparison.Ordinal))
+        if (url.Length == 0 || !url.StartsWith('/'))
             return false;
         if (url.Contains("..", StringComparison.Ordinal))
             return false;
@@ -104,7 +102,8 @@ public static class ChatMessageDtoFactory
             t.BuyerExpelledAtUtc,
             t.SellerExpelledAtUtc,
             t.IsSocialGroup,
-            string.IsNullOrWhiteSpace(t.SocialGroupTitle) ? null : t.SocialGroupTitle.Trim());
+            string.IsNullOrWhiteSpace(t.SocialGroupTitle) ? null : t.SocialGroupTitle.Trim(),
+            t.IsSupportThread);
 }
 
 public static class ChatMessagePreviewText
@@ -488,7 +487,8 @@ public static class ChatThreadSummaryMapper
             t.BuyerExpelledAtUtc,
             t.SellerExpelledAtUtc,
             t.IsSocialGroup,
-            string.IsNullOrWhiteSpace(t.SocialGroupTitle) ? null : t.SocialGroupTitle.Trim());
+            string.IsNullOrWhiteSpace(t.SocialGroupTitle) ? null : t.SocialGroupTitle.Trim(),
+            t.IsSupportThread);
     }
 }
 
@@ -539,8 +539,7 @@ public static class ChatMarketMessageJsonMapper
         || p.Documents is { Count: > 0 }
         || !string.IsNullOrWhiteSpace(p.VoiceUrl)
         || !string.IsNullOrWhiteSpace(p.Caption)
-        || p.EmbeddedAudio is not null
-        || !string.IsNullOrWhiteSpace(p.OfferQaId);
+        || p.EmbeddedAudio is not null;
 
     private static ChatThreadMessageView? TryMapUnifiedPlatformDominant(
         string id,
@@ -627,10 +626,10 @@ public static class ChatMarketMessageJsonMapper
             CurrencyLower = p.CurrencyLower,
             SubtotalMinor = p.SubtotalMinor,
             ClimateMinor = p.ClimateMinor,
-            StripeFeeMinorActual = p.StripeFeeMinorActual,
-            StripeFeeMinorEstimated = p.StripeFeeMinorEstimated,
+            ProcessorFeeMinorActual = p.ProcessorFeeMinorActual,
+            ProcessorFeeMinorEstimated = p.ProcessorFeeMinorEstimated,
             TotalChargedMinor = p.TotalChargedMinor,
-            StripePricingUrl = p.StripePricingUrl,
+            PaymentFeePolicyUrl = p.PaymentFeePolicyUrl,
             Lines = p.Lines.Select(x => new ChatPaymentFeeReceiptLineView
             {
                 Label = x.Label,
@@ -666,8 +665,6 @@ public static class ChatMarketMessageJsonMapper
         };
         if (!string.IsNullOrWhiteSpace(p.Text))
             v.Text = p.Text.Trim();
-        if (!string.IsNullOrWhiteSpace(p.OfferQaId))
-            v.OfferQaId = p.OfferQaId.Trim();
         if (p.Images is { Count: > 0 } imgs)
             v.Images = imgs.Select(img => new ChatMessageImageView { Url = img.Url }).ToList();
         if (!string.IsNullOrWhiteSpace(p.Caption))
@@ -788,48 +785,4 @@ public static class ChatMessageJson
             return new ChatUnifiedMessagePayload { Text = "" };
         }
     }
-}
-
-/// <summary>
-/// Serializa y deserializa <see cref="ChatUnifiedMessagePayload"/> en <c>PayloadJson</c> (jsonb).
-/// Sin discriminador <c>type</c> en JSON: el cuerpo es el propio objeto unificado.
-/// </summary>
-internal sealed class ChatMessagePayloadJsonConverter : JsonConverter<ChatMessagePayload>
-{
-    private static readonly JsonSerializerOptions SerializeOptions = ChatMessageJson.ConcreteDeserializeOptions;
-
-    public override ChatMessagePayload Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options)
-    {
-        try
-        {
-            using var doc = JsonDocument.ParseValue(ref reader);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object)
-                return EmptyFallback();
-
-            var json = doc.RootElement.GetRawText();
-            var x = JsonSerializer.Deserialize<ChatUnifiedMessagePayload>(json, SerializeOptions);
-            return x ?? EmptyFallback();
-        }
-        catch
-        {
-            return EmptyFallback();
-        }
-    }
-
-    public override void Write(Utf8JsonWriter writer, ChatMessagePayload value, JsonSerializerOptions options)
-    {
-        if (value is null)
-        {
-            writer.WriteNullValue();
-            return;
-        }
-
-        var unified = value as ChatUnifiedMessagePayload ?? EmptyFallback();
-        JsonSerializer.Serialize(writer, unified, typeof(ChatUnifiedMessagePayload), SerializeOptions);
-    }
-
-    private static ChatUnifiedMessagePayload EmptyFallback() => new() { Text = "" };
 }

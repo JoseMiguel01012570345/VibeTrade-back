@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Agreements;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Logistics;
@@ -43,8 +42,6 @@ public sealed class RoutePathCheckoutQueryService(
     if (ag is null)
       return null;
     if (!string.Equals(ag.Status, "accepted", StringComparison.OrdinalIgnoreCase))
-      return null;
-    if (!ag.IncludeMerchandise)
       return null;
 
     var linkedRs = (ag.RouteSheetId ?? "").Trim();

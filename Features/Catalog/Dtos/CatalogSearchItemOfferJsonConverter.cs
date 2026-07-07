@@ -25,10 +25,12 @@ public sealed class CatalogSearchSlimServiceOffer
     public string Id { get; set; } = "";
     public string Kind { get; set; } = "service";
     public string? Category { get; set; }
-    [JsonPropertyName("tipoServicio")]
-    public string? TipoServicio { get; set; }
-    [JsonPropertyName("acceptedCurrencies")]
-    public IReadOnlyList<string> AcceptedCurrencies { get; set; } = Array.Empty<string>();
+    [JsonPropertyName("nombreServicio")]
+    public string? NombreServicio { get; set; }
+    [JsonPropertyName("fixedPrice")]
+    public decimal? FixedPrice { get; set; }
+    [JsonPropertyName("currencyCode")]
+    public string? CurrencyCode { get; set; }
     [JsonPropertyName("photoUrls")]
     public IReadOnlyList<string> PhotoUrls { get; set; } = Array.Empty<string>();
     public string? Descripcion { get; set; }

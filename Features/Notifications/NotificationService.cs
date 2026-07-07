@@ -1,50 +1,18 @@
+using MediatR;
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Notifications.NotificationDtos;
 using VibeTrade.Backend.Features.Notifications.NotificationInterfaces;
+using VibeTrade.Backend.Features.Shared.Contracts.Events;
 
 namespace VibeTrade.Backend.Features.Notifications;
 
 /// <summary>In-app notifications, listado/marcado y filas <see cref="ChatNotificationRow"/> (SignalR <c>notificationCreated</c>).</summary>
-public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hub) : INotificationService
+public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hub, IMediator mediator) : INotificationService
 {
-    public async Task NotifyOfferCommentAsync(
-        OfferCommentNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(request.RecipientUserId))
-            return;
-
-        var preview = NotificationUtils.TruncatePreview(request.TextPreview);
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        var rid = request.RecipientUserId.Trim();
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = rid,
-            ThreadId = null,
-            MessageId = null,
-            OfferId = request.OfferId,
-            MessagePreview = preview,
-            AuthorStoreName = request.AuthorLabel,
-            AuthorTrustScore = request.AuthorTrust,
-            SenderUserId = request.SenderUserId,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-            ReadAtUtc = null,
-            Kind = "offer_comment",
-        });
-        await db.SaveChangesAsync(cancellationToken);
-
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-            "notificationCreated",
-            new { kind = "offer_comment", offerId = request.OfferId },
-            cancellationToken);
-    }
-
     public async Task NotifyOfferLikeAsync(
         OfferLikeNotificationArgs request,
         CancellationToken cancellationToken = default)
@@ -75,39 +43,6 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
             "notificationCreated",
             new { kind = "offer_like", offerId = oid },
-            cancellationToken);
-    }
-
-    public async Task NotifyQaCommentLikeAsync(
-        QaCommentLikeNotificationArgs request,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(request.CommentAuthorUserId))
-            return;
-
-        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
-        var rid = request.CommentAuthorUserId.Trim();
-        var oid = (request.OfferId ?? "").Trim();
-        db.ChatNotifications.Add(new ChatNotificationRow
-        {
-            Id = nid,
-            RecipientUserId = rid,
-            ThreadId = null,
-            MessageId = null,
-            OfferId = oid,
-            MessagePreview = "Le dio me gusta a tu comentario.",
-            AuthorStoreName = request.LikerLabel,
-            AuthorTrustScore = request.LikerTrust,
-            SenderUserId = request.LikerSenderUserId,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-            ReadAtUtc = null,
-            Kind = "qa_comment_like",
-        });
-        await db.SaveChangesAsync(cancellationToken);
-
-        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
-            "notificationCreated",
-            new { kind = "qa_comment_like", offerId = oid },
             cancellationToken);
     }
 
@@ -222,6 +157,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         CancellationToken cancellationToken)
     {
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        var authorStoreName = (deciderLabel ?? "").Trim();
         db.ChatNotifications.Add(new ChatNotificationRow
         {
             Id = nid,
@@ -230,7 +166,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             MessageId = null,
             OfferId = null,
             MessagePreview = preview,
-            AuthorStoreName = (deciderLabel ?? "").Trim().Length > 0 ? deciderLabel.Trim() : "Participante",
+            AuthorStoreName = authorStoreName.Length > 0 ? authorStoreName : "Participante",
             AuthorTrustScore = deciderTrust,
             SenderUserId = (deciderUserId ?? "").Trim(),
             CreatedAtUtc = now,
@@ -302,6 +238,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         var preview = NotificationUtils.TruncatePreview(request.MessagePreview);
         var now = DateTimeOffset.UtcNow;
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        var sellerLabel = (request.SellerLabel ?? "").Trim();
         db.ChatNotifications.Add(new ChatNotificationRow
         {
             Id = nid,
@@ -310,7 +247,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             MessageId = null,
             OfferId = oid.Length > 0 ? oid : null,
             MessagePreview = preview,
-            AuthorStoreName = (request.SellerLabel ?? "").Trim().Length > 0 ? request.SellerLabel.Trim() : "Vendedor",
+            AuthorStoreName = sellerLabel.Length > 0 ? sellerLabel : "Vendedor",
             AuthorTrustScore = request.SellerTrust,
             SenderUserId = (request.SellerUserId ?? "").Trim(),
             CreatedAtUtc = now,
@@ -347,6 +284,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         var oid = (request.RouteOfferId ?? "").Trim();
         var now = DateTimeOffset.UtcNow;
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        var expelledSellerLabel = (request.SellerLabel ?? "").Trim();
         db.ChatNotifications.Add(new ChatNotificationRow
         {
             Id = nid,
@@ -355,7 +293,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             MessageId = null,
             OfferId = oid.Length > 0 ? oid : null,
             MessagePreview = preview,
-            AuthorStoreName = (request.SellerLabel ?? "").Trim().Length > 0 ? request.SellerLabel.Trim() : "Vendedor",
+            AuthorStoreName = expelledSellerLabel.Length > 0 ? expelledSellerLabel : "Vendedor",
             AuthorTrustScore = request.SellerTrust,
             SenderUserId = (request.SellerUserId ?? "").Trim(),
             CreatedAtUtc = now,
@@ -398,6 +336,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         var meta = JsonSerializer.Serialize(metaDict, RouteSheetJson.Options);
         var now = DateTimeOffset.UtcNow;
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        var authorLabel = (request.AuthorLabel ?? "").Trim();
         db.ChatNotifications.Add(new ChatNotificationRow
         {
             Id = nid,
@@ -406,7 +345,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             MessageId = null,
             OfferId = oid,
             MessagePreview = preview,
-            AuthorStoreName = (request.AuthorLabel ?? "").Trim().Length > 0 ? request.AuthorLabel.Trim() : "Participante",
+            AuthorStoreName = authorLabel.Length > 0 ? authorLabel : "Participante",
             AuthorTrustScore = request.AuthorTrust,
             SenderUserId = (request.SenderUserId ?? "").Trim(),
             CreatedAtUtc = now,
@@ -444,6 +383,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
         var meta = JsonSerializer.Serialize(new { routeSheetId = rsid, carrierUserId = cid });
         var now = DateTimeOffset.UtcNow;
         var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        var carrierDisplayName = (request.CarrierDisplayName ?? "").Trim();
         db.ChatNotifications.Add(new ChatNotificationRow
         {
             Id = nid,
@@ -452,9 +392,7 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             MessageId = null,
             OfferId = oid,
             MessagePreview = preview,
-            AuthorStoreName = (request.CarrierDisplayName ?? "").Trim().Length > 0
-                ? request.CarrierDisplayName.Trim()
-                : "Transportista",
+            AuthorStoreName = carrierDisplayName.Length > 0 ? carrierDisplayName : "Transportista",
             AuthorTrustScore = request.CarrierTrustScore,
             SenderUserId = cid,
             CreatedAtUtc = now,
@@ -628,6 +566,53 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
                 routeSheetId = rsid,
                 agreementId = aid,
                 routeStopId = sid,
+            },
+            cancellationToken);
+    }
+
+    public async Task NotifyUserAsync(
+        string userId,
+        string title,
+        string body,
+        string? threadId = null,
+        string? deepLink = null,
+        CancellationToken cancellationToken = default)
+    {
+        var rid = (userId ?? "").Trim();
+        if (rid.Length < 2)
+            return;
+
+        var tid = (threadId ?? "").Trim();
+        var preview = NotificationUtils.TruncatePreview(body);
+        var meta = string.IsNullOrWhiteSpace(deepLink)
+            ? null
+            : NotificationUtils.SerializeMeta(new { deepLink = deepLink.Trim() });
+        var now = DateTimeOffset.UtcNow;
+        var nid = "cn_" + Guid.NewGuid().ToString("N")[..16];
+        db.ChatNotifications.Add(new ChatNotificationRow
+        {
+            Id = nid,
+            RecipientUserId = rid,
+            ThreadId = tid.Length >= 4 ? tid : null,
+            MessageId = null,
+            OfferId = null,
+            MessagePreview = preview,
+            AuthorStoreName = NotificationUtils.TruncatePreview((title ?? "").Trim(), maxLength: 120),
+            AuthorTrustScore = 0,
+            SenderUserId = rid,
+            CreatedAtUtc = now,
+            ReadAtUtc = null,
+            Kind = "user_notification",
+            MetaJson = meta,
+        });
+        await db.SaveChangesAsync(cancellationToken);
+        await hub.Clients.Group(ChatHubGroupNames.ForUser(rid)).SendAsync(
+            "notificationCreated",
+            new
+            {
+                kind = "user_notification",
+                threadId = tid.Length >= 4 ? tid : null,
+                deepLink = string.IsNullOrWhiteSpace(deepLink) ? null : deepLink.Trim(),
             },
             cancellationToken);
     }
@@ -893,4 +878,15 @@ public sealed class NotificationService(AppDbContext db, IHubContext<ChatHub> hu
             : $"El comprador salió del chat con un acuerdo ya aceptado. Motivo declarado: {reasonTrim}";
         return await threadSystemMessages.PostSystemThreadNoticeAsync(userId, threadId, notice, cancellationToken) is not null;
     }
+
+    public Task RequestUserNotificationAsync(
+        string userId,
+        string title,
+        string body,
+        string? threadId = null,
+        string? deepLink = null,
+        CancellationToken cancellationToken = default) =>
+        mediator.Publish(
+            new UserNotificationRequestedEvent(userId, title, body, threadId, deepLink),
+            cancellationToken);
 }

@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Data.Configurations;
 
@@ -20,19 +19,19 @@ public sealed class OfferLikeRowConfiguration : IEntityTypeConfiguration<OfferLi
     }
 }
 
-public sealed class OfferQaCommentLikeRowConfiguration : IEntityTypeConfiguration<OfferQaCommentLikeRow>
+public sealed class StoreCommentLikeRowConfiguration : IEntityTypeConfiguration<StoreCommentLikeRow>
 {
-    public void Configure(EntityTypeBuilder<OfferQaCommentLikeRow> e)
+    public void Configure(EntityTypeBuilder<StoreCommentLikeRow> e)
     {
-        e.ToTable("offer_qa_comment_likes");
+        e.ToTable("store_qa_comment_likes");
         e.HasKey(x => x.Id);
         e.Property(x => x.Id).HasMaxLength(64);
-        e.Property(x => x.OfferId).HasMaxLength(64);
-        e.Property(x => x.QaCommentId).HasMaxLength(64);
+        e.Property(x => x.StoreId).HasMaxLength(64);
+        e.Property(x => x.CommentId).HasMaxLength(64);
         e.Property(x => x.LikerKey).HasMaxLength(96);
         e.Property(x => x.CreatedAtUtc);
-        e.HasIndex(x => new { x.OfferId, x.QaCommentId });
-        e.HasIndex(x => new { x.OfferId, x.QaCommentId, x.LikerKey }).IsUnique();
+        e.HasIndex(x => new { x.StoreId, x.CommentId });
+        e.HasIndex(x => new { x.StoreId, x.CommentId, x.LikerKey }).IsUnique();
         e.HasIndex(x => x.LikerKey);
     }
 }
@@ -51,6 +50,20 @@ public sealed class TrustScoreLedgerRowConfiguration : IEntityTypeConfiguration<
     }
 }
 
+public sealed class MensualidadPaymentRowConfiguration : IEntityTypeConfiguration<MensualidadPaymentRow>
+{
+    public void Configure(EntityTypeBuilder<MensualidadPaymentRow> e)
+    {
+        e.ToTable("mensualidad_payments");
+        e.HasKey(x => x.Id);
+        e.Property(x => x.Id).HasMaxLength(64);
+        e.Property(x => x.UserId).HasMaxLength(64);
+        e.Property(x => x.PaymentMethod).HasMaxLength(64);
+        e.Property(x => x.PaymentReference).HasMaxLength(128);
+        e.HasIndex(x => new { x.UserId, x.PaidAtUtc });
+    }
+}
+
 public sealed class RouteStopDeliveryRowConfiguration : IEntityTypeConfiguration<RouteStopDeliveryRow>
 {
     public void Configure(EntityTypeBuilder<RouteStopDeliveryRow> e)
@@ -60,12 +73,14 @@ public sealed class RouteStopDeliveryRowConfiguration : IEntityTypeConfiguration
         e.Property(x => x.Id).HasMaxLength(64);
         e.Property(x => x.ThreadId).HasMaxLength(64);
         e.Property(x => x.TradeAgreementId).HasMaxLength(64);
+        e.Property(x => x.OrderId).HasMaxLength(64);
         e.Property(x => x.RouteSheetId).HasMaxLength(64);
         e.Property(x => x.RouteStopId).HasMaxLength(96);
         e.Property(x => x.State).HasMaxLength(40);
         e.Property(x => x.CurrentOwnerUserId).HasMaxLength(64);
         e.Property(x => x.RefundEligibleReason).HasMaxLength(32);
         e.HasIndex(x => new { x.ThreadId, x.TradeAgreementId, x.RouteSheetId, x.RouteStopId }).IsUnique();
+        e.HasIndex(x => x.OrderId);
         e.HasIndex(x => new { x.ThreadId, x.State });
         e.HasIndex(x => x.CurrentOwnerUserId);
         e.HasOne<ChatThreadRow>().WithMany().HasForeignKey(x => x.ThreadId).OnDelete(DeleteBehavior.Cascade);

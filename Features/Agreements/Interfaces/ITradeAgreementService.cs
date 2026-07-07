@@ -35,7 +35,7 @@ public interface ITradeAgreementService
         string agreementId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Vincula o desvincula la hoja de ruta del hilo; persiste <see cref="VibeTrade.Backend.Data.Entities.TradeAgreementRow.RouteSheetId" />.</summary>
+    /// <summary>Vincula o desvincula la hoja de ruta del hilo; persiste <see cref="VibeTrade.Backend.Features.Agreements.Entities.TradeAgreementRow.RouteSheetId" />.</summary>
     Task<TradeAgreementRouteSheetLinkOutcome> SetRouteSheetLinkAsync(
         string sellerUserId,
         string threadId,

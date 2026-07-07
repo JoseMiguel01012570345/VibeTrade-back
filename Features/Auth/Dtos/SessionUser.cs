@@ -35,6 +35,10 @@ public sealed class SessionUser
     [JsonPropertyName("trustScore")]
     public int? TrustScore { get; set; }
 
+    /// <summary>Roles efectivos (ver <c>RoleNames</c>); calculados al crear la sesión.</summary>
+    [JsonPropertyName("roles")]
+    public List<string> Roles { get; set; } = new();
+
     public SessionUser Clone() =>
         new()
         {
@@ -48,5 +52,6 @@ public sealed class SessionUser
             Telegram = Telegram,
             XAccount = XAccount,
             TrustScore = TrustScore,
+            Roles = new List<string>(Roles),
         };
 }

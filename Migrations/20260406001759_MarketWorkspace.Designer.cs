@@ -25,7 +25,7 @@ namespace VibeTrade.Backend.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("VibeTrade.Backend.Data.Entities.MarketWorkspaceRow", b =>
+            modelBuilder.Entity("VibeTrade.Backend.Features.Market.Entities.MarketWorkspaceRow", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()

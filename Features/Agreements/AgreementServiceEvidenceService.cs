@@ -1,16 +1,17 @@
 using Microsoft.EntityFrameworkCore;
-using Stripe;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Agreements.Interfaces;
-using VibeTrade.Backend.Features.Payments;
+using VibeTrade.Backend.Features.Payments.Gateways;
+using VibeTrade.Backend.Features.Payments.Interfaces;
 
 namespace VibeTrade.Backend.Features.Agreements;
 
 public sealed class AgreementServiceEvidenceService(
     IChatService chat,
     IChatThreadSystemMessageService threadSystemMessages,
-    AgreementCompletionTrustService completionTrust,
+    IAgreementCompletionTrustService completionTrust,
+    IPaymentGatewayManager gatewayManager,
+    SimulatedPaymentGateway simulatedGateway,
     AppDbContext db) : IAgreementServiceEvidenceService
 {
     public async Task<(int StatusCode, IReadOnlyList<AgreementServicePaymentWithEvidenceDto>? Data)> ListAsync(
@@ -75,7 +76,7 @@ public sealed class AgreementServiceEvidenceService(
                 x.Pay.SellerPayoutRecordedAtUtc,
                 x.Pay.SellerPayoutCardBrandSnapshot,
                 x.Pay.SellerPayoutCardLast4Snapshot,
-                x.Pay.SellerPayoutStripeTransferId);
+                x.Pay.SellerPayoutTransferId);
         }).ToList();
 
         return (StatusCodes.Status200OK, dtos);
@@ -288,91 +289,47 @@ public sealed class AgreementServiceEvidenceService(
             return (StatusCodes.Status400BadRequest, "El importe del pago no es válido para liquidar.");
 
         var u = await db.UserAccounts.FirstOrDefaultAsync(x => x.Id == uid, cancellationToken).ConfigureAwait(false);
-        var customerId = (u?.StripeCustomerId ?? "").Trim();
-        if (customerId.Length == 0)
+        var sellerAccountId = (u?.PaymentAccountId ?? "").Trim();
+        if (sellerAccountId.Length == 0)
             return (StatusCodes.Status400BadRequest, "Configura tarjetas de pago en tu perfil antes de recibir el depósito.");
 
-        var skipStripePayout = PaymentStripeEnv.SkipStripePaymentIntentCreate();
-        var now = DateTimeOffset.UtcNow;
-
-        // Demo / dev: VIBETRADE_SKIP_PAYMENT_INTENTS — sin Transfer Stripe (mismo criterio que cobros con PaymentIntent).
-        if (skipStripePayout)
-        {
-            var tailSkip = pid.Length >= 12 ? pid.Substring(pid.Length - 12) : pid;
-            pay.SellerPayoutPaymentMethodStripeId = pmId;
-            pay.SellerPayoutRecordedAtUtc = now;
-            pay.SellerPayoutCardBrandSnapshot = null;
-            pay.SellerPayoutCardLast4Snapshot = null;
-            pay.SellerPayoutStripeTransferId = $"skipped_{tailSkip}";
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-
-            var payKeySkip = $"mes {pay.EntryMonth} día {pay.EntryDay}";
-            await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(
-                tid,
-                $"El vendedor registró liquidación (demo / sin llamada Stripe) del pago de servicio ({payKeySkip}).",
-                cancellationToken).ConfigureAwait(false);
-
-            return (StatusCodes.Status200OK, null);
-        }
-
-        var destination = (u?.StripeConnectedAccountId ?? "").Trim();
-        if (!destination.StartsWith("acct_", StringComparison.Ordinal))
-            return (StatusCodes.Status400BadRequest,
-                "Tu cuenta debe tener una cuenta Stripe Connect (acct_) asociada como destino del giro.");
-
-        var pmResolve =
-            await AgreementCheckoutExecutor.ResolveCustomerPaymentMethodAsync(pmId, customerId, cancellationToken)
-                .ConfigureAwait(false);
+        var pmResolve = AgreementCheckoutExecutor.ResolveCustomerPaymentMethod(simulatedGateway, pmId, sellerAccountId);
         if (!pmResolve.Success)
             return (StatusCodes.Status400BadRequest, pmResolve.ErrorMessage);
 
-        var pm = pmResolve.PaymentMethod!;
-        var card = pm.Card;
-        if (card is null)
+        if (string.IsNullOrWhiteSpace(pmResolve.PaymentMethodId)
+            || string.IsNullOrWhiteSpace(pmResolve.CardLast4))
             return (StatusCodes.Status400BadRequest, "El método de depósito debe ser una tarjeta.");
 
         var curLower = pay.Currency.Trim().ToLowerInvariant();
-        Transfer transfer;
-        try
-        {
-            var xferSvc = new TransferService();
-            transfer = await xferSvc.CreateAsync(
-                new TransferCreateOptions
-                {
-                    Amount = pay.AmountMinor,
-                    Currency = curLower,
-                    Destination = destination,
-                    Description = $"VibeTrade payout servicio {pay.Id}",
-                    Metadata = new Dictionary<string, string>
+        var now = DateTimeOffset.UtcNow;
+
+        var transfer = await gatewayManager.GetGateway().TransferAsync(
+                new PaymentTransferRequest(
+                    SimulatedPaymentGateway.PlatformAccountId,
+                    sellerAccountId,
+                    curLower,
+                    pay.AmountMinor,
+                    Description: $"VibeTrade payout servicio {pay.Id}",
+                    IdempotencyKey: $"seller_svc_payout_{pid}",
+                    Metadata: new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["agreement_service_payment_id"] = pay.Id,
                         ["seller_user_id"] = uid,
                         ["thread_id"] = tid,
-                        ["seller_payment_method_id"] = pm.Id,
-                    },
-                    TransferGroup = string.IsNullOrWhiteSpace(pay.AgreementCurrencyPaymentId)
-                        ? $"agr_{aid}"
-                        : pay.AgreementCurrencyPaymentId!,
-                },
-                new RequestOptions
-                {
-                    IdempotencyKey = $"seller_svc_payout_{pid}",
-                },
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
-        catch (StripeException sx)
-        {
-            return (StatusCodes.Status400BadRequest, AgreementUtils.StripeErrorUserMessage(sx));
-        }
+                        ["seller_payment_method_id"] = pmResolve.PaymentMethodId!,
+                    }),
+                cancellationToken)
+            .ConfigureAwait(false);
 
-        if (string.IsNullOrWhiteSpace(transfer.Id))
-            return (StatusCodes.Status400BadRequest, "Stripe no devolvió un id de transferencia.");
+        if (!transfer.Success || string.IsNullOrWhiteSpace(transfer.TransactionId))
+            return (StatusCodes.Status400BadRequest, transfer.ErrorMessage ?? "No se pudo registrar la liquidación.");
 
-        pay.SellerPayoutPaymentMethodStripeId = pm.Id;
+        pay.SellerPayoutPaymentMethodId = pmResolve.PaymentMethodId!;
         pay.SellerPayoutRecordedAtUtc = now;
-        pay.SellerPayoutCardBrandSnapshot = (card.Brand ?? "").Trim();
-        pay.SellerPayoutCardLast4Snapshot = (card.Last4 ?? "").Trim();
-        pay.SellerPayoutStripeTransferId = transfer.Id.Trim();
+        pay.SellerPayoutCardBrandSnapshot = (pmResolve.CardBrand ?? "").Trim();
+        pay.SellerPayoutCardLast4Snapshot = (pmResolve.CardLast4 ?? "").Trim();
+        pay.SellerPayoutTransferId = transfer.TransactionId.Trim();
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
@@ -380,7 +337,7 @@ public sealed class AgreementServiceEvidenceService(
         var last4 = pay.SellerPayoutCardLast4Snapshot;
         await threadSystemMessages.PostAutomatedSystemThreadNoticeAsync(
             tid,
-                $"Liquidación Stripe del pago de servicio ({payKey}): transferencia {transfer.Id} (Connect); tarjeta registrada •••• {last4}.",
+            $"Liquidación simulada del pago de servicio ({payKey}): transferencia {transfer.TransactionId}; tarjeta registrada •••• {last4}.",
             cancellationToken).ConfigureAwait(false);
 
         return (StatusCodes.Status200OK, null);

@@ -75,6 +75,12 @@ public sealed class BearerSessionAuthMiddleware(RequestDelegate next)
 
     private static bool AllowsAnonymousApi(PathString path, string method)
     {
+        if (method == "GET"
+            && path.Value is { } pv
+            && pv.Contains("/catalog/", StringComparison.OrdinalIgnoreCase)
+            && path.StartsWithSegments(new PathString("/api/v1/market/stores")))
+            return true;
+
         foreach (var (m, p) in AnonymousApi)
         {
             if (method == m &&

@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
 
@@ -29,6 +28,7 @@ public sealed class ChatThreadRowConfiguration : IEntityTypeConfiguration<ChatTh
         e.Property(x => x.PartyExitedReason).HasMaxLength(2000);
         e.Property(x => x.PartyExitedAtUtc);
         e.Property(x => x.IsSocialGroup);
+        e.Property(x => x.IsSupportThread);
         e.Property(x => x.SocialGroupTitle).HasMaxLength(120);
         e.HasIndex(x => x.OfferId);
         e.HasIndex(x => x.BuyerUserId);
@@ -73,6 +73,8 @@ public sealed class ChatRouteSheetRowConfiguration : IEntityTypeConfiguration<Ch
         e.HasKey(x => new { x.ThreadId, x.RouteSheetId });
         e.Property(x => x.ThreadId).HasMaxLength(64);
         e.Property(x => x.RouteSheetId).HasMaxLength(64);
+        e.Property(x => x.OrderId).HasMaxLength(64);
+        e.HasIndex(x => x.OrderId);
         e.Property(x => x.Payload)
             .HasColumnName("PayloadJson")
             .HasColumnType("jsonb")

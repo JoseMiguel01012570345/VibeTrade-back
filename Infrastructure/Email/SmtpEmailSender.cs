@@ -39,7 +39,7 @@ public sealed class SmtpEmailSender(
                     continue;
                 var name = string.IsNullOrWhiteSpace(a.FileName) ? "adjunto.bin" : a.FileName.Trim();
                 var ct = string.IsNullOrWhiteSpace(a.ContentType) ? "application/octet-stream" : a.ContentType.Trim();
-                builder.Attachments.Add(name, new MemoryStream(a.Content), ContentType.Parse(ct));
+                builder.Attachments.Add(name, new MemoryStream(a.Content), ContentType.Parse(ct), cancellationToken: CancellationToken.None);
             }
 
             message.Body = builder.ToMessageBody();

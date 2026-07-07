@@ -2,13 +2,12 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Feed;
 using VibeTrade.Backend.Features.Recommendations.Guest;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
-using VibeTrade.Backend.Features.Search.Elasticsearch;
+using VibeTrade.Backend.Features.Search.Dtos;
 using VibeTrade.Backend.Features.Search.Interfaces;
 
 namespace VibeTrade.Backend.Features.Search;
@@ -108,7 +107,7 @@ public sealed class MarketCatalogStoreSearchService(
         return new StoreAutocompleteResponse(merged);
     }
 
-    private (string query, int take, IReadOnlyList<string> kindList, string[] catParts, string[] catLowerParts)
+    private static (string query, int take, IReadOnlyList<string> kindList, string[] catParts, string[] catLowerParts)
         PreprocessAutocompleteInputs(string? q, string? category, string? kinds, int? limit)
     {
         var query = (q ?? "").Trim();
@@ -301,16 +300,16 @@ public sealed class MarketCatalogStoreSearchService(
             var qServices = db.StoreServices.AsNoTracking()
                 .Where(s => (s.Published == null || s.Published == true) &&
                             (
-                                EF.Functions.ILike(s.TipoServicio, likePrefix) ||
-                                EF.Functions.ILike(s.TipoServicio, pat) ||
+                                EF.Functions.ILike(s.NombreServicio, likePrefix) ||
+                                EF.Functions.ILike(s.NombreServicio, pat) ||
                                 EF.Functions.ILike(s.Category, likePrefix) ||
                                 EF.Functions.ILike(s.Category, pat)));
             if (catParts.Length > 0)
                 qServices = qServices.Where(s => catLowerParts.Contains((s.Category ?? "").ToLower()));
 
             var slice = await qServices
-                .OrderBy(s => s.TipoServicio)
-                .Select(s => s.TipoServicio)
+                .OrderBy(s => s.NombreServicio)
+                .Select(s => s.NombreServicio)
                 .Take(takeThis)
                 .ToListAsync(cancellationToken);
 
@@ -691,8 +690,9 @@ public sealed class MarketCatalogStoreSearchService(
             Id = s.Id,
             Kind = "service",
             Category = s.Category,
-            TipoServicio = s.TipoServicio,
-            AcceptedCurrencies = CatalogJsonColumnParsing.StringListOrEmpty(s.Monedas),
+            NombreServicio = s.NombreServicio,
+            FixedPrice = s.FixedPrice > 0 ? s.FixedPrice : null,
+            CurrencyCode = string.IsNullOrWhiteSpace(s.CurrencyCode) ? "USD" : s.CurrencyCode.Trim().ToUpperInvariant(),
             PhotoUrls = CatalogJsonColumnParsing.StringListOrEmpty(s.PhotoUrls),
             Descripcion = string.IsNullOrEmpty(s.Descripcion) ? null : s.Descripcion,
         };

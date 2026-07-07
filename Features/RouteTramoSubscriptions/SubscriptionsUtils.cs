@@ -1,4 +1,3 @@
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.RouteSheets.Dtos;
 using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Chat;

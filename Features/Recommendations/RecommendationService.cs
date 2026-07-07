@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
 using VibeTrade.Backend.Features.Recommendations.Interfaces;
@@ -177,7 +176,7 @@ public sealed class RecommendationService(
             .ToListAsync(cancellationToken);
         var o = new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
         foreach (var row in rows)
-            o[row.Id] = StoreProfileWorkspaceData.FromStoreRow(row);
+            o[row.Id] = MarketWorkspacePersistence.FromStoreRow(row);
         return o;
     }
 
@@ -187,13 +186,12 @@ public sealed class RecommendationService(
         RecommendationBatchOfferLoader.BuildOffersViewInOrderAsync(db, offerService, idsInOrder, cancellationToken);
 
     /// <summary>
-    /// Recomputa <see cref="Data.Entities.StoreProductRow.PopularityWeight"/> / <see cref="Data.Entities.StoreServiceRow.PopularityWeight"/>; solo <see cref="AppDbContext"/> para evitar ciclo DI con <see cref="IOfferService"/>.
+    /// Recomputa <see cref="StoreProductRow.PopularityWeight"/> / <see cref="StoreServiceRow.PopularityWeight"/>; solo <see cref="AppDbContext"/> para evitar ciclo DI con <see cref="IOfferService"/>.
     /// </summary>
     public sealed class OfferPopularityWeightService(AppDbContext db) : IOfferPopularityWeightService
     {
         public const int WindowDays = 30;
         private const double LikeOfferWeight = 1.0d;
-        private const double LikeCommentMultiplier = 0.25d;
 
         public async Task RecomputeAsync(string offerId, CancellationToken cancellationToken = default)
         {
@@ -238,12 +236,8 @@ public sealed class RecommendationService(
             var offerLikes = await db.OfferLikes.AsNoTracking()
                 .CountAsync(x => x.OfferId == offerId && x.CreatedAtUtc >= since, cancellationToken);
 
-            var commentLikes = await db.OfferQaCommentLikes.AsNoTracking()
-                .CountAsync(x => x.OfferId == offerId && x.CreatedAtUtc >= since, cancellationToken);
-
             return interactionWeight
-                + LikeOfferWeight * offerLikes
-                + LikeOfferWeight * LikeCommentMultiplier * commentLikes;
+                + LikeOfferWeight * offerLikes;
         }
     }
 }

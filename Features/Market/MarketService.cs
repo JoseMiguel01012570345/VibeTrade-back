@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Chat.Interfaces;
 using VibeTrade.Backend.Features.Market.Dtos;
 using VibeTrade.Backend.Features.Market.Interfaces;
@@ -14,64 +13,15 @@ namespace VibeTrade.Backend.Features.Market;
 /// </summary>
 public sealed class MarketService(AppDbContext db, IMarketCatalogSyncService catalog) : IMarketWorkspaceService
 {
-    internal static async Task<MarketWorkspaceState?> GetPersistedWorkspaceAsync(
-        AppDbContext context,
-        CancellationToken cancellationToken = default)
-    {
-        var row = await context.MarketWorkspaces.AsNoTracking()
-            .FirstOrDefaultAsync(cancellationToken);
-        if (row is null) return null;
-        return row.State;
-    }
-
-    internal static void ValidateWorkspaceForPersist(MarketWorkspaceState root)
-    {
-        if (root.Stores is null
-            || root.Offers is null
-            || root.StoreCatalogs is null
-            || root.Threads is null
-            || root.RouteOfferPublic is null)
-        {
-            throw new ArgumentException("Workspace missing a required top-level object property.");
-        }
-
-        if (root.OfferIds is null)
-            throw new ArgumentException("offerIds must be an array.");
-    }
-
-    internal static async Task SavePersistedWorkspaceAsync(
-        AppDbContext context,
-        MarketWorkspaceState document,
-        CancellationToken cancellationToken = default)
-    {
-        var row = await context.MarketWorkspaces.FirstOrDefaultAsync(cancellationToken);
-        var now = DateTimeOffset.UtcNow;
-        if (row is null)
-        {
-            context.MarketWorkspaces.Add(new MarketWorkspaceRow
-            {
-                State = document,
-                UpdatedAt = now,
-            });
-        }
-        else
-        {
-            row.State = document;
-            row.UpdatedAt = now;
-        }
-
-        await context.SaveChangesAsync(cancellationToken);
-    }
-
     public async Task<MarketWorkspaceState> GetOrSeedAsync(CancellationToken cancellationToken = default)
     {
-        var existing = await GetPersistedWorkspaceAsync(db, cancellationToken);
+        var existing = await MarketWorkspacePersistence.GetPersistedWorkspaceAsync(db, cancellationToken);
         if (existing is null)
         {
             var seed = new MarketWorkspaceState();
-            ValidateWorkspaceForPersist(seed);
-            await SavePersistedWorkspaceAsync(db, seed, cancellationToken);
-            existing = await GetPersistedWorkspaceAsync(db, cancellationToken);
+            MarketWorkspacePersistence.ValidateWorkspaceForPersist(seed);
+            await MarketWorkspacePersistence.SavePersistedWorkspaceAsync(db, seed, cancellationToken);
+            existing = await MarketWorkspacePersistence.GetPersistedWorkspaceAsync(db, cancellationToken);
         }
 
         if (existing is null)
@@ -96,19 +46,13 @@ public sealed class MarketService(AppDbContext db, IMarketCatalogSyncService cat
     public Task SaveStoreProfilesAsync(WorkspaceStorePutRequest body, CancellationToken cancellationToken = default) =>
         SaveFromPatchAsync(
             ToStoreProfilesPatch(body),
-            static (c, el, ct) => c.ApplyCoreAsync(el, storeProfiles: true, catalogs: false, offerQa: false, ct),
+            static (c, el, ct) => c.ApplyCoreAsync(el, storeProfiles: true, catalogs: false, ct),
             cancellationToken);
 
     public Task SaveStoreCatalogsAsync(WorkspaceStoreCatalogsPutRequest body, CancellationToken cancellationToken = default) =>
         SaveFromPatchAsync(
             ToStoreCatalogsPatch(body),
-            static (c, el, ct) => c.ApplyCoreAsync(el, storeProfiles: false, catalogs: true, offerQa: false, ct),
-            cancellationToken);
-
-    public Task SaveOfferInquiriesAsync(WorkspaceInquiriesPutRequest body, CancellationToken cancellationToken = default) =>
-        SaveFromPatchAsync(
-            ToOfferInquiriesPatch(body),
-            static (c, el, ct) => c.ApplyCoreAsync(el, storeProfiles: false, catalogs: false, offerQa: true, ct),
+            static (c, el, ct) => c.ApplyCoreAsync(el, storeProfiles: false, catalogs: true, ct),
             cancellationToken);
 
     private async Task SaveFromPatchAsync(
@@ -116,14 +60,14 @@ public sealed class MarketService(AppDbContext db, IMarketCatalogSyncService cat
         Func<IMarketCatalogSyncService, MarketWorkspaceState, CancellationToken, Task> applyRelational,
         CancellationToken cancellationToken)
     {
-        var fromDb = await GetPersistedWorkspaceAsync(db, cancellationToken) ?? new MarketWorkspaceState();
+        var fromDb = await MarketWorkspacePersistence.GetPersistedWorkspaceAsync(db, cancellationToken) ?? new MarketWorkspaceState();
         var merged = MergeWorkspacePatch(CloneState(fromDb), patch);
         await applyRelational(catalog, merged, cancellationToken);
         var slim = CloneState(merged);
         slim.Stores = new(StringComparer.Ordinal);
         slim.StoreCatalogs = new(StringComparer.Ordinal);
-        ValidateWorkspaceForPersist(slim);
-        await SavePersistedWorkspaceAsync(db, slim, cancellationToken);
+        MarketWorkspacePersistence.ValidateWorkspaceForPersist(slim);
+        await MarketWorkspacePersistence.SavePersistedWorkspaceAsync(db, slim, cancellationToken);
     }
 
     private static MarketWorkspaceState CloneState(MarketWorkspaceState s) =>
@@ -191,6 +135,8 @@ public sealed class MarketService(AppDbContext db, IMarketCatalogSyncService cat
             OwnerUserId = body.OwnerUserId,
             Location = body.Location,
             WebsiteUrl = body.WebsiteUrl,
+            PricePerKm = body.PricePerKm,
+            PricePerKmCurrencyCode = body.PricePerKmCurrencyCode,
         };
 
         return new MarketWorkspacePatch
@@ -208,7 +154,4 @@ public sealed class MarketService(AppDbContext db, IMarketCatalogSyncService cat
             patch.StoreCatalogs = new Dictionary<string, StoreCatalogBlockView>(c, StringComparer.Ordinal);
         return patch;
     }
-
-    private static MarketWorkspacePatch ToOfferInquiriesPatch(WorkspaceInquiriesPutRequest body) =>
-        new() { Offers = body.Offers is { Count: > 0 } o ? new Dictionary<string, HomeOfferViewDto>(o, StringComparer.Ordinal) : null };
 }

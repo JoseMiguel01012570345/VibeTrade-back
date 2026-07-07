@@ -1,4 +1,3 @@
-using VibeTrade.Backend.Data.Entities;
 
 namespace VibeTrade.Backend.Features.Agreements.Dtos;
 
@@ -29,7 +28,7 @@ public sealed record AgreementServicePaymentWithEvidenceDto(
     DateTimeOffset? SellerPayoutRecordedAtUtc,
     string? SellerPayoutCardBrand,
     string? SellerPayoutCardLast4,
-    string? SellerPayoutStripeTransferId);
+    string? SellerPayoutTransferId);
 
 public sealed record UpsertServiceEvidenceRequest(
     string Text,

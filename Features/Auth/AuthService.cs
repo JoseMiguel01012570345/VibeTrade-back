@@ -1,20 +1,22 @@
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Auth.Dtos;
 using VibeTrade.Backend.Features.Auth.Interfaces;
+using VibeTrade.Backend.Features.Auth.AuthMediator.Login;
+using VibeTrade.Backend.Features.Auth.AuthMediator.Register;
+using VibeTrade.Backend.Features.Auth.AuthMediator.SendOtp;
+using VibeTrade.Backend.Features.Auth.Shared;
+using VibeTrade.Backend.Features.Auth.AuthMediator.VerifyOtp;
 
 namespace VibeTrade.Backend.Features.Auth;
 
 public sealed class AuthService(
+    IMediator mediator,
     IHostEnvironment hostEnvironment,
     IConfiguration configuration,
     AppDbContext db) : IAuthService
 {
-    private static readonly TimeSpan OtpPendingTtl = TimeSpan.FromMinutes(1);
-    private static readonly TimeSpan CredentialsPendingTtl = TimeSpan.FromMinutes(10);
-    private static readonly TimeSpan SessionTtl = TimeSpan.FromHours(16);
-    private const int RegistrationCodeLength = 7;
 
     public static IReadOnlyList<SignInCountryDto> SignInCountries { get; } =
     [
@@ -28,87 +30,11 @@ public sealed class AuthService(
         new("Estados Unidos", "US", "+1", "🇺🇸"),
     ];
 
-    public RequestCodeResult RequestCode(string phoneRaw)
-    {
-        var digits = AuthUtils.DigitsOnly(phoneRaw);
-        var code = Random.Shared.Next(1_000_000, 9_999_999).ToString();
-        Console.WriteLine("\u001b[31mRequestCode: " + digits + " " + code + "\u001b[0m");
+    public RequestCodeResult RequestCode(string phoneRaw) =>
+        mediator.Send(new SendOtpCommand(phoneRaw)).GetAwaiter().GetResult();
 
-        var now = DateTimeOffset.UtcNow;
-        var expiresAt = now.Add(OtpPendingTtl);
-
-        var existing = db.AuthPendingOtps.Find(digits);
-        if (existing is not null)
-        {
-            existing.Code = code;
-            existing.CodeLength = code.Length;
-            existing.ExpiresAt = expiresAt;
-            existing.CreatedAt = now;
-        }
-        else
-        {
-            db.AuthPendingOtps.Add(
-                new AuthPendingOtpRow
-                {
-                    PhoneDigits = digits,
-                    Code = code,
-                    CodeLength = code.Length,
-                    ExpiresAt = expiresAt,
-                    CreatedAt = now,
-                });
-        }
-
-        db.SaveChanges();
-        PruneExpiredPendingOtps();
-
-        return new RequestCodeResult(code.Length, (int)OtpPendingTtl.TotalSeconds, DevCodeMaybe(code));
-    }
-
-    public async Task<VerifyResult?> Verify(string phoneRaw, string code, CancellationToken cancellationToken)
-    {
-        var digits = AuthUtils.DigitsOnly(phoneRaw);
-        var pending = await db.AuthPendingOtps
-            .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.PhoneDigits == digits, cancellationToken);
-
-        if (pending is null)
-            return null;
-
-        var now = DateTimeOffset.UtcNow;
-        if (now > pending.ExpiresAt)
-        {
-            await db.AuthPendingOtps.Where(p => p.PhoneDigits == digits)
-                .ExecuteDeleteAsync(cancellationToken);
-            return null;
-        }
-
-        var normalizedCode = AuthUtils.DigitsOnly(code);
-        if (normalizedCode != pending.Code)
-            return null;
-
-        await db.AuthPendingOtps.Where(p => p.PhoneDigits == digits)
-            .ExecuteDeleteAsync(cancellationToken);
-
-        var profile = await GetProfileSnapshotAsync(digits, cancellationToken);
-        var sessionUser = AuthUtils.CreateSessionUserForVerifiedPhone(digits, profile);
-
-        var token = Guid.NewGuid().ToString("N");
-        var sessionNow = DateTimeOffset.UtcNow;
-        await db.AuthSessions.AddAsync(
-            new AuthSessionRow
-            {
-                Token = token,
-                User = sessionUser,
-                ExpiresAt = sessionNow.Add(SessionTtl),
-                CreatedAt = sessionNow,
-            },
-            cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
-        PruneExpiredSessions();
-        PruneExpiredPendingOtps();
-
-        return new VerifyResult(token, sessionUser);
-    }
+    public Task<VerifyResult?> Verify(string phoneRaw, string code, CancellationToken cancellationToken) =>
+        mediator.Send(new VerifyOtpCommand(phoneRaw, code), cancellationToken);
 
     public bool TryGetUserByToken(string? bearerToken, out SessionUser? user)
     {
@@ -228,90 +154,16 @@ public sealed class AuthService(
         return true;
     }
 
-    public async Task<LoginResult?> LoginAsync(string email, string password, CancellationToken cancellationToken)
-    {
-        var normalizedEmail = AuthUtils.NormalizeEmail(email);
-        if (normalizedEmail.Length < 5 || string.IsNullOrWhiteSpace(password))
-            return null;
+    public Task<LoginResult?> LoginAsync(string email, string password, CancellationToken cancellationToken) =>
+        mediator.Send(new LoginCommand(email, password), cancellationToken);
 
-        var row = await db.UserAccounts.AsNoTracking()
-            .FirstOrDefaultAsync(
-                u => u.Email != null && u.Email.ToLower() == normalizedEmail,
-                cancellationToken);
-        if (row is null || string.IsNullOrEmpty(row.PasswordHash))
-            return null;
-
-        if (!AuthUtils.VerifyPassword(password, row.PasswordHash))
-            return null;
-
-        var snapshot = ToSnapshot(row);
-        var sessionUser = AuthUtils.CreateSessionUserFromSnapshot(
-            snapshot,
-            AuthUtils.FormatPhoneForDisplay(row.PhoneDisplay, row.PhoneDigits));
-        var token = await CreateSessionAsync(sessionUser, cancellationToken);
-        return new LoginResult(token, sessionUser);
-    }
-
-    public async Task<RegisterStartResult?> StartRegistrationAsync(
+    public Task<RegisterStartResult?> StartRegistrationAsync(
         string password,
         string email,
         string username,
         string phoneRaw,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(password) || password.Length < 8)
-            return null;
-
-        var normalizedEmail = AuthUtils.NormalizeEmail(email);
-        if (normalizedEmail.Length < 5 || !normalizedEmail.Contains('@'))
-            return null;
-
-        var normalizedUsername = AuthUtils.NormalizeUsername(username);
-        if (normalizedUsername is null || !AuthUtils.IsValidUsername(normalizedUsername))
-            return null;
-
-        var digits = AuthUtils.DigitsOnly(phoneRaw);
-        if (digits.Length < 7)
-            return null;
-
-        if (await db.UserAccounts.AnyAsync(u => u.Email != null && u.Email.ToLower() == normalizedEmail, cancellationToken))
-            return null;
-
-        if (await UsernameHasRegisteredAccountAsync(normalizedUsername, cancellationToken))
-            return null;
-
-        if (await db.UserAccounts.AnyAsync(u => u.PhoneDigits == digits, cancellationToken))
-            return null;
-
-        var registrationId = Guid.NewGuid().ToString("N");
-        var now = DateTimeOffset.UtcNow;
-        var code = GenerateCode();
-
-        db.AuthPendingRegistrations.Add(new AuthPendingRegistrationRow
-        {
-            RegistrationId = registrationId,
-            PasswordHash = AuthUtils.HashPassword(password),
-            Email = normalizedEmail,
-            Username = normalizedUsername,
-            PhoneDigits = digits,
-            PhoneDisplay = phoneRaw.Trim(),
-            PhoneVerified = false,
-            EmailVerified = false,
-            ExpiresAt = now.Add(CredentialsPendingTtl),
-            CreatedAt = now,
-        });
-
-        await UpsertPhoneOtpAsync(digits, code, now, cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
-        PruneExpiredCredentialsPending();
-
-        Console.WriteLine("\u001b[31mRegister phone OTP: " + digits + " " + code + "\u001b[0m");
-        return new RegisterStartResult(
-            registrationId,
-            RegistrationCodeLength,
-            (int)CredentialsPendingTtl.TotalSeconds,
-            DevCodeMaybe(code));
-    }
+        CancellationToken cancellationToken) =>
+        mediator.Send(new RegisterCommand(password, email, username, phoneRaw), cancellationToken);
 
     public async Task<VerifyPhoneResult?> VerifyRegistrationPhoneAsync(
         string registrationId,
@@ -334,7 +186,7 @@ public sealed class AuthService(
             .ExecuteDeleteAsync(cancellationToken);
 
         pending.PhoneVerified = true;
-        var emailCode = GenerateCode();
+        var emailCode = AuthPersistenceHelper.GenerateCode();
         var now = DateTimeOffset.UtcNow;
         await UpsertEmailOtpAsync(
             pending.RegistrationId,
@@ -344,13 +196,13 @@ public sealed class AuthService(
             cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
-        PruneExpiredCredentialsPending();
+        AuthPersistenceHelper.PruneExpiredCredentialsPending(db);
 
         Console.WriteLine("\u001b[31mRegister email OTP: " + pending.Email + " " + emailCode + "\u001b[0m");
         return new VerifyPhoneResult(
-            RegistrationCodeLength,
-            (int)CredentialsPendingTtl.TotalSeconds,
-            DevCodeMaybe(emailCode));
+            AuthPersistenceHelper.RegistrationCodeLength,
+            (int)AuthPersistenceHelper.CredentialsPendingTtl.TotalSeconds,
+            AuthPersistenceHelper.DevCodeMaybe(configuration, hostEnvironment, emailCode));
     }
 
     public async Task<VerifyResult?> VerifyRegistrationEmailAsync(
@@ -398,13 +250,13 @@ public sealed class AuthService(
             .ExecuteDeleteAsync(cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
-        PruneExpiredCredentialsPending();
+        AuthPersistenceHelper.PruneExpiredCredentialsPending(db);
 
-        var snapshot = ToSnapshot(account);
+        var snapshot = AuthPersistenceHelper.ToSnapshot(account);
         var sessionUser = AuthUtils.CreateSessionUserFromSnapshot(
             snapshot,
             AuthUtils.FormatPhoneForDisplay(pending.PhoneDisplay, pending.PhoneDigits));
-        var token = await CreateSessionAsync(sessionUser, cancellationToken);
+        var token = await AuthPersistenceHelper.CreateSessionAsync(db, sessionUser, cancellationToken);
         return new VerifyResult(token, sessionUser);
     }
 
@@ -422,7 +274,7 @@ public sealed class AuthService(
         if (account is null)
             return null;
 
-        var code = GenerateCode();
+        var code = AuthPersistenceHelper.GenerateCode();
         var now = DateTimeOffset.UtcNow;
         var hash = AuthUtils.HashPassword(newPassword);
 
@@ -431,7 +283,7 @@ public sealed class AuthService(
         {
             existing.NewPasswordHash = hash;
             existing.Code = code;
-            existing.ExpiresAt = now.Add(CredentialsPendingTtl);
+            existing.ExpiresAt = now.Add(AuthPersistenceHelper.CredentialsPendingTtl);
             existing.CreatedAt = now;
         }
         else
@@ -441,19 +293,19 @@ public sealed class AuthService(
                 Email = normalizedEmail,
                 NewPasswordHash = hash,
                 Code = code,
-                ExpiresAt = now.Add(CredentialsPendingTtl),
+                ExpiresAt = now.Add(AuthPersistenceHelper.CredentialsPendingTtl),
                 CreatedAt = now,
             });
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        PruneExpiredCredentialsPending();
+        AuthPersistenceHelper.PruneExpiredCredentialsPending(db);
 
         Console.WriteLine("\u001b[31mPassword reset OTP: " + normalizedEmail + " " + code + "\u001b[0m");
         return new ForgotPasswordResult(
-            RegistrationCodeLength,
-            (int)CredentialsPendingTtl.TotalSeconds,
-            DevCodeMaybe(code));
+            AuthPersistenceHelper.RegistrationCodeLength,
+            (int)AuthPersistenceHelper.CredentialsPendingTtl.TotalSeconds,
+            AuthPersistenceHelper.DevCodeMaybe(configuration, hostEnvironment, code));
     }
 
     public async Task<bool> ConfirmPasswordResetAsync(string email, string code, CancellationToken cancellationToken)
@@ -627,7 +479,7 @@ public sealed class AuthService(
 
         if (row is null)
             return null;
-        return ToSnapshot(row);
+        return AuthPersistenceHelper.ToSnapshot(row);
     }
 
     public async Task<UserProfileSnapshot?> GetProfileSnapshotByUserIdAsync(
@@ -640,7 +492,7 @@ public sealed class AuthService(
             .FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
         if (row is null)
             return null;
-        return ToSnapshot(row);
+        return AuthPersistenceHelper.ToSnapshot(row);
     }
 
     public async Task<bool> PhoneHasRegisteredAccountAsync(
@@ -839,52 +691,6 @@ public sealed class AuthService(
         return pending;
     }
 
-    private async Task<string> CreateSessionAsync(SessionUser sessionUser, CancellationToken cancellationToken)
-    {
-        var token = Guid.NewGuid().ToString("N");
-        var now = DateTimeOffset.UtcNow;
-        await db.AuthSessions.AddAsync(
-            new AuthSessionRow
-            {
-                Token = token,
-                User = sessionUser,
-                ExpiresAt = now.Add(SessionTtl),
-                CreatedAt = now,
-            },
-            cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
-        PruneExpiredSessions();
-        return token;
-    }
-
-    private async Task UpsertPhoneOtpAsync(
-        string digits,
-        string code,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        var expiresAt = now.Add(CredentialsPendingTtl);
-        var existing = await db.AuthPendingOtps.FindAsync([digits], cancellationToken);
-        if (existing is not null)
-        {
-            existing.Code = code;
-            existing.CodeLength = RegistrationCodeLength;
-            existing.ExpiresAt = expiresAt;
-            existing.CreatedAt = now;
-        }
-        else
-        {
-            db.AuthPendingOtps.Add(new AuthPendingOtpRow
-            {
-                PhoneDigits = digits,
-                Code = code,
-                CodeLength = RegistrationCodeLength,
-                ExpiresAt = expiresAt,
-                CreatedAt = now,
-            });
-        }
-    }
-
     private async Task UpsertEmailOtpAsync(
         string key,
         string purpose,
@@ -892,7 +698,7 @@ public sealed class AuthService(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        var expiresAt = now.Add(CredentialsPendingTtl);
+        var expiresAt = now.Add(AuthPersistenceHelper.CredentialsPendingTtl);
         var existing = await db.AuthPendingEmailOtps.FindAsync([key], cancellationToken);
         if (existing is not null)
         {
@@ -914,23 +720,6 @@ public sealed class AuthService(
         }
     }
 
-    private static string GenerateCode() =>
-        Random.Shared.Next(1_000_000, 9_999_999).ToString();
-
-    private static UserProfileSnapshot ToSnapshot(UserAccount row) =>
-        new(
-            row.Id,
-            row.DisplayName,
-            row.Username,
-            row.Email,
-            row.PhoneDisplay,
-            row.PhoneDigits,
-            row.AvatarUrl,
-            row.Instagram,
-            row.Telegram,
-            row.XAccount,
-            row.TrustScore);
-
     private static UserContactDto ToContactDto(UserAccount u, DateTimeOffset createdAt) =>
         new(
             u.Id,
@@ -938,31 +727,4 @@ public sealed class AuthService(
             u.PhoneDisplay,
             u.PhoneDigits,
             createdAt);
-
-    private string? DevCodeMaybe(string code)
-    {
-        var expose = configuration.GetValue("Auth:ExposeDevCodes", hostEnvironment.IsDevelopment());
-        return expose ? code : null;
-    }
-
-    private void PruneExpiredSessions()
-    {
-        var now = DateTimeOffset.UtcNow;
-        db.AuthSessions.Where(s => s.ExpiresAt < now).ExecuteDelete();
-    }
-
-    private void PruneExpiredPendingOtps()
-    {
-        var now = DateTimeOffset.UtcNow;
-        db.AuthPendingOtps.Where(p => p.ExpiresAt < now).ExecuteDelete();
-    }
-
-    private void PruneExpiredCredentialsPending()
-    {
-        var now = DateTimeOffset.UtcNow;
-        db.AuthPendingRegistrations.Where(r => r.ExpiresAt < now).ExecuteDelete();
-        db.AuthPendingEmailOtps.Where(e => e.ExpiresAt < now).ExecuteDelete();
-        db.AuthPendingPasswordResets.Where(p => p.ExpiresAt < now).ExecuteDelete();
-        db.AuthPendingOtps.Where(p => p.ExpiresAt < now).ExecuteDelete();
-    }
 }

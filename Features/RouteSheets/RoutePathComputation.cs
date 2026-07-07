@@ -51,7 +51,7 @@ public static class RoutePathComputation
       var totals = ComputeTotalsByCurrency(stopsInChain, sheet);
       var hasPrices = totals.Count > 0 && AllStopsHavePrice(stopsInChain, sheet);
       var carriersOk = confirmedStopIds is null
-                       || RouteSheetChatService.AllStopsHaveConfirmedCarrier(stopsInChain, confirmedStopIds);
+                       || RouteSheetsChatServiceCore.AllStopsHaveConfirmedCarrier(stopsInChain, confirmedStopIds);
       var payable = !partiallyPaid && !paid && hasPrices && carriersOk;
 
       paths.Add(new RoutePathDto
@@ -92,13 +92,18 @@ public static class RoutePathComputation
       var pid = (pathId ?? "").Trim();
       if (pid.Length == 0)
         continue;
-      if (!pathByHead.TryGetValue(pid, out var path))
-        continue;
-      foreach (var sid in path.StopIds)
+
+      if (pathByHead.TryGetValue(pid, out var path)
+          || (TryGetRoutePathIdForStop(sheet, pid) is { } pathHeadFromStop
+              && pathByHead.TryGetValue(pathHeadFromStop, out path)
+              && path.StopIds.Any(x => string.Equals(x, pid, StringComparison.Ordinal))))
       {
-        var s = (sid ?? "").Trim();
-        if (s.Length > 0)
-          result.Add(s);
+        foreach (var sid in path.StopIds)
+        {
+          var s = (sid ?? "").Trim();
+          if (s.Length > 0)
+            result.Add(s);
+        }
       }
     }
 
@@ -207,10 +212,17 @@ public static class RoutePathComputation
       if (pid.Length == 0)
         continue;
 
-      if (!pathById.TryGetValue(pid, out var path))
+      RoutePathDto? path = null;
+      if (!pathById.TryGetValue(pid, out path))
       {
-        errors.Add("Selección de ruta inválida.");
-        continue;
+        var pathHeadFromStop = TryGetRoutePathIdForStop(sheet, pid);
+        if (pathHeadFromStop is null
+            || !pathById.TryGetValue(pathHeadFromStop, out path)
+            || !path.StopIds.Any(x => string.Equals(x, pid, StringComparison.Ordinal)))
+        {
+          errors.Add("Selección de ruta inválida.");
+          continue;
+        }
       }
 
       if (path.PartiallyPaid)
@@ -227,7 +239,7 @@ public static class RoutePathComputation
 
       if (!path.Payable)
       {
-        if (RouteSheetChatService.PathMissingConfirmedCarriers(path, confirmedStopIds))
+        if (RouteSheetsChatServiceCore.PathMissingConfirmedCarriers(path, confirmedStopIds))
           errors.Add($"La ruta «{path.Label}» no es cobrable: faltan transportistas confirmados en uno o más tramos.");
         else
           errors.Add($"La ruta «{path.Label}» no es cobrable (revisa precios y moneda).");
@@ -322,6 +334,28 @@ public static class RoutePathComputation
     return decimal.TryParse(t, CultureInfo.InvariantCulture, out var d)
       ? d
       : throw new ArgumentException("invalid_decimal");
+  }
+
+  /// <summary>Acepta id de cabeza de ruta o id de parada dentro de una ruta enlazada.</summary>
+  internal static bool TryResolveRoutePathSelection(
+    RouteSheetPayload sheet,
+    IReadOnlyDictionary<string, RoutePathDto> pathByHead,
+    string? rawSelectionId,
+    out RoutePathDto? path)
+  {
+    path = null;
+    var pid = (rawSelectionId ?? "").Trim();
+    if (pid.Length == 0)
+      return false;
+
+    if (pathByHead.TryGetValue(pid, out path))
+      return true;
+
+    var fromStop = TryGetRoutePathIdForStop(sheet, pid);
+    if (fromStop is not null && pathByHead.TryGetValue(fromStop, out path))
+      return true;
+
+    return false;
   }
 }
 

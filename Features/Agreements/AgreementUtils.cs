@@ -1,8 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Stripe;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Agreements.Dtos;
 using VibeTrade.Backend.Features.Payments;
 
@@ -58,7 +56,8 @@ public static class AgreementUtils
     {
         if (string.IsNullOrWhiteSpace(d.Title) || d.Title.Trim().Length > 512)
             return false;
-        if (d.IncludeMerchandise == d.IncludeService)
+        // Un acuerdo es solo servicios: debe incluir el bloque de servicios.
+        if (!d.IncludeService)
             return false;
         return ValidateExtraFields(d);
     }
@@ -105,25 +104,6 @@ public static class AgreementUtils
         return true;
     }
 
-    public static bool AgreementHasMerchandiseForRouteLink(TradeAgreementRow ag)
-    {
-        if (!ag.IncludeMerchandise)
-            return false;
-        foreach (var m in ag.MerchandiseLines.OrderBy(x => x.SortOrder))
-        {
-            if (!TryParsePositiveDecimal(m.Cantidad, out _))
-                continue;
-            if (!TryParsePositiveDecimal(m.ValorUnitario, out _))
-                continue;
-            var mon = PaymentCheckoutComputation.NormalizeCurrencyFirst(m.Moneda ?? ag.MerchandiseMeta?.Moneda);
-            if (string.IsNullOrEmpty(mon))
-                continue;
-            return true;
-        }
-
-        return false;
-    }
-
     public static bool TryParsePositiveDecimal(string? raw, out decimal value)
     {
         value = 0;
@@ -134,9 +114,6 @@ public static class AgreementUtils
         value = d;
         return d > 0;
     }
-
-    public static string StripeErrorUserMessage(StripeException sx) =>
-        string.IsNullOrWhiteSpace(sx.StripeError?.Message) ? sx.Message : sx.StripeError!.Message;
 
     public static List<TradeAgreementExtraFieldApi> DeserializeCondicionesExtrasApi(string? raw)
     {

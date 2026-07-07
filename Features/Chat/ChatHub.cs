@@ -3,7 +3,6 @@ using VibeTrade.Backend.Features.Auth;
 using VibeTrade.Backend.Features.Auth.Interfaces;
 using VibeTrade.Backend.Features.Chat;
 using VibeTrade.Backend.Features.Notifications.BroadcastingInterfaces;
-using VibeTrade.Backend.Utils;
 
 namespace VibeTrade.Backend.Features.Chat;
 
@@ -30,7 +29,7 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     public async Task JoinThread(string threadId)
     {
         var userId = await GetConnectionUserIdForHubCallAsync(
-            Context.ConnectionAborted, migrateOnUserIdChange: true);
+            migrateOnUserIdChange: true, Context.ConnectionAborted);
         if (string.IsNullOrEmpty(userId))
             throw new HubException("Unauthorized");
 
@@ -59,11 +58,11 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
             ChatHubGroupNames.ForThread(tid));
     }
 
-    /// <summary>Recibe <c>offerCommentsUpdated</c> cuando alguien publica en la ficha (mismo grupo que el broadcast de comentarios en <see cref="BroadcastingService"/>).</summary>
+    /// <summary>Une al grupo <c>offer:{id}</c> para recibir <c>routeTramoSubscriptionsChanged</c> en <c>/offer/emo_*</c> sin ser participante del hilo.</summary>
     public async Task JoinOffer(string offerId)
     {
         if (string.IsNullOrEmpty(await GetConnectionUserIdForHubCallAsync(
-                Context.ConnectionAborted, migrateOnUserIdChange: true)))
+                migrateOnUserIdChange: true, Context.ConnectionAborted)))
             throw new HubException("Unauthorized");
         var oid = (offerId ?? "").Trim();
         if (oid.Length < 2)
@@ -74,7 +73,7 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     public async Task LeaveOffer(string offerId)
     {
         if (string.IsNullOrEmpty(await GetConnectionUserIdForHubCallAsync(
-                Context.ConnectionAborted, migrateOnUserIdChange: false)))
+                migrateOnUserIdChange: false, Context.ConnectionAborted)))
             return;
         var oid = (offerId ?? "").Trim();
         if (oid.Length < 2)
@@ -86,7 +85,7 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     public async Task NotifyOthersUserLeftChat(string threadId)
     {
         var userId = await GetConnectionUserIdForHubCallAsync(
-            Context.ConnectionAborted, migrateOnUserIdChange: true);
+            migrateOnUserIdChange: true, Context.ConnectionAborted);
         if (string.IsNullOrEmpty(userId))
             throw new HubException("Unauthorized");
 
@@ -139,8 +138,8 @@ public sealed class ChatHub(IAuthService auth, IServiceScopeFactory scopeFactory
     /// Si el token válido resuelve a un id distinto del cache, migra la conexión a <c>user:{id}</c>.
     /// </summary>
     private async Task<string?> GetConnectionUserIdForHubCallAsync(
-        CancellationToken cancellationToken,
-        bool migrateOnUserIdChange)
+        bool migrateOnUserIdChange,
+        CancellationToken cancellationToken)
     {
         var http = Context.GetHttpContext();
         if (http is not null

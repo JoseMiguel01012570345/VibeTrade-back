@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using VibeTrade.Backend.Data;
-using VibeTrade.Backend.Data.Entities;
 using VibeTrade.Backend.Features.Market;
 using VibeTrade.Backend.Features.Recommendations;
 using VibeTrade.Backend.Features.Recommendations.Dtos;
@@ -111,7 +110,7 @@ public sealed class GuestRecommendationService(
             .ToListAsync(cancellationToken);
         var o = new Dictionary<string, StoreProfileWorkspaceData>(StringComparer.Ordinal);
         foreach (var row in rows)
-            o[row.Id] = StoreProfileWorkspaceData.FromStoreRow(row);
+            o[row.Id] = MarketWorkspacePersistence.FromStoreRow(row);
         return o;
     }
 }
